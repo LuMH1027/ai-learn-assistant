@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List
+
+
+class AppStore:
+    """File-backed per-course state.
+
+    A course's chat, compact memory, and notes live under:
+    data/course_memory/<course_id>/
+
+    Deleting one of those files clears that part of the course state.
+    """
+
+    def __init__(self, data_dir: Path):
+        self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.memory_dir = self.data_dir / "course_memory"
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self._migrate_legacy_sqlite()
+
+    def add_message(self, course_id: str, role: str, content: str, citations=None, trace=None) -> None:
+        messages = self.list_messages(course_id)
+        messages.append(
+            {
+                "role": role,
+                "content": content,
+                "citations": citations or [],
+                "trace": trace or [],
+                "created_at": now_text(),
+            }
+        )
+        self._write_json(self._messages_path(course_id), messages)
+
+    def list_messages(self, course_id: str) -> List[Dict]:
+        return self._read_json(self._messages_path(course_id), [])
+
+    def get_memory(self, course_id: str) -> str:
+        path = self._memory_path(course_id)
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8")
+
+    def update_memory_from_question(self, course_id: str, question: str) -> str:
+        current = self.get_memory(course_id)
+        item = f"- 最近关注：{question[:80]}"
+        lines = [line for line in current.splitlines() if line.strip()]
+        lines.append(item)
+        compact = "\n".join(lines[-8:])
+        self._write_text(self._memory_path(course_id), compact)
+        return compact
+
+    def add_note(self, course_id: str, title: str, content: str) -> None:
+        notes = self.list_notes(course_id)
+        next_id = max([int(note.get("id", 0)) for note in notes] or [0]) + 1
+        notes.insert(
+            0,
+            {
+                "id": next_id,
+                "title": title,
+                "content": content,
+                "created_at": now_text(),
+            },
+        )
+        self._write_json(self._notes_path(course_id), notes)
+
+    def list_notes(self, course_id: str) -> List[Dict]:
+        return self._read_json(self._notes_path(course_id), [])
+
+    def _course_dir(self, course_id: str) -> Path:
+        path = self.memory_dir / safe_course_id(course_id)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _messages_path(self, course_id: str) -> Path:
+        return self._course_dir(course_id) / "messages.json"
+
+    def _memory_path(self, course_id: str) -> Path:
+        return self._course_dir(course_id) / "memory.md"
+
+    def _notes_path(self, course_id: str) -> Path:
+        return self._course_dir(course_id) / "notes.json"
+
+    def _read_json(self, path: Path, default):
+        if not path.exists():
+            return default
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return default
+
+    def _write_json(self, path: Path, data) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _write_text(self, path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _migrate_legacy_sqlite(self) -> None:
+        db_path = self.data_dir / "app.db"
+        if not db_path.exists():
+            return
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                tables = {
+                    row["name"]
+                    for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+                }
+                if "messages" in tables:
+                    rows = conn.execute(
+                        "SELECT course_id, role, content, citations, trace, created_at FROM messages ORDER BY id"
+                    ).fetchall()
+                    grouped = {}
+                    for row in rows:
+                        grouped.setdefault(row["course_id"], []).append(
+                            {
+                                "role": row["role"],
+                                "content": row["content"],
+                                "citations": json.loads(row["citations"] or "[]"),
+                                "trace": json.loads(row["trace"] or "[]"),
+                                "created_at": row["created_at"],
+                            }
+                        )
+                    for course_id, messages in grouped.items():
+                        path = self._messages_path(course_id)
+                        if not path.exists():
+                            self._write_json(path, messages)
+                if "memories" in tables:
+                    rows = conn.execute("SELECT course_id, content FROM memories").fetchall()
+                    for row in rows:
+                        path = self._memory_path(row["course_id"])
+                        if not path.exists():
+                            self._write_text(path, row["content"] or "")
+                if "notes" in tables:
+                    rows = conn.execute(
+                        "SELECT course_id, id, title, content, created_at FROM notes ORDER BY id DESC"
+                    ).fetchall()
+                    grouped = {}
+                    for row in rows:
+                        grouped.setdefault(row["course_id"], []).append(dict(row))
+                    for course_id, notes in grouped.items():
+                        path = self._notes_path(course_id)
+                        if not path.exists():
+                            self._write_json(path, notes)
+        except (sqlite3.Error, json.JSONDecodeError):
+            return
+
+
+def safe_course_id(course_id: str) -> str:
+    return "".join(char if char.isalnum() or char in "-_" else "_" for char in course_id) or "course"
+
+
+def now_text() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
