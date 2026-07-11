@@ -34,7 +34,7 @@ class CourseKnowledgeBase:
     """A lightweight local RAG store with per-course isolation.
 
     It intentionally uses JSON files and lexical scoring so the project can run
-    on a fresh Windows machine before optional Chroma/Ollama integration.
+    on a fresh Windows machine before optional vector-search upgrades.
     """
 
     def __init__(self, storage_dir: Path):

@@ -16,7 +16,7 @@
 - 支持一键生成课程摘要和练习题。
 - 回答附带来源文件、页码或片段编号。
 - 无资料依据时明确提示，避免伪造答案。
-- 可选接入 Ollama 本地大模型，配置写在本地 `data/config.json`。
+- 可选接入硅基流动 Kimi-K2.6，配置写在本地 `data/config.json`。
 - PDF 自动尝试 MinerU Agent 轻量解析 API，失败时降级本地 `pypdf`。
 - 支持拖文件加入课程资料，也支持拖进聊天框作为临时附件让 AI 读取。
 
@@ -50,7 +50,6 @@ pypdf>=4.0.0
 
 - 硅基流动 Kimi-K2.6 API：用于生成更自然的课程问答，也用于截图问答。没有配置时，系统会使用本地轻量 RAG 回答。
 - MinerU token：用于解析 PDF，尤其是表格、公式、版面更复杂的资料。当前开发测试阶段建议 PDF 小于 20 页。
-- Ollama：如果不想使用云端 API，可本地安装 Ollama 并配置模型。
 
 ### 配置示例文件
 
@@ -173,7 +172,7 @@ D:\StudyMaterials
 
 ## 可选 AI 与 MinerU 配置
 
-系统默认不依赖大模型，也可以完成课程浏览、资料索引和带引用的轻量问答。若要接入硅基流动 Kimi 或 Ollama，请编辑本地配置文件：
+系统默认不依赖大模型，也可以完成课程浏览、资料索引和带引用的轻量问答。若要接入硅基流动 Kimi，请编辑本地配置文件：
 
 ```text
 data/config.json
@@ -204,24 +203,6 @@ data/config.json
 - 普通文本问答和截图问答都使用 `ai.provider/base_url/api_key/model` 这一套配置。
 - 如果拖入截图，系统会把图片作为聊天附件发给 Kimi。
 - 如果接口返回失败或图片过大，系统会提示无法直接读取图片内容，可以把截图里的文字复制到聊天框。
-
-Ollama 示例：
-
-```json
-{
-  "root_folder": "D:/StudyMaterials",
-  "ai": {
-    "provider": "ollama",
-    "ollama_url": "http://127.0.0.1:11434",
-    "ollama_model": "qwen2.5:7b"
-  },
-  "mineru": {
-    "auto": true,
-    "api_enabled": true,
-    "language": "ch"
-  }
-}
-```
 
 系统会先检索课程资料，再把少量引用片段发给配置的大模型生成更自然的回答。大模型不可用时会自动退回本地轻量回答。
 
@@ -273,6 +254,6 @@ data/
 
 - PDF 解析升级为 MinerU，保留公式、表格、页码和版面结构。
 - 向量库升级为 ChromaDB，实现 embedding 检索。
-- 模型接入 Ollama 和 OpenAI-compatible API。
+- 模型接入硅基流动 Kimi OpenAI-compatible API。
 - 前端升级为 Vue3，保留当前三栏交互结构。
 - 增加登录、课程资源审核、后台统计，扩展为完整课程资源共享平台。

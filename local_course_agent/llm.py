@@ -25,33 +25,6 @@ def build_grounded_prompt(question: str, evidence: List[Dict], memory: str = "")
     )
 
 
-class OllamaClient:
-    def __init__(self, base_url: str, model: str, timeout: int = 30):
-        self.base_url = (base_url or "").rstrip("/")
-        self.model = model
-        self.timeout = timeout
-
-    def enabled(self) -> bool:
-        return bool(self.base_url and self.model)
-
-    def generate(self, prompt: str) -> Optional[str]:
-        if not self.enabled():
-            return None
-        payload = json.dumps({"model": self.model, "prompt": prompt, "stream": False}).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self.base_url}/api/generate",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except (OSError, urllib.error.URLError, json.JSONDecodeError):
-            return None
-        return (data.get("response") or "").strip() or None
-
-
 class OpenAICompatibleClient:
     def __init__(self, base_url: str, api_key: str, model: str, timeout: int = 60):
         self.base_url = (base_url or "").rstrip("/")
@@ -109,16 +82,10 @@ class OpenAICompatibleClient:
 
 
 def create_llm_client(ai_config: Dict):
-    provider = (ai_config or {}).get("provider", "ollama")
-    if provider == "openai_compatible":
-        return OpenAICompatibleClient(
-            base_url=(ai_config or {}).get("base_url", ""),
-            api_key=(ai_config or {}).get("api_key", ""),
-            model=(ai_config or {}).get("model", ""),
-        )
-    return OllamaClient(
-        base_url=(ai_config or {}).get("ollama_url", ""),
-        model=(ai_config or {}).get("ollama_model", ""),
+    return OpenAICompatibleClient(
+        base_url=(ai_config or {}).get("base_url", ""),
+        api_key=(ai_config or {}).get("api_key", ""),
+        model=(ai_config or {}).get("model", ""),
     )
 
 

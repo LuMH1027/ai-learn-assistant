@@ -8,9 +8,7 @@ from typing import Dict
 DEFAULT_CONFIG = {
     "root_folder": "",
     "ai": {
-        "provider": "ollama",
-        "ollama_url": "",
-        "ollama_model": "",
+        "provider": "openai_compatible",
         "base_url": "",
         "api_key": "",
         "model": "",
@@ -36,11 +34,6 @@ def normalize_config(raw: Dict) -> Dict:
     if isinstance(raw.get("mineru"), dict):
         config["mineru"].update(raw["mineru"])
 
-    # Backward compatibility with earlier UI-written flat config.
-    if raw.get("ollama_url"):
-        config["ai"]["ollama_url"] = raw["ollama_url"]
-    if raw.get("ollama_model"):
-        config["ai"]["ollama_model"] = raw["ollama_model"]
     if raw.get("mineru_command"):
         config["mineru"]["command"] = raw["mineru_command"]
     return config

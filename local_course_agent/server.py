@@ -101,7 +101,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(
                 {
                     "root_folder": config.get("root_folder", ""),
-                    "ai_provider": config.get("ai", {}).get("provider", "ollama"),
+                    "ai_provider": config.get("ai", {}).get("provider", "openai_compatible"),
                     "ai_configured": ai_client.enabled(),
                     "mineru_auto": bool(mineru_config.get("auto", True)),
                     "mineru_configured": bool(mineru_config.get("command") or mineru_config.get("token")),

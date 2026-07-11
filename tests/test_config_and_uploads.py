@@ -11,14 +11,18 @@ class ConfigAndUploadsTest(unittest.TestCase):
         config = normalize_config(
             {
                 "root_folder": "D:/Study",
-                "ollama_url": "http://127.0.0.1:11434",
-                "ollama_model": "qwen2.5:7b",
+                "ai": {
+                    "base_url": "https://api.siliconflow.cn/v1",
+                    "api_key": "test-key",
+                    "model": "Pro/moonshotai/Kimi-K2.6",
+                },
             }
         )
 
         self.assertEqual(config["root_folder"], "D:/Study")
-        self.assertEqual(config["ai"]["ollama_url"], "http://127.0.0.1:11434")
-        self.assertEqual(config["ai"]["ollama_model"], "qwen2.5:7b")
+        self.assertEqual(config["ai"]["provider"], "openai_compatible")
+        self.assertEqual(config["ai"]["base_url"], "https://api.siliconflow.cn/v1")
+        self.assertEqual(config["ai"]["model"], "Pro/moonshotai/Kimi-K2.6")
         self.assertTrue(config["mineru"]["auto"])
 
     def test_safe_upload_name_removes_path_segments(self):
