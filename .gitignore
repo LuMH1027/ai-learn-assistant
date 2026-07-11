@@ -1,7 +1,28 @@
+# Python cache
 __pycache__/
 *.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local OS/editor files
 .DS_Store
-data/
+.idea/
+.vscode/
+
+# Local runtime data and real secrets
+# Keep data/config.example.json tracked, but never commit data/config.json or generated data.
+data/*
+!data/config.example.json
+
+# Virtual environments and dependency folders
 .venv/
+venv/
+env/
 node_modules/
 
+# Logs and temporary files
+*.log
+*.tmp
+*.bak

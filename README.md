@@ -2,7 +2,7 @@
 
 这是一个可在 Windows 本地部署的课程资料浏览与 AI 学习助手原型。用户选择一个资料根目录后，系统会按“一级文件夹 = 一门课程”的规则识别课程，并在网页中展示课程文件树。点击 PDF 可以直接预览，构建知识库后可在每门课程内进行独立问答、引用溯源和课程记忆记录。
 
-当前版本强调本地可运行和课程设计验收可展示，因此采用零下载依赖的实现：Python 标准库 HTTP 服务、SQLite、JSON 轻量索引、浏览器原生前端。环境中如果已安装 `pypdf`，PDF 会抽取文本用于问答；后续可接入 MinerU、ChromaDB、Ollama 和 Vue3。
+当前版本强调本地可运行和课程设计验收可展示，因此核心服务采用 Python 标准库 HTTP 服务、文件型记忆、JSON 轻量索引、浏览器原生前端。环境中如果已安装 `pypdf`，PDF 会抽取文本用于问答；配置 MinerU 后会优先使用 MinerU 解析 PDF。
 
 ## 核心能力
 
@@ -20,15 +20,95 @@
 - PDF 自动尝试 MinerU Agent 轻量解析 API，失败时降级本地 `pypdf`。
 - 支持拖文件加入课程资料，也支持拖进聊天框作为临时附件让 AI 读取。
 
+## 依赖说明
+
+### 必需环境
+
+- Python 3.9 或以上。
+- Chrome、Edge 或其他现代浏览器。
+- 一个本地课程资料文件夹，例如 `D:\StudyMaterials`。
+
+本项目没有 Node.js、Vue、MySQL、Redis、向量数据库等强制依赖。前端是原生 HTML/CSS/JavaScript，后端主要使用 Python 标准库，方便同学直接在 Windows 本地运行。
+
+### 建议安装的 Python 依赖
+
+建议安装：
+
+```bash
+pip install -r requirements.txt
+```
+
+当前 `requirements.txt` 只有：
+
+```text
+pypdf>=4.0.0
+```
+
+`pypdf` 的作用是在 MinerU API 不可用、网络失败或未配置 token 时，作为本地 PDF 文本抽取的降级方案。如果不安装，系统仍能启动和浏览课程文件，但 PDF 入库问答效果会变弱。
+
+### 可选外部服务
+
+- 硅基流动 Kimi-K2.6 API：用于生成更自然的课程问答，也用于截图问答。没有配置时，系统会使用本地轻量 RAG 回答。
+- MinerU token：用于解析 PDF，尤其是表格、公式、版面更复杂的资料。当前开发测试阶段建议 PDF 小于 20 页。
+- Ollama：如果不想使用云端 API，可本地安装 Ollama 并配置模型。
+
+### 配置示例文件
+
+`data/` 目录里提供了可上传给同学的脱敏示例：
+
+```text
+data/config.example.json
+```
+
+同学第一次运行时，可以复制这个文件为本地真实配置：
+
+```bat
+copy data\config.example.json data\config.json
+```
+
+macOS/Linux：
+
+```bash
+cp data/config.example.json data/config.json
+```
+
+然后打开 `data/config.json`，修改这些信息：
+
+- `root_folder`：自己的课程资料根目录，例如 `D:/StudyMaterials`。
+- `ai.api_key`：自己的硅基流动 API Key；没有 Key 可以先留空，系统会退回轻量回答。
+- `ai.model`：建议使用 `Pro/moonshotai/Kimi-K2.6`。文本问答和截图问答都使用这一套模型配置。
+- `mineru.token`：自己的 MinerU token；没有 token 时，系统会尝试本地 `pypdf` 降级解析。
+
+不要把真实的 `data/config.json` 发给别人或提交到仓库。`.gitignore` 会忽略 `data/` 里的运行数据，只放行 `data/config.example.json`。
+
+### 不需要安装的组件
+
+- 不需要安装 Node.js 或 npm。
+- 不需要安装数据库，聊天记录、课程记忆和笔记都保存在本地文件里。
+- 不需要安装向量数据库，当前版本使用本地 JSON 轻量索引。
+- 不需要单独部署前端，运行 `run.py` 后浏览器访问本地地址即可。
+
 ## 快速启动
 
-Windows：
+Windows 第一次运行建议先安装 PDF 降级解析依赖：
+
+```bat
+py -m pip install -r requirements.txt
+```
+
+然后启动：
 
 ```bat
 start.bat
 ```
 
-macOS/Linux：
+macOS/Linux 第一次运行建议先安装依赖：
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+然后启动：
 
 ```bash
 python3 run.py
@@ -68,6 +148,12 @@ D:\StudyMaterials
 - `.md`
 - `.markdown`
 - `.docx`，当前轻量版只识别文件，完整解析建议后续接入 DOCX 解析器或转 PDF。
+- `.png`
+- `.jpg`
+- `.jpeg`
+- `.webp`
+- `.gif`
+- `.bmp`
 
 ## 基本使用流程
 
@@ -87,22 +173,22 @@ D:\StudyMaterials
 
 ## 可选 AI 与 MinerU 配置
 
-系统默认不依赖大模型，也可以完成课程浏览、资料索引和带引用的轻量问答。若要接入 DeepSeek 或 Ollama，请编辑本地配置文件：
+系统默认不依赖大模型，也可以完成课程浏览、资料索引和带引用的轻量问答。若要接入硅基流动 Kimi 或 Ollama，请编辑本地配置文件：
 
 ```text
 data/config.json
 ```
 
-DeepSeek 示例：
+硅基流动 Kimi 示例：
 
 ```json
 {
   "root_folder": "D:/StudyMaterials",
   "ai": {
     "provider": "openai_compatible",
-    "base_url": "https://api.deepseek.com",
-    "api_key": "sk-你的DeepSeekKey",
-    "model": "deepseek-chat"
+    "base_url": "https://api.siliconflow.cn/v1",
+    "api_key": "sk-你的硅基流动Key",
+    "model": "Pro/moonshotai/Kimi-K2.6"
   },
   "mineru": {
     "auto": true,
@@ -112,6 +198,12 @@ DeepSeek 示例：
   }
 }
 ```
+
+截图问答说明：
+
+- 普通文本问答和截图问答都使用 `ai.provider/base_url/api_key/model` 这一套配置。
+- 如果拖入截图，系统会把图片作为聊天附件发给 Kimi。
+- 如果接口返回失败或图片过大，系统会提示无法直接读取图片内容，可以把截图里的文字复制到聊天框。
 
 Ollama 示例：
 

@@ -14,7 +14,7 @@ from local_course_agent.config import load_config, write_config
 from local_course_agent.llm import build_grounded_prompt, create_llm_client
 from local_course_agent.parser import extract_text
 from local_course_agent.rag import CourseKnowledgeBase
-from local_course_agent.scanner import CourseScanner, stable_id
+from local_course_agent.scanner import CourseScanner, is_image_file, stable_id
 from local_course_agent.store import AppStore
 from local_course_agent.uploads import save_chat_upload, save_course_upload
 
@@ -193,15 +193,18 @@ class Handler(SimpleHTTPRequestHandler):
         if not question and not uploads:
             return self.send_error_json("问题不能为空")
         course = CTX.find_course(course_id) or {"name": ""}
-        attachment_text = self.index_chat_uploads(course_id, uploads)
-        if attachment_text and not question:
+        attachment_text, image_paths = self.index_chat_uploads(course_id, uploads)
+        if (attachment_text or image_paths) and not question:
             question = "请阅读并总结我拖入的文件。"
         search_question = question
         if attachment_text:
             search_question = f"{question}\n\n拖入聊天框的文件内容：\n{attachment_text[:4000]}"
+        if image_paths:
+            image_names = "、".join(path.name for path in image_paths)
+            search_question = f"{search_question}\n\n拖入聊天框的截图：{image_names}"
         CTX.store.add_message(course_id, "user", question)
         result = CTX.kb.answer(course_id, search_question)
-        answer = self.synthesize_answer(search_question, result)
+        answer = self.synthesize_answer(search_question, result, image_paths=image_paths)
         answer = adapt_answer_by_mode(mode, answer)
         memory = CTX.store.update_memory_from_question(course_id, question)
         trace = build_agent_trace(
@@ -253,15 +256,20 @@ class Handler(SimpleHTTPRequestHandler):
             saved.append({"name": path.name, "path": str(path)})
         return self.send_json({"ok": True, "saved": saved, "courses": CTX.courses()})
 
-    def index_chat_uploads(self, course_id: str, uploads: list) -> str:
+    def index_chat_uploads(self, course_id: str, uploads: list):
         if not uploads:
-            return ""
+            return "", []
         config = CTX.config
         extracted_parts = []
+        image_paths = []
         for upload in uploads:
             try:
                 path = save_chat_upload(DATA_DIR, course_id, upload["filename"], upload["content"])
             except ValueError:
+                continue
+            if is_image_file(path):
+                image_paths.append(path)
+                extracted_parts.append(f"截图 {path.name} 已保存为聊天附件。")
                 continue
             file_id = f"chat-{stable_id(str(path))}"
             page_texts = extract_text(path, mineru_config=config.get("mineru", {}))
@@ -277,13 +285,31 @@ class Handler(SimpleHTTPRequestHandler):
                     page=page.get("page"),
                 )
                 extracted_parts.append(f"文件 {path.name}：\n{text}")
-        return "\n\n".join(extracted_parts)
+        return "\n\n".join(extracted_parts), image_paths
 
-    def synthesize_answer(self, question: str, result: dict) -> str:
-        if not result.get("citations"):
-            return result["answer"]
+    def synthesize_answer(self, question: str, result: dict, image_paths=None) -> str:
         config = CTX.config
         ai_config = config.get("ai", {})
+        image_paths = image_paths or []
+        if image_paths:
+            client = create_llm_client(ai_config)
+            image_prompt = (
+                "学生上传了课程截图或图片。请先理解图片内容，再结合课程资料回答。\n"
+                "如果图片中文字看不清，直接说明看不清，不要编造。\n\n"
+                f"学生问题：\n{question}\n\n"
+                f"课程检索结果：\n{result.get('answer', '')}"
+            )
+            generated = client.generate_with_images(image_prompt, image_paths)
+            if generated:
+                return generated
+            fallback = result["answer"]
+            return (
+                f"{fallback}\n\n"
+                "已收到截图附件，但当前配置的大模型未成功读取图片内容。"
+                "请确认 `data/config.json` 中配置的是支持视觉输入的 Kimi 模型，或把截图中的文字复制到聊天框。"
+            )
+        if not result.get("citations"):
+            return result["answer"]
         client = create_llm_client(ai_config)
         prompt = build_grounded_prompt(question, result["citations"], memory="")
         generated = client.generate(prompt)

@@ -6,11 +6,19 @@ from pathlib import Path
 from typing import Dict, List
 
 from local_course_agent.mineru_api import MineruAgentClient
+from local_course_agent.scanner import is_image_file
 
 
 def extract_text(path: Path, mineru_config=None) -> List[Dict]:
     path = Path(path)
     suffix = path.suffix.lower()
+    if is_image_file(path):
+        return [
+            {
+                "page": None,
+                "text": f"图片文件已保存：{path.name}。如果当前 Kimi 模型支持视觉输入，聊天时会直接读取截图内容。",
+            }
+        ]
     if suffix == ".pdf":
         mineru_api_pages = _extract_with_mineru_api(path, mineru_config or {})
         if mineru_api_pages:

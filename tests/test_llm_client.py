@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest import mock
 
 from local_course_agent.llm import OpenAICompatibleClient, build_grounded_prompt
@@ -26,9 +28,9 @@ class LlmPromptTest(unittest.TestCase):
 
     def test_openai_compatible_client_uses_chat_completions_endpoint(self):
         client = OpenAICompatibleClient(
-            base_url="https://api.deepseek.com",
+            base_url="https://api.siliconflow.cn/v1",
             api_key="test-key",
-            model="deepseek-chat",
+            model="Pro/moonshotai/Kimi-K2.6",
         )
         fake_response = mock.Mock()
         fake_response.__enter__ = mock.Mock(return_value=fake_response)
@@ -40,8 +42,31 @@ class LlmPromptTest(unittest.TestCase):
 
         request = urlopen.call_args.args[0]
         self.assertEqual(result, "answer")
-        self.assertEqual(request.full_url, "https://api.deepseek.com/chat/completions")
+        self.assertEqual(request.full_url, "https://api.siliconflow.cn/v1/chat/completions")
         self.assertEqual(request.headers["Authorization"], "Bearer test-key")
+
+    def test_openai_compatible_client_sends_images_as_content_parts(self):
+        client = OpenAICompatibleClient(
+            base_url="https://api.siliconflow.cn/v1",
+            api_key="test-key",
+            model="Pro/moonshotai/Kimi-K2.6",
+        )
+        fake_response = mock.Mock()
+        fake_response.__enter__ = mock.Mock(return_value=fake_response)
+        fake_response.__exit__ = mock.Mock(return_value=None)
+        fake_response.read.return_value = b'{"choices":[{"message":{"content":"image answer"}}]}'
+
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "screen.png"
+            image.write_bytes(b"fake-png")
+            with mock.patch("urllib.request.urlopen", return_value=fake_response) as urlopen:
+                result = client.generate_with_images("讲解截图", [image])
+
+        request = urlopen.call_args.args[0]
+        payload = request.data.decode("utf-8")
+        self.assertEqual(result, "image answer")
+        self.assertIn('"type": "image_url"', payload)
+        self.assertIn("data:image/png;base64", payload)
 
 
 if __name__ == "__main__":

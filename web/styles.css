@@ -481,6 +481,23 @@ select {
   color: #173b36;
 }
 
+.image-preview-wrap {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 16px;
+}
+
+.image-preview {
+  max-width: 100%;
+  max-height: calc(100dvh - 220px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  object-fit: contain;
+  box-shadow: var(--shadow-sm);
+}
+
 .agent-panel {
   display: flex;
   flex-direction: column;

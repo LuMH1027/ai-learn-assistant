@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Dict, List, Optional
 
 
@@ -62,16 +65,32 @@ class OpenAICompatibleClient:
     def generate(self, prompt: str) -> Optional[str]:
         if not self.enabled():
             return None
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": "你是一个严格基于课程资料回答的学习助手。"},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.2,
-            }
-        ).encode("utf-8")
+        return self._chat_completion(
+            [
+                {"role": "system", "content": "你是一个严格基于课程资料回答的学习助手。"},
+                {"role": "user", "content": prompt},
+            ]
+        )
+
+    def generate_with_images(self, prompt: str, image_paths: List[Path]) -> Optional[str]:
+        if not self.enabled() or not image_paths:
+            return None
+        content = [{"type": "text", "text": prompt}]
+        for path in image_paths[:4]:
+            data_url = image_to_data_url(Path(path))
+            if data_url:
+                content.append({"type": "image_url", "image_url": {"url": data_url}})
+        if len(content) == 1:
+            return None
+        return self._chat_completion(
+            [
+                {"role": "system", "content": "你是一个课程截图学习助手。优先解释截图中的内容；看不清时明确说明。"},
+                {"role": "user", "content": content},
+            ]
+        )
+
+    def _chat_completion(self, messages: List[Dict]) -> Optional[str]:
+        payload = json.dumps({"model": self.model, "messages": messages, "temperature": 0.2}).encode("utf-8")
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=payload,
@@ -101,3 +120,14 @@ def create_llm_client(ai_config: Dict):
         base_url=(ai_config or {}).get("ollama_url", ""),
         model=(ai_config or {}).get("ollama_model", ""),
     )
+
+
+def image_to_data_url(path: Path) -> Optional[str]:
+    try:
+        if path.stat().st_size > 5 * 1024 * 1024:
+            return None
+        mime = mimetypes.guess_type(str(path))[0] or "image/png"
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
+    except OSError:
+        return None

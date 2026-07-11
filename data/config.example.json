@@ -1,0 +1,16 @@
+{
+  "root_folder": "D:/StudyMaterials",
+  "ai": {
+    "provider": "openai_compatible",
+    "base_url": "https://api.siliconflow.cn/v1",
+    "api_key": "sk-请填写自己的硅基流动Key",
+    "model": "Pro/moonshotai/Kimi-K2.6"
+  },
+  "mineru": {
+    "auto": true,
+    "api_enabled": true,
+    "command": "",
+    "language": "ch",
+    "token": "请填写自己的MinerU Token"
+  }
+}

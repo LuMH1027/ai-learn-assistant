@@ -5,7 +5,13 @@ from pathlib import Path
 from typing import Dict, List
 
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".md", ".markdown", ".txt"}
+DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".md", ".markdown", ".txt"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+SUPPORTED_EXTENSIONS = DOCUMENT_EXTENSIONS | IMAGE_EXTENSIONS
+
+
+def is_image_file(path_or_name) -> bool:
+    return Path(path_or_name).suffix.lower() in IMAGE_EXTENSIONS
 
 
 def stable_id(value: str) -> str:
@@ -78,4 +84,3 @@ class CourseScanner:
             else:
                 total += self._count_files(node.get("children", []))
         return total
-

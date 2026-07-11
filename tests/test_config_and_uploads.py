@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from local_course_agent.config import normalize_config
-from local_course_agent.uploads import safe_upload_name, save_course_upload
+from local_course_agent.uploads import safe_upload_name, save_chat_upload, save_course_upload
 
 
 class ConfigAndUploadsTest(unittest.TestCase):
@@ -34,6 +34,14 @@ class ConfigAndUploadsTest(unittest.TestCase):
 
             self.assertEqual(saved.parent.name, "拖入资料")
             self.assertEqual(saved.read_bytes(), b"# Chapter")
+
+    def test_save_chat_upload_accepts_screenshot_images(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = save_chat_upload(Path(tmp), "course-1", "screen.png", b"png-bytes")
+
+            self.assertEqual(saved.parent.name, "course-1")
+            self.assertEqual(saved.suffix, ".png")
+            self.assertEqual(saved.read_bytes(), b"png-bytes")
 
 
 if __name__ == "__main__":

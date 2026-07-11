@@ -118,6 +118,10 @@ async function previewFile(file) {
     $("preview").innerHTML = `<div class="preview-empty">已打开 PDF 预览窗口：${escapeHtml(file.name)}<br>如果浏览器拦截弹窗，请允许本地页面打开新窗口。</div>`;
     return;
   }
+  if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"].includes(file.extension)) {
+    $("preview").innerHTML = `<div class="image-preview-wrap"><img class="image-preview" src="${url}" alt="${escapeHtml(file.name)}" /></div>`;
+    return;
+  }
   const text = await fetch(url).then((res) => res.text());
   $("preview").innerHTML = `<pre class="text-preview">${escapeHtml(text)}</pre>`;
 }
