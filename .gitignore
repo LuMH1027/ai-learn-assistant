@@ -22,6 +22,7 @@ venv/
 env/
 node_modules/
 .superpowers/
+.worktrees/
 
 # Logs and temporary files
 *.log
