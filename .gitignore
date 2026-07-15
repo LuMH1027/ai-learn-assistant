@@ -21,6 +21,7 @@ data/*
 venv/
 env/
 node_modules/
+.superpowers/
 
 # Logs and temporary files
 *.log
