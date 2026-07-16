@@ -246,6 +246,25 @@ describe('chat store', () => {
     expect(store.notes.map((item) => item.title)).toEqual(['saved'])
   })
 
+  it('ignores a duplicate note save while the first write is busy', async () => {
+    const noteSave = deferred<SaveNotesResponse>()
+    api.postJson.mockReturnValue(noteSave.promise)
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+
+    const first = store.saveNote('note', 'content')
+    const duplicate = store.saveNote('duplicate', 'content')
+
+    expect(store.busy.note).toBe(true)
+    expect(duplicate).toBeUndefined()
+    expect(api.postJson).toHaveBeenCalledOnce()
+    noteSave.resolve({ ok: true, notes: [note(1, 'saved')] })
+    await first
+
+    expect(store.busy.note).toBe(false)
+    expect(store.notes.map((item) => item.title)).toEqual(['saved'])
+  })
+
   it('does not let an in-flight notes GET overwrite a successful save', async () => {
     const oldNotes = deferred<NotesResponse>()
     api.getJson.mockReturnValue(oldNotes.promise)

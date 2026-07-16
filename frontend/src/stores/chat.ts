@@ -24,7 +24,7 @@ export const useChatStore = defineStore('chat', () => {
   const notes = ref<Note[]>([])
   const mode = ref('answer')
   const pendingFiles = ref<File[]>([])
-  const busy = reactive({ chat: false, summary: false, quiz: false })
+  const busy = reactive({ chat: false, summary: false, quiz: false, note: false })
   const error = ref<string | null>(null)
   const courseId = ref<string | null>(null)
   const contextVersion = ref(0)
@@ -34,6 +34,7 @@ export const useChatStore = defineStore('chat', () => {
   let notesRequestToken = 0
   let chatRequestToken = 0
   let artifactRequestToken = 0
+  let noteRequestToken = 0
 
   function isCurrentContext(id: string | null, version: number) {
     return courseId.value === id && contextVersion.value === version
@@ -50,10 +51,12 @@ export const useChatStore = defineStore('chat', () => {
     busy.chat = false
     busy.summary = false
     busy.quiz = false
+    busy.note = false
     messagesRequestToken += 1
     notesRequestToken += 1
     chatRequestToken += 1
     artifactRequestToken += 1
+    noteRequestToken += 1
   }
 
   function loadMessages() {
@@ -208,7 +211,10 @@ export const useChatStore = defineStore('chat', () => {
     const id = courseId.value
     const version = contextVersion.value
     const normalizedContent = content.trim()
-    if (id === null || normalizedContent.length === 0) return
+    if (id === null || normalizedContent.length === 0 || busy.note) return
+    const token = ++noteRequestToken
+    busy.note = true
+    error.value = null
 
     return (async () => {
       try {
@@ -219,16 +225,29 @@ export const useChatStore = defineStore('chat', () => {
             content: normalizedContent,
           },
         )
-        if (isCurrentContext(id, version)) {
+        if (
+          isCurrentContext(id, version) &&
+          token === noteRequestToken
+        ) {
           notesMutationEpoch.value += 1
           notes.value = result.notes
         }
         return result
       } catch (cause) {
-        if (isCurrentContext(id, version)) {
+        if (
+          isCurrentContext(id, version) &&
+          token === noteRequestToken
+        ) {
           error.value = errorMessage(cause)
         }
         throw cause
+      } finally {
+        if (
+          isCurrentContext(id, version) &&
+          token === noteRequestToken
+        ) {
+          busy.note = false
+        }
       }
     })()
   }

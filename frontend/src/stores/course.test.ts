@@ -24,6 +24,22 @@ function course(id: string, name = id): Course {
   return { id, name, path: `/courses/${id}`, children: [], file_count: 0 }
 }
 
+function config(rootFolder: string): ConfigResponse {
+  return {
+    root_folder: rootFolder,
+    ai_provider: 'openai_compatible',
+    ai_configured: true,
+    mineru_auto: true,
+    mineru_configured: false,
+  }
+}
+
+function mockRootRefresh(rootFolder: string, nextCourses: Course[]) {
+  api.getJson.mockImplementation((path: string) => path === '/api/config'
+    ? Promise.resolve(config(rootFolder))
+    : Promise.resolve({ courses: nextCourses } satisfies CoursesResponse))
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason?: unknown) => void
@@ -64,9 +80,16 @@ describe('course store', () => {
 
   it('does not let an old config GET overwrite a successful root save', async () => {
     const oldConfig = deferred<ConfigResponse>()
-    api.getJson
-      .mockReturnValueOnce(oldConfig.promise)
-      .mockResolvedValueOnce({ courses: [course('new')] } satisfies CoursesResponse)
+    let configRequests = 0
+    api.getJson.mockImplementation((path: string) => {
+      if (path === '/api/config') {
+        configRequests += 1
+        return configRequests === 1
+          ? oldConfig.promise
+          : Promise.resolve(config('/new-root'))
+      }
+      return Promise.resolve({ courses: [course('new')] } satisfies CoursesResponse)
+    })
     api.postJson.mockResolvedValue({
       ok: true,
       config: { root_folder: '/new-root' },
@@ -85,6 +108,47 @@ describe('course store', () => {
     await pendingConfig
 
     expect(store.config?.root_folder).toBe('/new-root')
+    expect(store.configEpoch).toBe(1)
+  })
+
+  it('refreshes the complete authoritative config after saving a root', async () => {
+    const oldConfig = deferred<ConfigResponse>()
+    const authoritativeConfig: ConfigResponse = {
+      root_folder: '/new-root',
+      ai_provider: 'custom-provider',
+      ai_configured: true,
+      mineru_auto: false,
+      mineru_configured: true,
+    }
+    let configRequests = 0
+    api.getJson.mockImplementation((path: string) => {
+      if (path === '/api/config') {
+        configRequests += 1
+        return configRequests === 1
+          ? oldConfig.promise
+          : Promise.resolve(authoritativeConfig)
+      }
+      return Promise.resolve({ courses: [course('new')] } satisfies CoursesResponse)
+    })
+    api.postJson.mockResolvedValue({
+      ok: true,
+      config: { root_folder: '/new-root' },
+    } satisfies SaveConfigResponse)
+    const store = useCourseStore()
+
+    const initialLoad = store.loadConfig()
+    await store.saveRoot('/new-root')
+    oldConfig.resolve({
+      root_folder: '/old-root',
+      ai_provider: 'stale-provider',
+      ai_configured: false,
+      mineru_auto: true,
+      mineru_configured: false,
+    })
+    await initialLoad
+
+    expect(configRequests).toBe(2)
+    expect(store.config).toEqual(authoritativeConfig)
     expect(store.configEpoch).toBe(1)
   })
 
@@ -175,7 +239,7 @@ describe('course store', () => {
       ok: true,
       config: { root_folder: '/new-root' },
     } satisfies SaveConfigResponse)
-    api.getJson.mockResolvedValue({ courses: [course('new')] } satisfies CoursesResponse)
+    mockRootRefresh('/new-root', [course('new')])
     const store = useCourseStore()
     store.courses = [course('a')]
     store.selectCourse('a')
@@ -196,13 +260,15 @@ describe('course store', () => {
       ok: true,
       config: { root_folder: '/new-root' },
     } satisfies SaveConfigResponse)
-    api.getJson.mockReturnValue(newRootLoad.promise)
+    api.getJson.mockImplementation((path: string) => path === '/api/config'
+      ? Promise.resolve(config('/new-root'))
+      : newRootLoad.promise)
     const store = useCourseStore()
     store.applyCourses([course('old')])
     store.selectCourse('old')
 
     const save = store.saveRoot('/new-root')
-    await vi.waitFor(() => expect(api.getJson).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(api.getJson).toHaveBeenCalledWith('/api/courses'))
 
     expect(store.rootVersion).toBe(1)
     expect(store.activeCourseId).toBeNull()
@@ -234,7 +300,7 @@ describe('course store', () => {
   it('ignores a second root save while the first is pending', async () => {
     const rootSave = deferred<SaveConfigResponse>()
     api.postJson.mockReturnValue(rootSave.promise)
-    api.getJson.mockResolvedValue({ courses: [course('new-root-course')] } satisfies CoursesResponse)
+    mockRootRefresh('/first-root', [course('new-root-course')])
     const store = useCourseStore()
 
     const first = store.saveRoot('/first-root')
@@ -255,9 +321,14 @@ describe('course store', () => {
 
   it('ignores an old course load after saving a new root', async () => {
     const oldCourses = deferred<CoursesResponse>()
-    api.getJson
-      .mockReturnValueOnce(oldCourses.promise)
-      .mockResolvedValueOnce({ courses: [course('new')] } satisfies CoursesResponse)
+    let courseRequests = 0
+    api.getJson.mockImplementation((path: string) => {
+      if (path === '/api/config') return Promise.resolve(config('/new-root'))
+      courseRequests += 1
+      return courseRequests === 1
+        ? oldCourses.promise
+        : Promise.resolve({ courses: [course('new')] } satisfies CoursesResponse)
+    })
     api.postJson.mockResolvedValue({
       ok: true,
       config: { root_folder: '/new-root' },
@@ -358,7 +429,7 @@ describe('course store', () => {
       ok: true,
       config: { root_folder: '/new-root' },
     } satisfies SaveConfigResponse)
-    api.getJson.mockResolvedValue({ courses: [course('new')] } satisfies CoursesResponse)
+    mockRootRefresh('/new-root', [course('new')])
     const store = useCourseStore()
     store.applyCourses([course('old')])
     store.selectCourse('old')

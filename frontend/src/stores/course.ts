@@ -102,17 +102,17 @@ export const useCourseStore = defineStore('course', () => {
 
         rootVersion.value += 1
         configEpoch.value += 1
-        config.value = {
-          root_folder: result.config.root_folder,
-          ai_provider: config.value?.ai_provider ?? 'openai_compatible',
-          ai_configured: config.value?.ai_configured ?? false,
-          mineru_auto: config.value?.mineru_auto ?? true,
-          mineru_configured: config.value?.mineru_configured ?? false,
+        if (config.value !== null) {
+          config.value = {
+            ...config.value,
+            root_folder: result.config.root_folder,
+          }
         }
         activeCourseId.value = null
         contextVersion.value += 1
         applyCourses([])
 
+        await loadConfig()
         await loadCourses()
         return result
       } finally {
