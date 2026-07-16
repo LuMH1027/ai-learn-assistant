@@ -21,8 +21,28 @@ from local_course_agent.uploads import save_chat_upload, save_course_upload
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
-STATIC_DIR = PROJECT_ROOT / "web"
+STATIC_DIR = PROJECT_ROOT / "web" / "dist"
 CONFIG_PATH = DATA_DIR / "config.json"
+
+
+def resolve_static_path(request_path: str, static_dir: Path = STATIC_DIR) -> Path | None:
+    parsed = urlparse(request_path)
+    decoded = unquote(parsed.path).replace("\\", "/")
+    parts = [part for part in decoded.split("/") if part not in ("", ".")]
+    if ".." in parts:
+        return None
+    requested = Path(*parts) if parts else Path("index.html")
+    root = static_dir.resolve()
+    candidate = (root / requested).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def frontend_build_error() -> str:
+    return "前端尚未构建，请运行 start.sh（macOS/Linux）或 start.bat（Windows）。"
 
 
 def read_json(path: Path, default):
@@ -88,9 +108,8 @@ CTX = AppContext()
 
 class Handler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
-        parsed = urlparse(path)
-        requested = unquote(parsed.path).lstrip("/") or "index.html"
-        return str((STATIC_DIR / requested).resolve())
+        resolved = resolve_static_path(path)
+        return str(resolved if resolved is not None else STATIC_DIR / "__invalid__")
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -126,6 +145,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json({"notes": CTX.store.list_notes(course_id)})
         if parsed.path == "/api/files/preview":
             return self.send_preview(parse_qs(parsed.query).get("id", [""])[0])
+        if not (STATIC_DIR / "index.html").is_file():
+            return self.send_error_json(frontend_build_error(), HTTPStatus.SERVICE_UNAVAILABLE)
         return super().do_GET()
 
     def do_POST(self):
