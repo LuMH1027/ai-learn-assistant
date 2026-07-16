@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 export const CONTENT_SHARE = 98.8
+export const HANDLE_SHARE = 0.6
 export const LAYOUT_STORAGE_KEY = 'local-course-agent-layout-v1'
 
 const DEFAULT_SIDEBAR_SHARE = 22
@@ -52,7 +53,7 @@ export const useLayoutStore = defineStore('layout', () => {
   const centerShare = computed(() =>
     previewOpen.value
       ? CONTENT_SHARE - sidebarShare.value - previewShare.value
-      : CONTENT_SHARE - sidebarShare.value,
+      : CONTENT_SHARE + HANDLE_SHARE - sidebarShare.value,
   )
 
   function persist() {

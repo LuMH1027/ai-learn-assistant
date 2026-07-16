@@ -87,7 +87,8 @@ describe('layout store', () => {
 
     store.setPreviewOpen(false)
 
-    expect(store.centerShare).toBeCloseTo(CONTENT_SHARE - store.sidebarShare)
+    expect(store.centerShare).toBeCloseTo(CONTENT_SHARE + 0.6 - store.sidebarShare)
+    expect(store.sidebarShare + 0.6 + store.centerShare).toBeCloseTo(100)
     expect(store.previewShare).toBe(previewShare)
 
     store.setPreviewOpen(true)
