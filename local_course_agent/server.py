@@ -50,6 +50,19 @@ def frontend_build_error() -> str:
     return "前端尚未构建，请运行 start.sh（macOS/Linux）或 start.bat（Windows）。"
 
 
+def static_cache_control(request_path: str) -> str | None:
+    path = urlparse(request_path).path
+    if path in ("/", "/index.html"):
+        return "no-store, max-age=0"
+    if path.startswith("/assets/"):
+        return "public, max-age=31536000, immutable"
+    return None
+
+
+def is_frontend_entry(request_path: str) -> bool:
+    return urlparse(request_path).path in ("/", "/index.html")
+
+
 def read_json(path: Path, default):
     if not path.exists():
         return default
@@ -118,6 +131,12 @@ class Handler(SimpleHTTPRequestHandler):
         resolved = resolve_static_path(path)
         return str(resolved if resolved is not None else STATIC_DIR / "__invalid__")
 
+    def end_headers(self):
+        cache_control = static_cache_control(self.path)
+        if cache_control:
+            self.send_header("Cache-Control", cache_control)
+        super().end_headers()
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/config":
@@ -156,6 +175,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_preview(parse_qs(parsed.query).get("id", [""])[0])
         if not (STATIC_DIR / "index.html").is_file():
             return self.send_error_json(frontend_build_error(), HTTPStatus.SERVICE_UNAVAILABLE)
+        if is_frontend_entry(self.path):
+            for header in ("If-Modified-Since", "If-None-Match"):
+                if header in self.headers:
+                    del self.headers[header]
         return super().do_GET()
 
     def do_POST(self):

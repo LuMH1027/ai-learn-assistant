@@ -6,11 +6,25 @@ from local_course_agent.server import (
     PROJECT_ROOT,
     STATIC_DIR,
     frontend_build_error,
+    is_frontend_entry,
     resolve_static_path,
+    static_cache_control,
 )
 
 
 class StaticFrontendTest(unittest.TestCase):
+    def test_index_is_never_cached_but_hashed_assets_are_immutable(self):
+        self.assertEqual(static_cache_control("/"), "no-store, max-age=0")
+        self.assertEqual(static_cache_control("/index.html"), "no-store, max-age=0")
+        self.assertEqual(
+            static_cache_control("/assets/index-content-hash.js"),
+            "public, max-age=31536000, immutable",
+        )
+        self.assertIsNone(static_cache_control("/api/config"))
+        self.assertTrue(is_frontend_entry("/?refresh=1"))
+        self.assertTrue(is_frontend_entry("/index.html"))
+        self.assertFalse(is_frontend_entry("/assets/index.js"))
+
     def test_static_directory_is_the_vite_build_output(self):
         self.assertEqual(STATIC_DIR, PROJECT_ROOT / "web" / "dist")
 
