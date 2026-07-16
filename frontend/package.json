@@ -3,10 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json",
+    "build": "npm run typecheck && vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest"
   },
   "dependencies": {
@@ -14,6 +17,7 @@
     "vue": "^3.5.18"
   },
   "devDependencies": {
+    "@types/node": "^22.14.0",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/test-utils": "^2.4.6",
     "jsdom": "^26.1.0",
