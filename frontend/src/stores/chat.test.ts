@@ -5,6 +5,7 @@ import type {
   ArtifactResult,
   ChatResult,
   Course,
+  CoursesResponse,
   MessagesResponse,
   NotesResponse,
   SaveNotesResponse,
@@ -52,7 +53,7 @@ function course(id: string, fileCount = 0): Course {
 describe('chat store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it('clears course-bound state immediately, including pending attachments', () => {
@@ -174,7 +175,9 @@ describe('chat store', () => {
   it('mutually excludes summary and quiz and refreshes courses and messages', async () => {
     const artifact = deferred<ArtifactResult>()
     api.postJson.mockReturnValue(artifact.promise)
-    api.getJson.mockResolvedValue({ messages: [message('summary saved')] } satisfies MessagesResponse)
+    api.getJson.mockImplementation((path: string) => path === '/api/courses'
+      ? Promise.resolve({ courses: [course('a', 2)] } satisfies CoursesResponse)
+      : Promise.resolve({ messages: [message('summary saved')] } satisfies MessagesResponse))
     const courses = useCourseStore()
     courses.courses = [course('a')]
     courses.selectCourse('a')
@@ -191,12 +194,12 @@ describe('chat store', () => {
       content: 'summary',
       citations: [],
       artifact: { name: 'summary.md', path: '/courses/a/summary.md' },
-      courses: [course('a', 1)],
+      courses: [course('stale-artifact-snapshot', 99)],
     })
     await summary
 
     expect(store.busy.summary).toBe(false)
-    expect(courses.activeCourse?.file_count).toBe(1)
+    expect(courses.activeCourse?.file_count).toBe(2)
     expect(store.messages[0]?.content).toBe('summary saved')
     expect(api.postJson).toHaveBeenCalledOnce()
   })
@@ -204,7 +207,9 @@ describe('chat store', () => {
   it('mutually excludes chat and study artifact writes', async () => {
     const chatWrite = deferred<ChatResult>()
     api.postJson.mockReturnValue(chatWrite.promise)
-    api.getJson.mockResolvedValue({ messages: [] } satisfies MessagesResponse)
+    api.getJson.mockImplementation((path: string) => path === '/api/courses'
+      ? Promise.resolve({ courses: [course('a', 1)] } satisfies CoursesResponse)
+      : Promise.resolve({ messages: [] } satisfies MessagesResponse))
     const store = useChatStore()
     store.beginCourse('a', 1)
 
@@ -239,5 +244,37 @@ describe('chat store', () => {
     await store.saveNote('', 'content')
 
     expect(store.notes.map((item) => item.title)).toEqual(['saved'])
+  })
+
+  it('does not let an in-flight notes GET overwrite a successful save', async () => {
+    const oldNotes = deferred<NotesResponse>()
+    api.getJson.mockReturnValue(oldNotes.promise)
+    api.postJson.mockResolvedValue({ ok: true, notes: [note(2, 'saved')] } satisfies SaveNotesResponse)
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+
+    const pendingLoad = store.loadNotes()
+    await store.saveNote('saved', 'content')
+    oldNotes.resolve({ notes: [note(1, 'old')] })
+    await pendingLoad
+
+    expect(store.notes.map((item) => item.title)).toEqual(['saved'])
+    expect(store.notesMutationEpoch).toBe(1)
+  })
+
+  it('keeps the notes epoch unchanged and allows an older load after save failure', async () => {
+    const oldNotes = deferred<NotesResponse>()
+    api.getJson.mockReturnValue(oldNotes.promise)
+    api.postJson.mockRejectedValue(new Error('save failed'))
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+
+    const pendingLoad = store.loadNotes()
+    await expect(store.saveNote('failed', 'content')).rejects.toThrow('save failed')
+    oldNotes.resolve({ notes: [note(1, 'loaded')] })
+    await pendingLoad
+
+    expect(store.notesMutationEpoch).toBe(0)
+    expect(store.notes.map((item) => item.title)).toEqual(['loaded'])
   })
 })

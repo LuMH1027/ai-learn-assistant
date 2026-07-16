@@ -28,6 +28,7 @@ export const useChatStore = defineStore('chat', () => {
   const error = ref<string | null>(null)
   const courseId = ref<string | null>(null)
   const contextVersion = ref(0)
+  const notesMutationEpoch = ref(0)
 
   let messagesRequestToken = 0
   let notesRequestToken = 0
@@ -41,6 +42,7 @@ export const useChatStore = defineStore('chat', () => {
   function beginCourse(id: string | null, version: number) {
     courseId.value = id
     contextVersion.value = version
+    notesMutationEpoch.value = 0
     messages.value = []
     notes.value = []
     pendingFiles.value = []
@@ -83,18 +85,27 @@ export const useChatStore = defineStore('chat', () => {
     const version = contextVersion.value
     if (id === null) return
     const token = ++notesRequestToken
+    const requestedMutationEpoch = notesMutationEpoch.value
 
     return (async () => {
       try {
         const result = await getJson<NotesResponse>(
           `/api/courses/${encodeURIComponent(id)}/notes`,
         )
-        if (isCurrentContext(id, version) && token === notesRequestToken) {
+        if (
+          isCurrentContext(id, version) &&
+          token === notesRequestToken &&
+          requestedMutationEpoch === notesMutationEpoch.value
+        ) {
           notes.value = result.notes
         }
         return result
       } catch (cause) {
-        if (isCurrentContext(id, version) && token === notesRequestToken) {
+        if (
+          isCurrentContext(id, version) &&
+          token === notesRequestToken &&
+          requestedMutationEpoch === notesMutationEpoch.value
+        ) {
           error.value = errorMessage(cause)
         }
         throw cause
@@ -167,8 +178,8 @@ export const useChatStore = defineStore('chat', () => {
         const result = await postJson<ArtifactResult>(
           `/api/courses/${encodeURIComponent(id)}/${kind}`,
         )
+        await useCourseStore().loadCourses()
         if (isCurrentContext(id, version) && token === artifactRequestToken) {
-          useCourseStore().applyCourses(result.courses)
           await loadMessages()
         }
         return result
@@ -198,7 +209,6 @@ export const useChatStore = defineStore('chat', () => {
     const version = contextVersion.value
     const normalizedContent = content.trim()
     if (id === null || normalizedContent.length === 0) return
-    const token = ++notesRequestToken
 
     return (async () => {
       try {
@@ -209,12 +219,13 @@ export const useChatStore = defineStore('chat', () => {
             content: normalizedContent,
           },
         )
-        if (isCurrentContext(id, version) && token === notesRequestToken) {
+        if (isCurrentContext(id, version)) {
+          notesMutationEpoch.value += 1
           notes.value = result.notes
         }
         return result
       } catch (cause) {
-        if (isCurrentContext(id, version) && token === notesRequestToken) {
+        if (isCurrentContext(id, version)) {
           error.value = errorMessage(cause)
         }
         throw cause
@@ -231,6 +242,7 @@ export const useChatStore = defineStore('chat', () => {
     error,
     courseId,
     contextVersion,
+    notesMutationEpoch,
     beginCourse,
     isCurrentContext,
     loadMessages,

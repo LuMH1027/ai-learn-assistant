@@ -37,7 +37,7 @@ function deferred<T>() {
 describe('course store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it('loads config and courses and resolves the active course', async () => {
@@ -60,6 +60,32 @@ describe('course store', () => {
     expect(store.config).toEqual(config)
     expect(store.activeCourse).toEqual(course('b'))
     expect(store.loading).toBe(false)
+  })
+
+  it('does not let an old config GET overwrite a successful root save', async () => {
+    const oldConfig = deferred<ConfigResponse>()
+    api.getJson
+      .mockReturnValueOnce(oldConfig.promise)
+      .mockResolvedValueOnce({ courses: [course('new')] } satisfies CoursesResponse)
+    api.postJson.mockResolvedValue({
+      ok: true,
+      config: { root_folder: '/new-root' },
+    } satisfies SaveConfigResponse)
+    const store = useCourseStore()
+
+    const pendingConfig = store.loadConfig()
+    await store.saveRoot('/new-root')
+    oldConfig.resolve({
+      root_folder: '/old-root',
+      ai_provider: 'old-provider',
+      ai_configured: false,
+      mineru_auto: false,
+      mineru_configured: false,
+    })
+    await pendingConfig
+
+    expect(store.config?.root_folder).toBe('/new-root')
+    expect(store.configEpoch).toBe(1)
   })
 
   it('increments context only when the selected course actually changes', () => {
@@ -201,28 +227,30 @@ describe('course store', () => {
     expect(store.loadRequestId).toBe(loadRequestId)
     expect(store.courses).toEqual([course('a')])
     expect(store.activeCourseId).toBe('a')
+    expect(store.configEpoch).toBe(0)
+    expect(store.savingRoot).toBe(false)
   })
 
-  it('allows only the latest concurrent root save to change frontend state', async () => {
-    const olderSave = deferred<SaveConfigResponse>()
-    const newerSave = deferred<SaveConfigResponse>()
-    api.postJson
-      .mockReturnValueOnce(olderSave.promise)
-      .mockReturnValueOnce(newerSave.promise)
+  it('ignores a second root save while the first is pending', async () => {
+    const rootSave = deferred<SaveConfigResponse>()
+    api.postJson.mockReturnValue(rootSave.promise)
     api.getJson.mockResolvedValue({ courses: [course('new-root-course')] } satisfies CoursesResponse)
     const store = useCourseStore()
 
-    const older = store.saveRoot('/older-root')
-    const newer = store.saveRoot('/newer-root')
-    newerSave.resolve({ ok: true, config: { root_folder: '/newer-root' } })
-    await newer
-    olderSave.resolve({ ok: true, config: { root_folder: '/older-root' } })
-    await older
+    const first = store.saveRoot('/first-root')
+    const duplicate = store.saveRoot('/ignored-root')
+
+    expect(store.savingRoot).toBe(true)
+    expect(duplicate).toBeUndefined()
+    expect(api.postJson).toHaveBeenCalledOnce()
+    rootSave.resolve({ ok: true, config: { root_folder: '/first-root' } })
+    await first
 
     expect(store.rootVersion).toBe(1)
-    expect(store.config?.root_folder).toBe('/newer-root')
+    expect(store.config?.root_folder).toBe('/first-root')
     expect(store.courses).toEqual([course('new-root-course')])
     expect(store.contextVersion).toBe(1)
+    expect(store.savingRoot).toBe(false)
   })
 
   it('ignores an old course load after saving a new root', async () => {
@@ -247,12 +275,13 @@ describe('course store', () => {
   })
 
   it('applies uploaded course files to the course tree', async () => {
-    const updated = { ...course('a'), file_count: 1 }
+    const authoritative = { ...course('a'), file_count: 2 }
     api.postFiles.mockResolvedValue({
       ok: true,
       saved: [{ name: 'lesson.md', path: '/courses/a/lesson.md' }],
-      courses: [updated],
+      courses: [{ ...course('a'), file_count: 99 }],
     } satisfies UploadResult)
+    api.getJson.mockResolvedValue({ courses: [authoritative] } satisfies CoursesResponse)
     const store = useCourseStore()
     store.courses = [course('a')]
     store.selectCourse('a')
@@ -262,12 +291,15 @@ describe('course store', () => {
     ])
 
     expect(result?.saved[0]?.name).toBe('lesson.md')
-    expect(store.activeCourse?.file_count).toBe(1)
+    expect(store.activeCourse?.file_count).toBe(2)
   })
 
   it('applies an upload response after switching courses within the same root', async () => {
     const upload = deferred<UploadResult>()
     api.postFiles.mockReturnValue(upload.promise)
+    api.getJson.mockResolvedValue({
+      courses: [{ ...course('a'), file_count: 2 }, course('b')],
+    } satisfies CoursesResponse)
     const store = useCourseStore()
     store.courses = [course('a'), course('b')]
     store.selectCourse('a')
@@ -285,8 +317,38 @@ describe('course store', () => {
 
     expect(result?.saved[0]?.name).toBe('lesson.md')
     expect(store.activeCourseId).toBe('b')
-    expect(store.courses[0]?.file_count).toBe(1)
+    expect(store.courses[0]?.file_count).toBe(2)
     expect(store.contextVersion).toBe(2)
+  })
+
+  it('uses the latest authoritative GET after upload mutations finish out of order', async () => {
+    const firstUpload = deferred<UploadResult>()
+    const secondUpload = deferred<UploadResult>()
+    const firstTreeLoad = deferred<CoursesResponse>()
+    const secondTreeLoad = deferred<CoursesResponse>()
+    api.postFiles
+      .mockReturnValueOnce(firstUpload.promise)
+      .mockReturnValueOnce(secondUpload.promise)
+    api.getJson
+      .mockReturnValueOnce(firstTreeLoad.promise)
+      .mockReturnValueOnce(secondTreeLoad.promise)
+    const store = useCourseStore()
+    store.applyCourses([course('a')])
+    store.selectCourse('a')
+
+    const first = store.uploadCourseFiles([new File(['1'], 'one.md')])
+    const second = store.uploadCourseFiles([new File(['2'], 'two.md')])
+    secondUpload.resolve({ ok: true, saved: [], courses: [course('post-snapshot-2')] })
+    await vi.waitFor(() => expect(api.getJson).toHaveBeenCalledTimes(1))
+    firstUpload.resolve({ ok: true, saved: [], courses: [course('post-snapshot-1')] })
+    await vi.waitFor(() => expect(api.getJson).toHaveBeenCalledTimes(2))
+
+    secondTreeLoad.resolve({ courses: [{ ...course('a'), file_count: 2 }] })
+    await first
+    firstTreeLoad.resolve({ courses: [{ ...course('a'), file_count: 1 }] })
+    await second
+
+    expect(store.activeCourse?.file_count).toBe(2)
   })
 
   it('discards an upload tree from an older root', async () => {

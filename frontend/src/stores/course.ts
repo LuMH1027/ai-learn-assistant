@@ -19,9 +19,11 @@ export const useCourseStore = defineStore('course', () => {
   const rootVersion = ref(0)
   const treeEpoch = ref(0)
   const loadRequestId = ref(0)
+  const configEpoch = ref(0)
+  const configRequestId = ref(0)
   const pendingRequests = ref(0)
   const indexing = ref(false)
-  let saveRequestId = 0
+  const savingRoot = ref(false)
 
   const activeCourse = computed(() =>
     courses.value.find((course) => course.id === activeCourseId.value) ?? null,
@@ -50,9 +52,16 @@ export const useCourseStore = defineStore('course', () => {
   }
 
   function loadConfig() {
+    const requestId = ++configRequestId.value
+    const requestedConfigEpoch = configEpoch.value
     return trackRequest(async () => {
       const result = await getJson<ConfigResponse>('/api/config')
-      config.value = result
+      if (
+        requestId === configRequestId.value &&
+        requestedConfigEpoch === configEpoch.value
+      ) {
+        config.value = result
+      }
       return result
     })
   }
@@ -83,27 +92,32 @@ export const useCourseStore = defineStore('course', () => {
   }
 
   function saveRoot(rootFolder: string) {
-    const requestId = ++saveRequestId
+    if (savingRoot.value) return
+    savingRoot.value = true
     return trackRequest(async () => {
-      const result = await postJson<SaveConfigResponse>('/api/config', {
-        root_folder: rootFolder,
-      })
-      if (requestId !== saveRequestId) return result
+      try {
+        const result = await postJson<SaveConfigResponse>('/api/config', {
+          root_folder: rootFolder,
+        })
 
-      rootVersion.value += 1
-      config.value = {
-        root_folder: result.config.root_folder,
-        ai_provider: config.value?.ai_provider ?? 'openai_compatible',
-        ai_configured: config.value?.ai_configured ?? false,
-        mineru_auto: config.value?.mineru_auto ?? true,
-        mineru_configured: config.value?.mineru_configured ?? false,
+        rootVersion.value += 1
+        configEpoch.value += 1
+        config.value = {
+          root_folder: result.config.root_folder,
+          ai_provider: config.value?.ai_provider ?? 'openai_compatible',
+          ai_configured: config.value?.ai_configured ?? false,
+          mineru_auto: config.value?.mineru_auto ?? true,
+          mineru_configured: config.value?.mineru_configured ?? false,
+        }
+        activeCourseId.value = null
+        contextVersion.value += 1
+        applyCourses([])
+
+        await loadCourses()
+        return result
+      } finally {
+        savingRoot.value = false
       }
-      activeCourseId.value = null
-      contextVersion.value += 1
-      applyCourses([])
-
-      await loadCourses()
-      return result
     })
   }
 
@@ -122,7 +136,7 @@ export const useCourseStore = defineStore('course', () => {
       if (
         requestedRootVersion === rootVersion.value
       ) {
-        applyCourses(result.courses)
+        await loadCourses()
       }
       return result
     })()
@@ -152,9 +166,12 @@ export const useCourseStore = defineStore('course', () => {
     rootVersion,
     treeEpoch,
     loadRequestId,
+    configEpoch,
+    configRequestId,
     pendingRequests,
     loading,
     indexing,
+    savingRoot,
     activeCourse,
     applyCourses,
     loadConfig,
