@@ -6,7 +6,7 @@ import type {
   SaveNotesResponse,
   StudyContentResponse,
 } from '../types/api'
-import { ApiError, postFiles, postJson, requestJson } from './api'
+import { ApiError, postFiles, postJson, postJsonStream, requestJson } from './api'
 
 const responseTypeContract = {
   memory: { memory: '最近关注：虚拟内存' } satisfies MemoryResponse,
@@ -112,5 +112,32 @@ describe('postJson', () => {
 
     await expect(postJson<{ ok: boolean }>('/api/config', { root_folder: '/courses' }))
       .resolves.toEqual({ ok: true })
+  })
+})
+
+describe('postJsonStream', () => {
+  it('emits every NDJSON event as soon as it is decoded', async () => {
+    const events: Array<{ type: string; delta?: string }> = []
+    const body = [
+      JSON.stringify({ type: 'status', detail: '检索中' }),
+      JSON.stringify({ type: 'delta', delta: '你' }),
+      JSON.stringify({ type: 'delta', delta: '好' }),
+    ].join('\n') + '\n'
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
+      headers: { 'Content-Type': 'application/x-ndjson' },
+      status: 200,
+    })))
+
+    await postJsonStream<{ type: string; delta?: string }>(
+      '/api/chat',
+      { question: 'hello' },
+      (event) => events.push(event),
+    )
+
+    expect(events).toEqual([
+      { type: 'status', detail: '检索中' },
+      { type: 'delta', delta: '你' },
+      { type: 'delta', delta: '好' },
+    ])
   })
 })

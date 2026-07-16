@@ -41,6 +41,75 @@ export function postFiles<T>(path: string, form: FormData): Promise<T> {
   })
 }
 
+export function postJsonStream<T>(
+  path: string,
+  body: unknown,
+  onEvent: (event: T) => void,
+): Promise<void> {
+  return requestNdjson(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/x-ndjson',
+    },
+    body: JSON.stringify(body),
+  }, onEvent)
+}
+
+export function postFilesStream<T>(
+  path: string,
+  form: FormData,
+  onEvent: (event: T) => void,
+): Promise<void> {
+  return requestNdjson(path, {
+    method: 'POST',
+    headers: { Accept: 'application/x-ndjson' },
+    body: form,
+  }, onEvent)
+}
+
+async function requestNdjson<T>(
+  path: string,
+  init: RequestInit,
+  onEvent: (event: T) => void,
+): Promise<void> {
+  const response = await fetch(path, init)
+  if (!response.ok) {
+    throw new ApiError(await errorMessage(response), response.status)
+  }
+  if (!response.body) {
+    throw new Error('浏览器未提供流式响应内容')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const event = JSON.parse(line) as T
+      if (isStreamError(event)) throw new Error(event.error)
+      onEvent(event)
+    }
+    if (done) break
+  }
+  if (buffer.trim()) {
+    const event = JSON.parse(buffer) as T
+    if (isStreamError(event)) throw new Error(event.error)
+    onEvent(event)
+  }
+}
+
+function isStreamError(value: unknown): value is { type: 'error'; error: string } {
+  return typeof value === 'object' && value !== null &&
+    (value as { type?: unknown }).type === 'error' &&
+    typeof (value as { error?: unknown }).error === 'string'
+}
+
 async function errorMessage(response: Response): Promise<string> {
   try {
     const payload = await response.json() as ErrorResponse

@@ -1,3 +1,5 @@
+import io
+import json
 import unittest
 from unittest import mock
 
@@ -17,6 +19,11 @@ class FakeClient:
         self.prompts.append(prompt)
         return self.generated
 
+    def stream(self, prompt):
+        self.prompts.append(prompt)
+        if self.generated:
+            yield from self.generated
+
 
 class FakeWebClient:
     def __init__(self, sources, enabled=True):
@@ -33,6 +40,48 @@ class FakeWebClient:
 
 
 class ServerLlmRoutingTest(unittest.TestCase):
+    def test_stream_headers_disable_browser_mime_buffering(self):
+        handler = Handler.__new__(Handler)
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+
+        handler.begin_stream()
+
+        handler.send_header.assert_any_call("Content-Type", "application/x-ndjson; charset=utf-8")
+        handler.send_header.assert_any_call("X-Content-Type-Options", "nosniff")
+        handler.send_header.assert_any_call("Transfer-Encoding", "chunked")
+        self.assertEqual(Handler.protocol_version, "HTTP/1.1")
+
+    def test_stream_events_use_http_chunk_framing(self):
+        handler = Handler.__new__(Handler)
+        handler.wfile = io.BytesIO()
+        event = {"type": "status", "detail": "正在检索"}
+        raw = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
+
+        handler.send_stream_event(event)
+        handler.end_stream()
+
+        expected = f"{len(raw):X}\r\n".encode("ascii") + raw + b"\r\n0\r\n\r\n"
+        self.assertEqual(handler.wfile.getvalue(), expected)
+
+    def test_streaming_synthesis_emits_model_deltas(self):
+        client = FakeClient(["课程", "回答"])
+        handler = Handler.__new__(Handler)
+        deltas = []
+
+        with mock.patch("local_course_agent.server.create_llm_client", return_value=client):
+            answer, status = handler.synthesize_answer_stream(
+                "解释页表",
+                {"answer": "本地回退", "citations": []},
+                emit_delta=deltas.append,
+                ai_config={"api_key": "configured"},
+            )
+
+        self.assertEqual(answer, "课程回答")
+        self.assertEqual(status, "used")
+        self.assertEqual(deltas, ["课程", "回答"])
+
     def test_web_search_is_skipped_when_local_evidence_is_sufficient(self):
         handler = Handler.__new__(Handler)
 

@@ -1,3 +1,4 @@
+import json
 import unittest
 import tempfile
 from pathlib import Path
@@ -7,6 +8,27 @@ from local_course_agent.llm import OpenAICompatibleClient, build_grounded_prompt
 
 
 class LlmPromptTest(unittest.TestCase):
+    def test_openai_compatible_client_streams_chat_completion_deltas(self):
+        client = OpenAICompatibleClient(
+            base_url="https://api.siliconflow.cn/v1",
+            api_key="test-key",
+            model="test-model",
+        )
+        fake_response = mock.MagicMock()
+        fake_response.__enter__.return_value = fake_response
+        fake_response.__iter__.return_value = iter([
+            'data: {"choices":[{"delta":{"content":"你"}}]}\n'.encode("utf-8"),
+            'data: {"choices":[{"delta":{"content":"好"}}]}\n'.encode("utf-8"),
+            b'data: [DONE]\n',
+        ])
+
+        with mock.patch("urllib.request.urlopen", return_value=fake_response) as urlopen:
+            chunks = list(client.stream("hello"))
+
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(chunks, ["你", "好"])
+        self.assertTrue(payload["stream"])
+
     def test_grounded_prompt_prioritizes_course_material_and_labels_supplements(self):
         prompt = build_grounded_prompt(
             question="页表有什么作用？",

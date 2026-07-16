@@ -112,6 +112,8 @@ CTX = AppContext()
 
 
 class Handler(SimpleHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def translate_path(self, path):
         resolved = resolve_static_path(path)
         return str(resolved if resolved is not None else STATIC_DIR / "__invalid__")
@@ -179,7 +181,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.upload_course_files(course_id)
         if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/chat"):
             course_id = parsed.path.split("/")[3]
-            return self.chat(course_id)
+            wants_stream = "application/x-ndjson" in self.headers.get("Accept", "")
+            return self.chat(course_id, stream=wants_stream)
         if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/summary"):
             course_id = parsed.path.split("/")[3]
             return self.create_study_artifact(course_id, "summary")
@@ -216,13 +219,25 @@ class Handler(SimpleHTTPRequestHandler):
             indexed_files += 1
         return self.send_json({"ok": True, "indexed_files": indexed_files, "total_chunks": indexed_chunks})
 
-    def chat(self, course_id: str):
+    def chat(self, course_id: str, stream=False):
         body, uploads = self.read_maybe_multipart()
         question = body.get("question", "").strip()
         mode = body.get("mode", "answer")
         if not question and not uploads:
             return self.send_error_json("问题不能为空")
+        emit = self.send_stream_event if stream else lambda _event: None
+        if stream:
+            self.begin_stream()
+            emit(
+                {
+                    "type": "status",
+                    "stage": "accepted",
+                    "detail": "已收到问题，正在准备…",
+                }
+            )
         course = CTX.find_course(course_id) or {"name": ""}
+        if uploads:
+            emit({"type": "status", "stage": "attachments", "detail": "正在读取附件…"})
         attachment_text, image_paths = self.index_chat_uploads(course_id, uploads)
         if (attachment_text or image_paths) and not question:
             question = "请阅读并总结我拖入的文件。"
@@ -233,8 +248,10 @@ class Handler(SimpleHTTPRequestHandler):
             image_names = "、".join(path.name for path in image_paths)
             search_question = f"{search_question}\n\n拖入聊天框的截图：{image_names}"
         CTX.store.add_message(course_id, "user", question)
+        emit({"type": "status", "stage": "retrieval", "detail": "正在检索课程资料…"})
         result = CTX.kb.answer(course_id, search_question)
         config = CTX.config
+        emit({"type": "status", "stage": "web", "detail": "正在判断是否需要联网…"})
         web_sources, web_status = self.retrieve_web_sources(
             question,
             result,
@@ -253,13 +270,27 @@ class Handler(SimpleHTTPRequestHandler):
         combined_result["citations"] = [*local_sources, *labeled_web_sources]
         if web_sources:
             combined_result["answer"] = append_web_fallback(result["answer"], labeled_web_sources)
-        answer, llm_status = self.synthesize_answer(
-            search_question,
-            combined_result,
-            image_paths=image_paths,
-            ai_config=config.get("ai", {}),
-        )
-        answer = adapt_answer_by_mode(mode, answer)
+        emit({"type": "status", "stage": "generation", "detail": "正在生成回答…"})
+        if stream:
+            prefix = answer_mode_prefix(mode)
+            if prefix:
+                emit({"type": "delta", "delta": prefix})
+            generated_answer, llm_status = self.synthesize_answer_stream(
+                search_question,
+                combined_result,
+                emit_delta=lambda delta: emit({"type": "delta", "delta": delta}),
+                image_paths=image_paths,
+                ai_config=config.get("ai", {}),
+            )
+            answer = prefix + generated_answer
+        else:
+            answer, llm_status = self.synthesize_answer(
+                search_question,
+                combined_result,
+                image_paths=image_paths,
+                ai_config=config.get("ai", {}),
+            )
+            answer = adapt_answer_by_mode(mode, answer)
         memory = CTX.store.update_memory_from_question(course_id, question)
         trace = build_agent_trace(
             course_name=course.get("name", ""),
@@ -272,17 +303,20 @@ class Handler(SimpleHTTPRequestHandler):
             web_source_count=len(web_sources),
         )
         CTX.store.add_message(course_id, "assistant", answer, combined_result["citations"], trace=trace)
-        return self.send_json(
-            {
-                "answer": answer,
-                "citations": combined_result["citations"],
-                "memory": memory,
-                "mode": mode,
-                "trace": trace,
-                "llm_status": llm_status,
-                "web_search_status": web_status,
-            }
-        )
+        payload = {
+            "answer": answer,
+            "citations": combined_result["citations"],
+            "memory": memory,
+            "mode": mode,
+            "trace": trace,
+            "llm_status": llm_status,
+            "web_search_status": web_status,
+        }
+        if stream:
+            emit({"type": "done", "result": payload})
+            self.end_stream()
+            return None
+        return self.send_json(payload)
 
     def retrieve_web_sources(self, question: str, result: dict, web_config=None, allow_web=True):
         if not allow_web or not should_search_web(question, result):
@@ -393,6 +427,52 @@ class Handler(SimpleHTTPRequestHandler):
             return generated, "used"
         return result["answer"], "fallback" if llm_configured else "disabled"
 
+    def synthesize_answer_stream(
+        self,
+        question: str,
+        result: dict,
+        emit_delta,
+        image_paths=None,
+        ai_config=None,
+    ):
+        ai_config = ai_config if ai_config is not None else CTX.config.get("ai", {})
+        image_paths = image_paths or []
+        client = create_llm_client(ai_config)
+        llm_configured = client.enabled()
+        prompt = build_grounded_prompt(question, result["citations"], memory="")
+        if image_paths:
+            image_prompt = (
+                "学生上传了课程截图或图片。请先理解图片内容，再结合课程资料回答。\n"
+                "如果图片中文字看不清，直接说明看不清，不要编造。\n\n"
+                f"学生问题：\n{question}\n\n"
+                f"课程检索结果：\n{result.get('answer', '')}"
+            )
+            chunks = client.stream_with_images(image_prompt, image_paths)
+            fallback_generate = lambda: client.generate_with_images(image_prompt, image_paths)
+        else:
+            chunks = client.stream(prompt)
+            fallback_generate = lambda: client.generate(prompt)
+
+        generated_parts = []
+        for chunk in chunks or []:
+            generated_parts.append(chunk)
+            emit_delta(chunk)
+        if generated_parts:
+            return "".join(generated_parts), "used"
+
+        generated = fallback_generate()
+        if generated:
+            emit_delta(generated)
+            return generated, "used"
+        fallback = result["answer"]
+        if image_paths:
+            fallback += (
+                "\n\n已收到截图附件，但当前配置的大模型未成功读取图片内容。"
+                "请确认模型支持视觉输入，或把截图中的文字复制到聊天框。"
+            )
+        emit_delta(fallback)
+        return fallback, "fallback" if llm_configured else "disabled"
+
     def send_preview(self, file_id: str):
         path = CTX.find_file(file_id)
         if not path:
@@ -440,6 +520,33 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def begin_stream(self):
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+
+    def send_stream_event(self, event):
+        raw = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
+        frame = f"{len(raw):X}\r\n".encode("ascii") + raw + b"\r\n"
+        try:
+            self.wfile.write(frame)
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            return False
+        return True
+
+    def end_stream(self):
+        try:
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            return False
+        return True
+
     def send_error_json(self, message, status=HTTPStatus.BAD_REQUEST):
         return self.send_json({"ok": False, "error": message}, status)
 
@@ -453,13 +560,16 @@ def iter_files(nodes):
 
 
 def adapt_answer_by_mode(mode: str, answer: str) -> str:
-    if mode == "socratic":
-        return "启发式提示：先不要急着看完整答案，可以根据资料中的关键词自己复述一遍。\n\n" + answer
-    if mode == "homework":
-        return "作业提示模式：以下只给思路和资料依据，不直接替你完成作业。\n\n" + answer
-    if mode == "review":
-        return "复习模式：建议把下面内容整理成概念、易错点和自测题。\n\n" + answer
-    return answer
+    return answer_mode_prefix(mode) + answer
+
+
+def answer_mode_prefix(mode: str) -> str:
+    prefixes = {
+        "socratic": "启发式提示：先不要急着看完整答案，可以根据资料中的关键词自己复述一遍。\n\n",
+        "homework": "作业提示模式：以下只给思路和资料依据，不直接替你完成作业。\n\n",
+        "review": "复习模式：建议把下面内容整理成概念、易错点和自测题。\n\n",
+    }
+    return prefixes.get(mode, "")
 
 
 def append_web_fallback(answer: str, web_sources: list) -> str:

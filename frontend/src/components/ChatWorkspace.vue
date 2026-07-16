@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 import { useChatStore } from '../stores/chat'
 import { useCourseStore } from '../stores/course'
@@ -20,7 +20,20 @@ const layout = useLayoutStore()
 const preview = usePreviewStore()
 const question = ref('')
 const chatPicker = ref<HTMLInputElement | null>(null)
+const messagesPanel = ref<HTMLElement | null>(null)
 const busy = computed(() => chat.busy.chat || chat.busy.summary || chat.busy.quiz)
+
+watch(
+  () => {
+    const latest = chat.messages.at(-1)
+    return [chat.messages.length, latest?.content.length, latest?.stream_status, latest?.streaming] as const
+  },
+  async () => {
+    if (!chat.messages.at(-1)?.streaming) return
+    await nextTick()
+    if (messagesPanel.value) messagesPanel.value.scrollTop = messagesPanel.value.scrollHeight
+  },
+)
 
 function findFile(nodes: FileNode[], id: string): FileLeafNode | null {
   for (const node of nodes) {
@@ -112,9 +125,10 @@ function onDrop(event: DragEvent) {
       </select>
     </nav>
 
-    <section class="messages" aria-label="对话消息" aria-live="polite">
+    <section ref="messagesPanel" class="messages" aria-label="对话消息" aria-live="polite">
       <article v-for="(message, messageIndex) in chat.messages" :key="`${message.created_at}-${messageIndex}`" :class="message.role">
-        <p>{{ message.content }}</p>
+        <p v-if="message.streaming" class="stream-status" role="status">{{ message.stream_status }}</p>
+        <p v-if="message.content" :class="{ 'streaming-content': message.streaming }">{{ message.content }}</p>
         <details v-if="message.trace.length">
           <summary>处理过程</summary>
           <p v-for="step in message.trace" :key="step.label">{{ step.label }}：{{ step.detail }}</p>
@@ -162,4 +176,8 @@ function onDrop(event: DragEvent) {
 <style scoped>
 .chat-workspace { min-width: 0; }
 button, select { min-height: 44px; }
+.stream-status { color: var(--muted); font-size: 12px; }
+.stream-status::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+.streaming-content::after { content: '▋'; margin-left: 2px; color: var(--accent); animation: pulse .8s steps(2, end) infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
 </style>

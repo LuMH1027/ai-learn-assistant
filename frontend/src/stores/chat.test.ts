@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   ArtifactResult,
   ChatResult,
+  ChatStreamEvent,
   Course,
   CoursesResponse,
   MessagesResponse,
@@ -15,6 +16,8 @@ const api = vi.hoisted(() => ({
   getJson: vi.fn(),
   postFiles: vi.fn(),
   postJson: vi.fn(),
+  postJsonStream: vi.fn(),
+  postFilesStream: vi.fn(),
 }))
 
 vi.mock('../services/api', () => api)
@@ -134,10 +137,13 @@ describe('chat store', () => {
     expect(store.messages.map((item) => item.content)).toEqual(['newer'])
   })
 
-  it('sends JSON once and ignores a duplicate write while chat is busy', async () => {
-    const write = deferred<ChatResult>()
-    api.postJson.mockReturnValue(write.promise)
-    api.getJson.mockResolvedValue({ messages: [message('answer')] } satisfies MessagesResponse)
+  it('shows status and token deltas immediately and ignores a duplicate write', async () => {
+    const write = deferred<void>()
+    let emit!: (event: ChatStreamEvent) => void
+    api.postJsonStream.mockImplementation((_path: string, _body: unknown, onEvent: typeof emit) => {
+      emit = onEvent
+      return write.promise
+    })
     const store = useChatStore()
     store.beginCourse('a', 1)
 
@@ -146,19 +152,34 @@ describe('chat store', () => {
 
     expect(store.busy.chat).toBe(true)
     expect(duplicate).toBeUndefined()
-    write.resolve({ answer: 'answer', citations: [], memory: '', mode: 'answer', trace: [] })
+    expect(store.messages.map((item) => item.content)).toEqual(['question', ''])
+    expect(store.messages[1]?.stream_status).toBe('正在发送…')
+    emit({ type: 'status', stage: 'retrieval', detail: '正在检索课程资料…' })
+    expect(store.messages[1]?.stream_status).toBe('正在检索课程资料…')
+    emit({ type: 'delta', delta: '答' })
+    emit({ type: 'delta', delta: '案' })
+    expect(store.messages[1]?.content).toBe('答案')
+    emit({
+      type: 'done',
+      result: { answer: '答案', citations: [], memory: '', mode: 'answer', trace: [] },
+    })
+    write.resolve()
     await first
 
-    expect(store.messages.map((item) => item.content)).toEqual(['answer'])
+    expect(store.messages[1]?.content).toBe('答案')
+    expect(store.messages[1]?.streaming).toBe(false)
     expect(store.busy.chat).toBe(false)
-    expect(api.postJson).toHaveBeenCalledOnce()
+    expect(api.postJsonStream).toHaveBeenCalledOnce()
   })
 
   it('sends attachments as FormData and clears them after taking the request snapshot', async () => {
-    api.postFiles.mockResolvedValue({
-      answer: 'attachment answer', citations: [], memory: '', mode: 'answer', trace: [],
-    } satisfies ChatResult)
-    api.getJson.mockResolvedValue({ messages: [message('attachment answer')] } satisfies MessagesResponse)
+    api.postFilesStream.mockImplementation(async (_path: string, _form: FormData, onEvent: (event: ChatStreamEvent) => void) => {
+      onEvent({ type: 'delta', delta: 'attachment answer' })
+      onEvent({
+        type: 'done',
+        result: { answer: 'attachment answer', citations: [], memory: '', mode: 'answer', trace: [] },
+      })
+    })
     const store = useChatStore()
     store.beginCourse('a', 1)
     store.pendingFiles = [new File(['image'], 'screen.png', { type: 'image/png' })]
@@ -166,10 +187,10 @@ describe('chat store', () => {
     await store.send('inspect')
 
     expect(store.pendingFiles).toEqual([])
-    const form = api.postFiles.mock.calls[0]?.[1] as FormData
+    const form = api.postFilesStream.mock.calls[0]?.[1] as FormData
     expect(form.get('question')).toBe('inspect')
     expect((form.get('files') as File).name).toBe('screen.png')
-    expect(store.messages[0]?.content).toBe('attachment answer')
+    expect(store.messages[1]?.content).toBe('attachment answer')
   })
 
   it('mutually excludes summary and quiz and refreshes courses and messages', async () => {
@@ -205,8 +226,12 @@ describe('chat store', () => {
   })
 
   it('mutually excludes chat and study artifact writes', async () => {
-    const chatWrite = deferred<ChatResult>()
-    api.postJson.mockReturnValue(chatWrite.promise)
+    const chatWrite = deferred<void>()
+    let finishChat!: (event: ChatStreamEvent) => void
+    api.postJsonStream.mockImplementation((_path: string, _body: unknown, onEvent: typeof finishChat) => {
+      finishChat = onEvent
+      return chatWrite.promise
+    })
     api.getJson.mockImplementation((path: string) => path === '/api/courses'
       ? Promise.resolve({ courses: [course('a', 1)] } satisfies CoursesResponse)
       : Promise.resolve({ messages: [] } satisfies MessagesResponse))
@@ -217,7 +242,8 @@ describe('chat store', () => {
 
     expect(store.summary()).toBeUndefined()
     expect(store.quiz()).toBeUndefined()
-    chatWrite.resolve({ answer: 'answer', citations: [], memory: '', mode: 'answer', trace: [] })
+    finishChat({ type: 'done', result: { answer: 'answer', citations: [], memory: '', mode: 'answer', trace: [] } })
+    chatWrite.resolve()
     await chat
 
     const artifactWrite = deferred<ArtifactResult>()
@@ -233,7 +259,8 @@ describe('chat store', () => {
       courses: [course('a', 1)],
     })
     await summary
-    expect(api.postJson).toHaveBeenCalledTimes(2)
+    expect(api.postJsonStream).toHaveBeenCalledOnce()
+    expect(api.postJson).toHaveBeenCalledOnce()
   })
 
   it('saves notes and applies the returned list only to the current context', async () => {

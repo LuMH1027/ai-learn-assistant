@@ -274,6 +274,24 @@ describe('course workspace components', () => {
     expect(wrapper.find('button[data-citation-file="web-1"]').exists()).toBe(false)
   })
 
+  it('shows streaming progress and a cursor while an answer is arriving', async () => {
+    const { wrapper } = await mountWorkspace()
+    const chat = useChatStore()
+    chat.messages = [{
+      role: 'assistant',
+      content: '正在形成',
+      citations: [],
+      trace: [],
+      created_at: '2026-07-16T02:00:00Z',
+      streaming: true,
+      stream_status: '正在生成回答…',
+    }]
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.stream-status').text()).toBe('正在生成回答…')
+    expect(wrapper.get('.streaming-content').text()).toBe('正在形成')
+  })
+
   it('makes the notes drawer inert while closed and manages focus and Escape', async () => {
     const { wrapper } = await mountWorkspace()
     const drawer = wrapper.get('aside[aria-labelledby="notes-title"]')

@@ -1,10 +1,11 @@
 import { reactive, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-import { getJson, postFiles, postJson } from '../services/api'
+import { getJson, postFilesStream, postJson, postJsonStream } from '../services/api'
 import type {
   ArtifactResult,
   ChatResult,
+  ChatStreamEvent,
   Message,
   MessagesResponse,
   Note,
@@ -133,30 +134,68 @@ export const useChatStore = defineStore('chat', () => {
     const token = ++chatRequestToken
     busy.chat = true
     error.value = null
+    messagesRequestToken += 1
+    const timestamp = new Date().toISOString()
+    const userMessage: Message = {
+      role: 'user',
+      content: normalizedQuestion || `已发送 ${files.length} 个附件`,
+      citations: [],
+      trace: [],
+      created_at: timestamp,
+    }
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: '',
+      citations: [],
+      trace: [],
+      created_at: timestamp,
+      streaming: true,
+      stream_status: '正在发送…',
+    }
+    messages.value.push(userMessage, assistantMessage)
 
     return (async () => {
       try {
-        let result: ChatResult
+        let result: ChatResult | undefined
         const path = `/api/courses/${encodeURIComponent(id)}/chat`
+        const onEvent = (event: ChatStreamEvent) => {
+          if (!isCurrentContext(id, version) || token !== chatRequestToken) return
+          if (event.type === 'status') {
+            assistantMessage.stream_status = event.detail
+          } else if (event.type === 'delta') {
+            assistantMessage.content += event.delta
+            assistantMessage.stream_status = '正在生成回答…'
+          } else if (event.type === 'done') {
+            result = event.result
+            assistantMessage.content = event.result.answer
+            assistantMessage.citations = event.result.citations
+            assistantMessage.trace = event.result.trace
+            assistantMessage.streaming = false
+            assistantMessage.stream_status = ''
+          }
+        }
         if (files.length > 0) {
           const form = new FormData()
           form.append('question', normalizedQuestion)
           form.append('mode', mode.value)
           for (const file of files) form.append('files', file, file.name)
-          result = await postFiles<ChatResult>(path, form)
+          await postFilesStream<ChatStreamEvent>(path, form, onEvent)
         } else {
-          result = await postJson<ChatResult>(path, {
+          await postJsonStream<ChatStreamEvent>(path, {
             question: normalizedQuestion,
             mode: mode.value,
-          })
+          }, onEvent)
         }
-        if (isCurrentContext(id, version) && token === chatRequestToken) {
-          await loadMessages()
+        if (!result) {
+          throw new Error('流式响应未正常完成')
         }
         return result
       } catch (cause) {
         if (isCurrentContext(id, version) && token === chatRequestToken) {
           error.value = errorMessage(cause)
+          assistantMessage.streaming = false
+          assistantMessage.stream_status = ''
+          if (!assistantMessage.content) assistantMessage.content = '回答生成失败，请重试。'
         }
         throw cause
       } finally {

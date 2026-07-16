@@ -49,6 +49,8 @@ export interface Message {
   citations: Citation[]
   trace: TraceStep[]
   created_at: string
+  streaming?: boolean
+  stream_status?: string
 }
 
 export interface Note {
@@ -126,6 +128,12 @@ export interface ChatResult {
   llm_status?: 'used' | 'fallback' | 'disabled'
   web_search_status?: 'used' | 'empty' | 'failed' | 'disabled' | 'skipped'
 }
+
+export type ChatStreamEvent =
+  | { type: 'status'; stage: string; detail: string }
+  | { type: 'delta'; delta: string }
+  | { type: 'done'; result: ChatResult }
+  | { type: 'error'; error: string }
 
 export interface UploadResult {
   ok: boolean
