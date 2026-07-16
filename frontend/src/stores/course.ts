@@ -11,9 +11,12 @@ import type {
   UploadResult,
 } from '../types/api'
 
+type CourseConfig = Pick<ConfigResponse, 'root_folder'> &
+  Partial<Omit<ConfigResponse, 'root_folder'>>
+
 export const useCourseStore = defineStore('course', () => {
   const courses = ref<Course[]>([])
-  const config = ref<ConfigResponse | null>(null)
+  const config = ref<CourseConfig | null>(null)
   const activeCourseId = ref<string | null>(null)
   const contextVersion = ref(0)
   const rootVersion = ref(0)
@@ -102,18 +105,21 @@ export const useCourseStore = defineStore('course', () => {
 
         rootVersion.value += 1
         configEpoch.value += 1
-        if (config.value !== null) {
-          config.value = {
-            ...config.value,
-            root_folder: result.config.root_folder,
-          }
+        config.value = {
+          ...(config.value ?? {}),
+          root_folder: result.config.root_folder,
         }
         activeCourseId.value = null
         contextVersion.value += 1
         applyCourses([])
 
-        await loadConfig()
-        await loadCourses()
+        const [, coursesRefresh] = await Promise.allSettled([
+          loadConfig(),
+          loadCourses(),
+        ])
+        if (coursesRefresh.status === 'rejected') {
+          throw coursesRefresh.reason
+        }
         return result
       } finally {
         savingRoot.value = false

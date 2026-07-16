@@ -152,6 +152,24 @@ describe('course store', () => {
     expect(store.configEpoch).toBe(1)
   })
 
+  it('still refreshes courses when the config refresh fails after saving a root', async () => {
+    api.postJson.mockResolvedValue({
+      ok: true,
+      config: { root_folder: '/new-root' },
+    } satisfies SaveConfigResponse)
+    api.getJson.mockImplementation((path: string) => path === '/api/config'
+      ? Promise.reject(new Error('config refresh failed'))
+      : Promise.resolve({ courses: [course('new')] } satisfies CoursesResponse))
+    const store = useCourseStore()
+
+    await expect(store.saveRoot('/new-root')).resolves.toMatchObject({ ok: true })
+
+    expect(store.rootVersion).toBe(1)
+    expect(store.config).toEqual({ root_folder: '/new-root' })
+    expect(store.courses).toEqual([course('new')])
+    expect(store.savingRoot).toBe(false)
+  })
+
   it('increments context only when the selected course actually changes', () => {
     const store = useCourseStore()
     store.courses = [course('a'), course('b')]
