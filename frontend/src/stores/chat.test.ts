@@ -71,6 +71,22 @@ describe('chat store', () => {
     expect(store.isCurrentContext('b', 2)).toBe(true)
   })
 
+  it('accepts an empty course context and invalidates pending responses', async () => {
+    const oldMessages = deferred<MessagesResponse>()
+    api.getJson.mockReturnValue(oldMessages.promise)
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    const pendingLoad = store.loadMessages()
+
+    store.beginCourse(null, 2)
+    oldMessages.resolve({ messages: [message('stale')] })
+    await pendingLoad
+
+    expect(store.courseId).toBeNull()
+    expect(store.messages).toEqual([])
+    expect(store.isCurrentContext(null, 2)).toBe(true)
+  })
+
   it('ignores A responses that arrive after a fast switch to B', async () => {
     const messagesA = deferred<MessagesResponse>()
     const notesA = deferred<NotesResponse>()

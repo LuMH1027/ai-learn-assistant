@@ -34,11 +34,11 @@ export const useChatStore = defineStore('chat', () => {
   let chatRequestToken = 0
   let artifactRequestToken = 0
 
-  function isCurrentContext(id: string, version: number) {
+  function isCurrentContext(id: string | null, version: number) {
     return courseId.value === id && contextVersion.value === version
   }
 
-  function beginCourse(id: string, version: number) {
+  function beginCourse(id: string | null, version: number) {
     courseId.value = id
     contextVersion.value = version
     messages.value = []

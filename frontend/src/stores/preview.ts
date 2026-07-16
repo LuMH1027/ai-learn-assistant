@@ -30,11 +30,11 @@ export const usePreviewStore = defineStore('preview', () => {
   const url = ref<string | null>(null)
   const content = ref<string | null>(null)
 
-  function isCurrentContext(id: string, version: number) {
+  function isCurrentContext(id: string | null, version: number) {
     return courseId.value === id && contextVersion.value === version
   }
 
-  function beginCourse(id: string, version: number) {
+  function beginCourse(id: string | null, version: number) {
     courseId.value = id
     contextVersion.value = version
     requestVersion.value += 1

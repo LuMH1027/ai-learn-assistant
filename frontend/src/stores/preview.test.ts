@@ -55,6 +55,25 @@ describe('preview store', () => {
     expect(store.tab).toBe('file')
   })
 
+  it('accepts an empty course context and invalidates pending previews', async () => {
+    const oldPreview = deferred<Response>()
+    vi.stubGlobal('fetch', vi.fn(() => oldPreview.promise))
+    const store = usePreviewStore()
+    store.beginCourse('a', 1)
+    const pendingPreview = store.openFile(file('old'))
+    const requestBeforeClear = store.requestVersion
+
+    store.beginCourse(null, 2)
+    oldPreview.resolve(new Response('stale content'))
+    await pendingPreview
+
+    expect(store.courseId).toBeNull()
+    expect(store.requestVersion).toBe(requestBeforeClear + 1)
+    expect(store.activeFile).toBeNull()
+    expect(store.content).toBeNull()
+    expect(store.isCurrentContext(null, 2)).toBe(true)
+  })
+
   it('closes through layout state without clearing the preview', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('lesson text')))
     const layout = useLayoutStore()

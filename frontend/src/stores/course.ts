@@ -16,15 +16,20 @@ export const useCourseStore = defineStore('course', () => {
   const config = ref<ConfigResponse | null>(null)
   const activeCourseId = ref<string | null>(null)
   const contextVersion = ref(0)
-  const loading = ref(false)
+  const rootVersion = ref(0)
+  const treeEpoch = ref(0)
+  const loadRequestId = ref(0)
+  const pendingRequests = ref(0)
   const indexing = ref(false)
-  let coursesRequestVersion = 0
+  let saveRequestId = 0
 
   const activeCourse = computed(() =>
     courses.value.find((course) => course.id === activeCourseId.value) ?? null,
   )
+  const loading = computed(() => pendingRequests.value > 0)
 
   function applyCourses(nextCourses: Course[]) {
+    treeEpoch.value += 1
     courses.value = nextCourses
     if (
       activeCourseId.value !== null &&
@@ -35,35 +40,38 @@ export const useCourseStore = defineStore('course', () => {
     }
   }
 
-  async function loadConfig() {
-    loading.value = true
+  async function trackRequest<T>(request: () => Promise<T>) {
+    pendingRequests.value += 1
     try {
-      const result = await getJson<ConfigResponse>('/api/config')
-      config.value = result
-      return result
+      return await request()
     } finally {
-      loading.value = false
+      pendingRequests.value -= 1
     }
   }
 
-  async function loadCourses() {
-    const requestVersion = ++coursesRequestVersion
-    const requestedCourseId = activeCourseId.value
-    const requestedContextVersion = contextVersion.value
-    loading.value = true
-    try {
+  function loadConfig() {
+    return trackRequest(async () => {
+      const result = await getJson<ConfigResponse>('/api/config')
+      config.value = result
+      return result
+    })
+  }
+
+  function loadCourses() {
+    const requestId = ++loadRequestId.value
+    const requestedRootVersion = rootVersion.value
+    const requestedTreeEpoch = treeEpoch.value
+    return trackRequest(async () => {
       const result = await getJson<CoursesResponse>('/api/courses')
       if (
-        requestVersion === coursesRequestVersion &&
-        requestedCourseId === activeCourseId.value &&
-        requestedContextVersion === contextVersion.value
+        requestId === loadRequestId.value &&
+        requestedRootVersion === rootVersion.value &&
+        requestedTreeEpoch === treeEpoch.value
       ) {
         applyCourses(result.courses)
       }
       return result.courses
-    } finally {
-      loading.value = false
-    }
+    })
   }
 
   function selectCourse(course: Course | string | null) {
@@ -74,13 +82,15 @@ export const useCourseStore = defineStore('course', () => {
     contextVersion.value += 1
   }
 
-  async function saveRoot(rootFolder: string) {
-    coursesRequestVersion += 1
-    loading.value = true
-    try {
+  function saveRoot(rootFolder: string) {
+    const requestId = ++saveRequestId
+    return trackRequest(async () => {
       const result = await postJson<SaveConfigResponse>('/api/config', {
         root_folder: rootFolder,
       })
+      if (requestId !== saveRequestId) return result
+
+      rootVersion.value += 1
       config.value = {
         root_folder: result.config.root_folder,
         ai_provider: config.value?.ai_provider ?? 'openai_compatible',
@@ -90,17 +100,16 @@ export const useCourseStore = defineStore('course', () => {
       }
       activeCourseId.value = null
       contextVersion.value += 1
+      applyCourses([])
 
       await loadCourses()
       return result
-    } finally {
-      loading.value = false
-    }
+    })
   }
 
   function uploadCourseFiles(files: File[]) {
     const courseId = activeCourseId.value
-    const requestedContextVersion = contextVersion.value
+    const requestedRootVersion = rootVersion.value
     if (courseId === null || files.length === 0) return
 
     return (async () => {
@@ -111,8 +120,7 @@ export const useCourseStore = defineStore('course', () => {
         form,
       )
       if (
-        courseId === activeCourseId.value &&
-        requestedContextVersion === contextVersion.value
+        requestedRootVersion === rootVersion.value
       ) {
         applyCourses(result.courses)
       }
@@ -141,6 +149,10 @@ export const useCourseStore = defineStore('course', () => {
     config,
     activeCourseId,
     contextVersion,
+    rootVersion,
+    treeEpoch,
+    loadRequestId,
+    pendingRequests,
     loading,
     indexing,
     activeCourse,
