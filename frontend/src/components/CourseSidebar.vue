@@ -58,24 +58,28 @@ function onDrop(event: DragEvent) {
       <button type="button" aria-label="关闭课程栏" @click="emit('close')">×</button>
     </header>
 
-    <section aria-labelledby="course-list-title">
-      <h2 id="course-list-title">课程</h2>
-      <button type="button" aria-label="刷新课程" :disabled="course.loading" @click="run(course.loadCourses)">刷新</button>
+    <section class="sidebar-section course-section" aria-labelledby="course-list-title">
+      <div class="section-heading">
+        <h2 id="course-list-title">课程</h2>
+        <button class="icon-button" type="button" aria-label="刷新课程" title="刷新课程" :disabled="course.loading" @click="run(course.loadCourses)">↻</button>
+      </div>
       <p v-if="course.courses.length === 0">请先设置资料根目录</p>
       <button
         v-for="item in course.courses"
         :key="item.id"
         type="button"
+        class="course-button"
         :aria-pressed="item.id === course.activeCourseId"
         :title="item.path"
         @click="course.selectCourse(item)"
       >
-        {{ item.name }} · {{ item.file_count }} 个
+        <span class="course-main"><span class="course-icon" aria-hidden="true">▤</span><span class="course-label">{{ item.name }}</span></span>
+        <span class="course-count">{{ item.file_count }} 个</span>
       </button>
     </section>
 
-    <section aria-labelledby="file-tree-title">
-      <h2 id="file-tree-title">当前资料</h2>
+    <section class="sidebar-section file-section" aria-labelledby="file-tree-title">
+      <div class="section-heading"><h2 id="file-tree-title">当前资料</h2></div>
       <FileTree
         v-if="course.activeCourse"
         :nodes="course.activeCourse.children"
@@ -86,7 +90,7 @@ function onDrop(event: DragEvent) {
     </section>
 
     <footer class="sidebar-footer">
-      <div aria-label="服务状态">
+      <div class="service-status" aria-label="服务状态">
         <span>AI：{{ course.config?.ai_configured ? '已配置' : '未配置' }}</span>
         <span>MinerU：{{ course.config?.mineru_configured ? '已配置' : '未配置' }}</span>
       </div>

@@ -63,7 +63,7 @@ function onKeydown(side: 'left' | 'right', event: KeyboardEvent) {
   <div
     ref="shell"
     class="workspace-shell"
-    :class="{ 'is-mobile': isMobile, 'sidebar-open': sidebarOpen, 'preview-open': layout.previewOpen }"
+    :class="{ 'is-mobile': isMobile, 'sidebar-open': sidebarOpen, 'preview-open': layout.previewOpen, 'sidebar-compact': !isMobile && layout.sidebarShare < 14 }"
     :style="shellStyle"
   >
     <slot name="sidebar" />

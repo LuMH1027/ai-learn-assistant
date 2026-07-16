@@ -178,6 +178,16 @@ describe('course workspace components', () => {
     expect(layout.sidebarShare).toBe(24)
   })
 
+  it('enters compact sidebar mode below fourteen percent', async () => {
+    const { wrapper } = await mountWorkspace()
+    const layout = useLayoutStore()
+
+    layout.moveLeftBoundary(-10)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('.workspace-shell').classes()).toContain('sidebar-compact')
+  })
+
   it('disables course actions while busy and sends on Enter but not Shift+Enter', async () => {
     const { wrapper } = await mountWorkspace()
     const chat = useChatStore()

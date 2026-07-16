@@ -17,7 +17,7 @@ const emit = defineEmits<{
   <ul class="file-tree" role="tree">
     <li v-for="node in nodes" :key="node.id" role="treeitem">
       <details v-if="node.type === 'folder'" open>
-        <summary :title="node.path">{{ node.name }}</summary>
+        <summary :title="node.path"><span class="file-icon" aria-hidden="true">▸</span><span class="file-label">{{ node.name }}</span></summary>
         <FileTree
           :nodes="node.children"
           :active-file-id="activeFileId"
@@ -33,7 +33,7 @@ const emit = defineEmits<{
         :title="node.path"
         @click="emit('select', node)"
       >
-        {{ node.name }}
+        <span class="file-icon" aria-hidden="true">{{ node.extension === '.pdf' ? 'PDF' : 'FILE' }}</span><span class="file-label">{{ node.name }}</span>
       </button>
     </li>
   </ul>
