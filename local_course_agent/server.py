@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import mimetypes
 import cgi
+import re
+import time
 from datetime import datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -61,6 +63,14 @@ def static_cache_control(request_path: str) -> str | None:
 
 def is_frontend_entry(request_path: str) -> bool:
     return urlparse(request_path).path in ("/", "/index.html")
+
+
+def emit_stream_text(text: str, emit, paced=False, delay=0.016) -> None:
+    units = re.findall(r"[\u3400-\u9fff]|[A-Za-z0-9_]+|\s+|[^\s]", text) if paced else [text]
+    for unit in units:
+        emit({"type": "delta", "delta": unit})
+        if paced and delay:
+            time.sleep(delay)
 
 
 def read_json(path: Path, default):
@@ -303,13 +313,18 @@ class Handler(SimpleHTTPRequestHandler):
             combined_result["answer"] = append_web_fallback(result["answer"], labeled_web_sources)
         emit({"type": "status", "stage": "generation", "detail": "正在生成回答…"})
         if stream:
+            emit_delta = lambda delta: emit_stream_text(
+                delta,
+                emit,
+                paced=stream == "ndjson",
+            )
             prefix = answer_mode_prefix(mode)
             if prefix:
-                emit({"type": "delta", "delta": prefix})
+                emit_delta(prefix)
             generated_answer, llm_status = self.synthesize_answer_stream(
                 search_question,
                 combined_result,
-                emit_delta=lambda delta: emit({"type": "delta", "delta": delta}),
+                emit_delta=emit_delta,
                 image_paths=image_paths,
                 ai_config=config.get("ai", {}),
             )

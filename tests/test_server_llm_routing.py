@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest import mock
 
-from local_course_agent.server import Handler, should_index_course_file
+from local_course_agent.server import Handler, emit_stream_text, should_index_course_file
 
 
 class FakeClient:
@@ -40,6 +40,16 @@ class FakeWebClient:
 
 
 class ServerLlmRoutingTest(unittest.TestCase):
+    def test_legacy_stream_splits_batched_text_into_display_units(self):
+        events = []
+
+        emit_stream_text("逐字 output!", events.append, paced=True, delay=0)
+
+        self.assertEqual(
+            [event["delta"] for event in events],
+            ["逐", "字", " ", "output", "!"],
+        )
+
     def test_stream_headers_disable_browser_mime_buffering(self):
         handler = Handler.__new__(Handler)
         handler.send_response = mock.Mock()

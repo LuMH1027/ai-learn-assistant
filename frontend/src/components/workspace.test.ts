@@ -6,7 +6,7 @@ import App from '../App.vue'
 import { useChatStore } from '../stores/chat'
 import { useCourseStore } from '../stores/course'
 import { useLayoutStore } from '../stores/layout'
-import type { Citation, Course, FileLeafNode, Message } from '../types/api'
+import type { ChatStreamEvent, Citation, Course, FileLeafNode, Message } from '../types/api'
 
 const jsdom = (globalThis as typeof globalThis & {
   jsdom: { window: Window }
@@ -19,7 +19,9 @@ Object.defineProperty(globalThis, 'localStorage', {
 const api = vi.hoisted(() => ({
   getJson: vi.fn(),
   postFiles: vi.fn(),
+  postFilesStream: vi.fn(),
   postJson: vi.fn(),
+  postJsonStream: vi.fn(),
 }))
 
 vi.mock('../services/api', () => api)
@@ -290,6 +292,51 @@ describe('course workspace components', () => {
 
     expect(wrapper.get('.stream-status').text()).toBe('正在生成回答…')
     expect(wrapper.get('.streaming-content').text()).toBe('正在形成')
+  })
+
+  it('repaints the actual chat component before a batched delta finishes', async () => {
+    let emit!: (event: ChatStreamEvent) => Promise<void>
+    let finish!: () => void
+    api.postJsonStream.mockImplementation((_path: string, _body: unknown, onEvent: typeof emit) => {
+      emit = onEvent
+      return new Promise<void>((resolve) => { finish = resolve })
+    })
+    const { wrapper } = await mountWorkspace()
+    const chat = useChatStore()
+    const request = chat.send('测试流式')
+
+    const rendering = emit({ type: 'delta', delta: '逐字显示' })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.streaming-content').at(-1)?.text()).toBe('逐')
+    await rendering
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.streaming-content').at(-1)?.text()).toBe('逐字显示')
+
+    await emit({
+      type: 'done',
+      result: { answer: '逐字显示', citations: [], memory: '', mode: 'answer', trace: [] },
+    })
+    finish()
+    await request
+  })
+
+  it('shows the newest message after history finishes loading', async () => {
+    const { wrapper } = await mountWorkspace()
+    const panel = wrapper.get('.messages').element as HTMLElement
+    Object.defineProperty(panel, 'scrollHeight', { configurable: true, value: 1200 })
+    panel.scrollTop = 0
+    const chat = useChatStore()
+
+    chat.messages = [...chat.messages, {
+      role: 'assistant',
+      content: '最新消息',
+      citations: [],
+      trace: [],
+      created_at: '2026-07-16T03:00:00Z',
+    }]
+    await wrapper.vm.$nextTick()
+
+    expect(panel.scrollTop).toBe(1200)
   })
 
   it('makes the notes drawer inert while closed and manages focus and Escape', async () => {

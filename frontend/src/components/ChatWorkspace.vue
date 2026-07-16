@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { useChatStore } from '../stores/chat'
 import { useCourseStore } from '../stores/course'
@@ -28,11 +28,13 @@ watch(
     const latest = chat.messages.at(-1)
     return [chat.messages.length, latest?.content.length, latest?.stream_status, latest?.streaming] as const
   },
-  async () => {
-    if (!chat.messages.at(-1)?.streaming) return
-    await nextTick()
+  (current, previous) => {
+    const latest = chat.messages.at(-1)
+    const messageCountChanged = current[0] !== previous?.[0]
+    if (!latest?.streaming && !messageCountChanged) return
     if (messagesPanel.value) messagesPanel.value.scrollTop = messagesPanel.value.scrollHeight
   },
+  { flush: 'post' },
 )
 
 function findFile(nodes: FileNode[], id: string): FileLeafNode | null {

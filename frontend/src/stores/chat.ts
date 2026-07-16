@@ -162,6 +162,7 @@ export const useChatStore = defineStore('chat', () => {
       stream_status: '正在发送…',
     }
     messages.value.push(userMessage, assistantMessage)
+    const streamingMessage = messages.value[messages.value.length - 1]!
 
     return (async () => {
       try {
@@ -170,23 +171,23 @@ export const useChatStore = defineStore('chat', () => {
         const onEvent = async (event: ChatStreamEvent) => {
           if (!isCurrentContext(id, version) || token !== chatRequestToken) return
           if (event.type === 'status') {
-            assistantMessage.stream_status = event.detail
+            streamingMessage.stream_status = event.detail
           } else if (event.type === 'delta') {
-            assistantMessage.stream_status = '正在生成回答…'
+            streamingMessage.stream_status = '正在生成回答…'
             for (const unit of displayUnits(event.delta)) {
               if (!isCurrentContext(id, version) || token !== chatRequestToken) return
-              assistantMessage.content += unit
+              streamingMessage.content += unit
               await waitForStreamPaint()
             }
           } else if (event.type === 'done') {
             result = event.result
-            if (assistantMessage.content !== event.result.answer) {
-              assistantMessage.content = event.result.answer
+            if (streamingMessage.content !== event.result.answer) {
+              streamingMessage.content = event.result.answer
             }
-            assistantMessage.citations = event.result.citations
-            assistantMessage.trace = event.result.trace
-            assistantMessage.streaming = false
-            assistantMessage.stream_status = ''
+            streamingMessage.citations = event.result.citations
+            streamingMessage.trace = event.result.trace
+            streamingMessage.streaming = false
+            streamingMessage.stream_status = ''
           }
         }
         if (files.length > 0) {
@@ -208,9 +209,9 @@ export const useChatStore = defineStore('chat', () => {
       } catch (cause) {
         if (isCurrentContext(id, version) && token === chatRequestToken) {
           error.value = errorMessage(cause)
-          assistantMessage.streaming = false
-          assistantMessage.stream_status = ''
-          if (!assistantMessage.content) assistantMessage.content = '回答生成失败，请重试。'
+          streamingMessage.streaming = false
+          streamingMessage.stream_status = ''
+          if (!streamingMessage.content) streamingMessage.content = '回答生成失败，请重试。'
         }
         throw cause
       } finally {
