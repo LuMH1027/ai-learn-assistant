@@ -15,6 +15,7 @@
 - 回答附带来源文件、原文片段和 PDF 页码。
 - 检索采用 BM25、多路 RRF 融合、MMR 去重和相邻上下文扩展。
 - 回答优先使用课程资料；未检索到依据时，可由已配置模型明确标注后使用通用知识补充。
+- 本地证据不足或问题具有时效性时，可按需调用 Web Search MCP，并显示可点击网页来源。
 - 支持课程资料上传和聊天临时附件。
 - 可选接入 OpenAI-compatible 模型与 MinerU；未配置时使用本地轻量能力。
 
@@ -125,6 +126,7 @@ copy data\config.example.json data\config.json
 
 - `root_folder`：课程资料根目录。
 - `ai.base_url/api_key/model`：OpenAI-compatible 模型配置。
+- `web_search`：MCP Web Search 配置；`enabled` 开启后才会向外部服务发送学生问题。
 - `mineru.token`：MinerU API token。
 
 示例：
@@ -138,6 +140,19 @@ copy data\config.example.json data\config.json
     "api_key": "",
     "model": "Pro/moonshotai/Kimi-K2.6"
   },
+  "web_search": {
+    "enabled": false,
+    "provider": "mcp",
+    "mcp_url": "https://mcp.exa.ai/mcp",
+    "tool_name": "web_search_exa",
+    "query_argument": "query",
+    "max_results_argument": "",
+    "max_results": 5,
+    "timeout": 20,
+    "api_key": "",
+    "auth_header": "x-api-key",
+    "auth_scheme": ""
+  },
   "mineru": {
     "auto": true,
     "api_enabled": true,
@@ -146,6 +161,10 @@ copy data\config.example.json data\config.json
   }
 }
 ```
+
+项目实现 MCP `2025-06-18` Streamable HTTP 客户端，支持 JSON 与 SSE 响应。示例使用 [Exa 官方 Web Search MCP](https://exa.ai/docs/reference/exa-mcp)；免费额度可不填 key，超过限额后在 `api_key` 填写 Exa key。也可以替换成其他返回结构化 URL、标题和摘要的搜索 MCP。
+
+联网判断规则：本地检索证据充分且问题不要求最新信息时跳过联网；本地无结果、相关性不足、包含“最新/目前/联网”或明确年份时调用搜索。只向 MCP 发送学生问题，不发送课程片段或附件正文。处理过程会显示联网是否被跳过、未配置、无结果或失败。
 
 不要提交真实 `data/config.json`。`.gitignore` 只允许提交 `data/config.example.json`。
 

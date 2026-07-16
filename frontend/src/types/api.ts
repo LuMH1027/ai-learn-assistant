@@ -26,12 +26,15 @@ export interface Course {
 }
 
 export interface Citation {
+  source_type?: 'local' | 'web'
+  reference_label?: string
   file_id: string
   file_name: string
   quote: string
   page: number | null
   chunk_index: number
   score: number
+  url?: string
 }
 
 export interface TraceStep {
@@ -61,6 +64,7 @@ export interface ConfigResponse {
   ai_configured: boolean
   mineru_auto: boolean
   mineru_configured: boolean
+  web_search_configured?: boolean
 }
 
 export interface CoursesResponse {
@@ -120,6 +124,7 @@ export interface ChatResult {
   mode: string
   trace: TraceStep[]
   llm_status?: 'used' | 'fallback' | 'disabled'
+  web_search_status?: 'used' | 'empty' | 'failed' | 'disabled' | 'skipped'
 }
 
 export interface UploadResult {

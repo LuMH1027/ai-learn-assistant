@@ -12,14 +12,17 @@ class AgentStrategyTest(unittest.TestCase):
             citation_count=2,
             memory_updated=True,
             llm_status="used",
+            web_status="used",
+            web_source_count=2,
         )
 
         labels = [step["label"] for step in trace]
-        self.assertEqual(labels, ["感知", "读取", "检索", "回答", "记忆"])
+        self.assertEqual(labels, ["感知", "读取", "检索", "联网", "回答", "记忆"])
         self.assertIn("操作系统", trace[0]["detail"])
         self.assertEqual(trace[2]["status"], "ok")
         self.assertEqual(trace[-1]["status"], "ok")
-        self.assertIn("大模型", trace[3]["detail"])
+        self.assertIn("大模型", trace[4]["detail"])
+        self.assertIn("2 条网页来源", trace[3]["detail"])
 
 
 if __name__ == "__main__":

@@ -6,6 +6,19 @@
     "api_key": "sk-请填写自己的硅基流动Key",
     "model": "Pro/moonshotai/Kimi-K2.6"
   },
+  "web_search": {
+    "enabled": false,
+    "provider": "mcp",
+    "mcp_url": "https://mcp.exa.ai/mcp",
+    "tool_name": "web_search_exa",
+    "query_argument": "query",
+    "max_results_argument": "",
+    "max_results": 5,
+    "timeout": 20,
+    "api_key": "",
+    "auth_header": "x-api-key",
+    "auth_scheme": ""
+  },
   "mineru": {
     "auto": true,
     "api_enabled": true,

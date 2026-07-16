@@ -96,7 +96,11 @@ class CourseKnowledgeBase:
 
     def search(self, course_id: str, query: str, limit: int = 5) -> List[Dict]:
         normalized_query = _normalize_query(query)
-        query_tokens = tokenize(normalized_query)
+        query_tokens = [
+            token
+            for token in tokenize(normalized_query)
+            if not (token.isdigit() and len(token) < 4)
+        ]
         if not query_tokens:
             return []
         query_counter = Counter(query_tokens)
@@ -154,6 +158,11 @@ class CourseKnowledgeBase:
             item["context_text"] = _neighbor_context(item, chunks)
             item["score"] = round(item["rrf_score"] * 1000, 4)
             item["retrieval_method"] = "bm25_rrf_mmr"
+            query_set = set(query_tokens)
+            item["query_coverage"] = round(
+                len(query_set & set(item.get("tokens", []))) / max(len(query_set), 1),
+                4,
+            )
         return selected
 
     def answer(self, course_id: str, query: str) -> Dict:
@@ -163,6 +172,7 @@ class CourseKnowledgeBase:
                 "answer": "未在当前课程资料中找到可靠依据。建议先确认该课程资料是否已完成入库，或换一种更贴近资料原文的提问方式。",
                 "citations": [],
                 "mode": "no_basis",
+                "retrieval_quality": "none",
             }
 
         citations = [
@@ -176,7 +186,14 @@ class CourseKnowledgeBase:
             "依据片段：\n"
             f"{evidence}"
         )
-        return {"answer": answer, "citations": citations, "mode": "grounded"}
+        max_coverage = max((hit.get("query_coverage", 0) for hit in hits), default=0)
+        quality = "sufficient" if max_coverage >= 0.25 else "partial"
+        return {
+            "answer": answer,
+            "citations": citations,
+            "mode": "grounded",
+            "retrieval_quality": quality,
+        }
 
     def generate_summary(self, course_id: str, limit: int = 6) -> Dict:
         chunks = self._material_chunks(course_id)[:limit]
@@ -240,6 +257,7 @@ def _summarize_evidence(query: str, hits: Iterable[Dict]) -> str:
 
 def citation_from_chunk(chunk: Dict) -> Dict:
     return {
+        "source_type": "local",
         "file_id": chunk["file_id"],
         "file_name": chunk["file_name"],
         "page": chunk.get("page"),

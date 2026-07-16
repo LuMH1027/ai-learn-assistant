@@ -92,6 +92,7 @@ function onDrop(event: DragEvent) {
     <footer class="sidebar-footer">
       <div class="service-status" aria-label="服务状态">
         <span>AI：{{ course.config?.ai_configured ? '已配置' : '未配置' }}</span>
+        <span>Web：{{ course.config?.web_search_configured ? '已配置' : '未配置' }}</span>
         <span>MinerU：{{ course.config?.mineru_configured ? '已配置' : '未配置' }}</span>
       </div>
       <label for="root-folder">资料根目录</label>

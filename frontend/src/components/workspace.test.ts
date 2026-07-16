@@ -245,6 +245,35 @@ describe('course workspace components', () => {
     expect(wrapper.get('blockquote').text()).toContain(source.quote)
   })
 
+  it('renders web citations as external source links instead of preview buttons', async () => {
+    const { wrapper } = await mountWorkspace()
+    const chat = useChatStore()
+    chat.messages = [{
+      role: 'assistant',
+      content: '这是联网补充。',
+      citations: [{
+        source_type: 'web',
+        reference_label: 'W1',
+        file_id: 'web-1',
+        file_name: '官方资料',
+        url: 'https://example.edu/reference',
+        quote: '网页摘要',
+        page: null,
+        chunk_index: 0,
+        score: 1,
+      }],
+      trace: [],
+      created_at: '2026-07-16T01:00:00Z',
+    }]
+    await wrapper.vm.$nextTick()
+
+    const link = wrapper.get('a[data-web-source="https://example.edu/reference"]')
+    expect(link.text()).toContain('官方资料')
+    expect(link.text()).toContain('[W1]')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(wrapper.find('button[data-citation-file="web-1"]').exists()).toBe(false)
+  })
+
   it('makes the notes drawer inert while closed and manages focus and Escape', async () => {
     const { wrapper } = await mountWorkspace()
     const drawer = wrapper.get('aside[aria-labelledby="notes-title"]')

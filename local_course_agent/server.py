@@ -17,6 +17,11 @@ from local_course_agent.rag import CourseKnowledgeBase
 from local_course_agent.scanner import CourseScanner, is_image_file, stable_id
 from local_course_agent.store import AppStore
 from local_course_agent.uploads import save_chat_upload, save_course_upload
+from local_course_agent.web_search import (
+    WebSearchError,
+    create_web_search_client,
+    should_search_web,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -117,6 +122,7 @@ class Handler(SimpleHTTPRequestHandler):
             config = CTX.config
             ai_client = create_llm_client(config.get("ai", {}))
             mineru_config = config.get("mineru", {})
+            web_client = create_web_search_client(config.get("web_search", {}))
             return self.send_json(
                 {
                     "root_folder": config.get("root_folder", ""),
@@ -124,6 +130,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "ai_configured": ai_client.enabled(),
                     "mineru_auto": bool(mineru_config.get("auto", True)),
                     "mineru_configured": bool(mineru_config.get("command") or mineru_config.get("token")),
+                    "web_search_configured": web_client.enabled(),
                 }
             )
         if parsed.path == "/api/courses":
@@ -227,11 +234,30 @@ class Handler(SimpleHTTPRequestHandler):
             search_question = f"{search_question}\n\n拖入聊天框的截图：{image_names}"
         CTX.store.add_message(course_id, "user", question)
         result = CTX.kb.answer(course_id, search_question)
+        config = CTX.config
+        web_sources, web_status = self.retrieve_web_sources(
+            question,
+            result,
+            config.get("web_search", {}),
+            allow_web=not uploads,
+        )
+        local_sources = [
+            {**source, "source_type": "local", "reference_label": f"L{index}"}
+            for index, source in enumerate(result["citations"], start=1)
+        ]
+        labeled_web_sources = [
+            {**source, "reference_label": f"W{index}"}
+            for index, source in enumerate(web_sources, start=1)
+        ]
+        combined_result = dict(result)
+        combined_result["citations"] = [*local_sources, *labeled_web_sources]
+        if web_sources:
+            combined_result["answer"] = append_web_fallback(result["answer"], labeled_web_sources)
         answer, llm_status = self.synthesize_answer(
             search_question,
-            result,
+            combined_result,
             image_paths=image_paths,
-            ai_config=CTX.config.get("ai", {}),
+            ai_config=config.get("ai", {}),
         )
         answer = adapt_answer_by_mode(mode, answer)
         memory = CTX.store.update_memory_from_question(course_id, question)
@@ -242,18 +268,33 @@ class Handler(SimpleHTTPRequestHandler):
             citation_count=len(result["citations"]),
             memory_updated=True,
             llm_status=llm_status,
+            web_status=web_status,
+            web_source_count=len(web_sources),
         )
-        CTX.store.add_message(course_id, "assistant", answer, result["citations"], trace=trace)
+        CTX.store.add_message(course_id, "assistant", answer, combined_result["citations"], trace=trace)
         return self.send_json(
             {
                 "answer": answer,
-                "citations": result["citations"],
+                "citations": combined_result["citations"],
                 "memory": memory,
                 "mode": mode,
                 "trace": trace,
                 "llm_status": llm_status,
+                "web_search_status": web_status,
             }
         )
+
+    def retrieve_web_sources(self, question: str, result: dict, web_config=None, allow_web=True):
+        if not allow_web or not should_search_web(question, result):
+            return [], "skipped"
+        client = create_web_search_client(web_config or {})
+        if not client.enabled():
+            return [], "disabled"
+        try:
+            sources = client.search(question)
+        except WebSearchError:
+            return [], "failed"
+        return sources, "used" if sources else "empty"
 
     def create_study_artifact(self, course_id: str, artifact_type: str):
         course = CTX.find_course(course_id)
@@ -419,6 +460,14 @@ def adapt_answer_by_mode(mode: str, answer: str) -> str:
     if mode == "review":
         return "复习模式：建议把下面内容整理成概念、易错点和自测题。\n\n" + answer
     return answer
+
+
+def append_web_fallback(answer: str, web_sources: list) -> str:
+    lines = [answer, "", "网页搜索补充："]
+    for index, source in enumerate(web_sources, start=1):
+        snippet = source.get("quote", "").strip()
+        lines.append(f"[W{index}] {source.get('file_name', '网页来源')}：{snippet}")
+    return "\n".join(lines)
 
 
 def save_study_artifact(course_path: Path, label: str, content: str, citations: list) -> Path:

@@ -36,6 +36,7 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
             self.assertIn("页表", result["answer"])
             self.assertEqual(result["citations"][0]["file_name"], "process.md")
             self.assertNotIn("calculus.md", result["answer"])
+            self.assertEqual(result["retrieval_quality"], "sufficient")
 
     def test_unknown_question_reports_no_reliable_basis(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -46,6 +47,7 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
 
             self.assertIn("未在当前课程资料中找到可靠依据", result["answer"])
             self.assertEqual(result["citations"], [])
+            self.assertEqual(result["retrieval_quality"], "none")
 
     def test_question_words_alone_do_not_create_false_course_hits(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -55,6 +57,16 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
             result = kb.answer("os", "量子纠缠是什么，有哪些作用？")
 
             self.assertEqual(result["mode"], "no_basis")
+            self.assertEqual(result["citations"], [])
+
+    def test_short_numeric_version_parts_do_not_match_list_numbers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "quiz", "复习题.txt", "1. 解释进程。2. 解释线程。3. 解释页表。")
+
+            result = kb.answer("os", "Python 3.14 在什么时候正式发布？")
+
+            self.assertEqual(result["retrieval_quality"], "none")
             self.assertEqual(result["citations"], [])
 
     def test_legacy_generated_artifacts_are_filtered_from_retrieval(self):

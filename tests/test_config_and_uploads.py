@@ -24,6 +24,20 @@ class ConfigAndUploadsTest(unittest.TestCase):
         self.assertEqual(config["ai"]["base_url"], "https://api.siliconflow.cn/v1")
         self.assertEqual(config["ai"]["model"], "Pro/moonshotai/Kimi-K2.6")
         self.assertTrue(config["mineru"]["auto"])
+        self.assertFalse(config["web_search"]["enabled"])
+        self.assertEqual(config["web_search"]["provider"], "mcp")
+
+    def test_normalize_config_keeps_web_search_settings(self):
+        config = normalize_config({
+            "web_search": {
+                "enabled": True,
+                "mcp_url": "https://search.example/mcp",
+                "tool_name": "web_search",
+            }
+        })
+
+        self.assertTrue(config["web_search"]["enabled"])
+        self.assertEqual(config["web_search"]["mcp_url"], "https://search.example/mcp")
 
     def test_safe_upload_name_removes_path_segments(self):
         self.assertEqual(safe_upload_name("../evil.pdf"), "evil.pdf")

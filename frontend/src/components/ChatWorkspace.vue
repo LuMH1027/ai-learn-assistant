@@ -119,15 +119,25 @@ function onDrop(event: DragEvent) {
           <summary>处理过程</summary>
           <p v-for="step in message.trace" :key="step.label">{{ step.label }}：{{ step.detail }}</p>
         </details>
-        <button
-          v-for="(citation, citationIndex) in message.citations"
-          :key="`${citation.file_id}-${citation.chunk_index}`"
-          type="button"
-          :data-citation-file="citation.file_id"
-          @click="openCitation(citation.file_id, citationIndex, messageIndex)"
-        >
-          来源：{{ citation.file_name }}<template v-if="citation.page"> · 第 {{ citation.page }} 页</template>
-        </button>
+        <template v-for="(citation, citationIndex) in message.citations" :key="`${citation.file_id}-${citation.chunk_index}`">
+          <a
+            v-if="citation.source_type === 'web' && citation.url"
+            :href="citation.url"
+            :data-web-source="citation.url"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <template v-if="citation.reference_label">[{{ citation.reference_label }}] </template>网页来源：{{ citation.file_name }}
+          </a>
+          <button
+            v-else
+            type="button"
+            :data-citation-file="citation.file_id"
+            @click="openCitation(citation.file_id, citationIndex, messageIndex)"
+          >
+            <template v-if="citation.reference_label">[{{ citation.reference_label }}] </template>课程来源：{{ citation.file_name }}<template v-if="citation.page"> · 第 {{ citation.page }} 页</template>
+          </button>
+        </template>
       </article>
       <p v-if="chat.error" role="alert">{{ chat.error }}</p>
     </section>

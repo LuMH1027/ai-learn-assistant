@@ -218,16 +218,19 @@ select:focus-visible, summary:focus-visible, [role="separator"]:focus-visible {
 .messages > article.user { width: fit-content; max-width: min(82%, 38rem); margin-right: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 9px 11px; }
 .messages article > p { white-space: pre-wrap; }
 .messages details { margin-top: 8px; border-left: 2px solid var(--line); padding-left: 10px; color: var(--muted); font-size: 11px; }
-.messages article > button {
+.messages article > button, .messages article > a {
   display: block;
   width: fit-content;
   margin-top: 8px;
-  border-color: #ead4a7;
+  border: 1px solid #ead4a7;
+  border-radius: 6px;
   background: var(--evidence-soft);
   color: var(--evidence);
+  padding: 6px 8px;
   font-size: 12px;
   text-align: left;
 }
+.messages article > a { text-decoration: none; }
 .messages:empty::before { display: block; margin-top: 14vh; color: var(--muted); content: "选择课程后，围绕课程资料开始提问。"; text-align: center; }
 
 .composer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; gap: 7px; margin: 10px max(12px, 5%); border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); padding: 7px; }

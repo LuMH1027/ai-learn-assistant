@@ -13,6 +13,19 @@ DEFAULT_CONFIG = {
         "api_key": "",
         "model": "",
     },
+    "web_search": {
+        "enabled": False,
+        "provider": "mcp",
+        "mcp_url": "",
+        "tool_name": "",
+        "query_argument": "query",
+        "max_results_argument": "",
+        "max_results": 5,
+        "timeout": 20,
+        "api_key": "",
+        "auth_header": "Authorization",
+        "auth_scheme": "Bearer",
+    },
     "mineru": {
         "auto": True,
         "api_enabled": True,
@@ -27,10 +40,13 @@ def normalize_config(raw: Dict) -> Dict:
     config = {
         "root_folder": raw.get("root_folder", DEFAULT_CONFIG["root_folder"]),
         "ai": dict(DEFAULT_CONFIG["ai"]),
+        "web_search": dict(DEFAULT_CONFIG["web_search"]),
         "mineru": dict(DEFAULT_CONFIG["mineru"]),
     }
     if isinstance(raw.get("ai"), dict):
         config["ai"].update(raw["ai"])
+    if isinstance(raw.get("web_search"), dict):
+        config["web_search"].update(raw["web_search"])
     if isinstance(raw.get("mineru"), dict):
         config["mineru"].update(raw["mineru"])
 
