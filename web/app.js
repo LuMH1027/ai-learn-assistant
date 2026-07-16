@@ -173,21 +173,22 @@ async function previewFile(file, options = {}) {
   if (file.extension === ".pdf") {
     $("preview").className = "preview-content";
     $("preview").innerHTML = `<div class="pdf-preview"><iframe src="${url}${page}" title="${escapeHtml(file.name)}"></iframe><a class="pdf-fallback" href="${url}${page}" target="_blank" rel="noopener">在新窗口打开 PDF</a></div>`;
-    return;
+    return true;
   }
   if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"].includes(file.extension)) {
     $("preview").className = "preview-content";
     $("preview").innerHTML = `<div class="image-preview-wrap"><img class="image-preview" src="${url}" alt="${escapeHtml(file.name)}" /></div>`;
-    return;
+    return true;
   }
   const text = await fetch(url).then((response) => response.text());
   if (
     requestVersion !== previewRequestVersion ||
     activeCourse?.id !== courseId ||
     activeFile?.id !== fileId
-  ) return;
+  ) return false;
   $("preview").className = "preview-content";
   $("preview").innerHTML = `<pre class="text-preview">${escapeHtml(text)}</pre>`;
+  return true;
 }
 
 function renderPreviewInfo(file) {
@@ -281,8 +282,8 @@ function previewByCitation(citation) {
   const file = findFile(courses, citation.file_id);
   if (file) {
     previewFile(file, { page: citation.page })
-      .then(() => {
-        if (activeCourse?.id !== courseId || activeFile?.id !== fileId) return;
+      .then((rendered) => {
+        if (!rendered || activeCourse?.id !== courseId || activeFile?.id !== fileId) return;
         setPreviewSources(citation);
         setPreviewTab("sources");
       })

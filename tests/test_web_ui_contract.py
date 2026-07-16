@@ -117,6 +117,15 @@ class WebUiContractTest(unittest.TestCase):
         ):
             self.assertIn(token, self.js)
 
+    def test_stale_citation_preview_must_report_render_status(self):
+        for token in (
+            "return false",
+            "return true",
+            ".then((rendered) => {",
+            "if (!rendered || activeCourse?.id !== courseId || activeFile?.id !== fileId) return",
+        ):
+            self.assertIn(token, self.js)
+
 
 if __name__ == "__main__":
     unittest.main()
