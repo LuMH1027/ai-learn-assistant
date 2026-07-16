@@ -21,6 +21,7 @@ data/*
 venv/
 env/
 node_modules/
+web/dist/
 .superpowers/
 .worktrees/
 
