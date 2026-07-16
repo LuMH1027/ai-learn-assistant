@@ -219,4 +219,30 @@ describe('layout store', () => {
     expect(store.previewShare).toBe(31)
     expect(store.previewOpen).toBe(true)
   })
+
+  it('falls back to defaults when layout storage cannot be read', () => {
+    const store = useLayoutStore()
+    store.moveLeft(-4)
+    store.setPreviewOpen(false)
+    vi.spyOn(window.Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Storage is unavailable', 'SecurityError')
+    })
+
+    expect(() => store.hydrate(false)).not.toThrow()
+    expect(store.sidebarShare).toBe(22)
+    expect(store.previewShare).toBe(31)
+    expect(store.previewOpen).toBe(true)
+  })
+
+  it('keeps user action state when layout storage cannot be written', () => {
+    const store = useLayoutStore()
+    vi.spyOn(window.Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+    })
+
+    expect(() => store.moveLeft(-4)).not.toThrow()
+    expect(store.sidebarShare).toBe(18)
+    expect(store.previewShare).toBe(31)
+    expect(store.centerShare).toBeCloseTo(49.8)
+  })
 })

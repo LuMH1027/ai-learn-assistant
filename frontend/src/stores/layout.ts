@@ -61,7 +61,11 @@ export const useLayoutStore = defineStore('layout', () => {
       previewShare: previewShare.value,
       previewOpen: previewOpen.value,
     }
-    window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout))
+    try {
+      window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout))
+    } catch {
+      // Layout persistence is best-effort; the in-memory action still succeeds.
+    }
   }
 
   function moveLeft(delta: number, minimum = MIN_SIDEBAR_SHARE) {
@@ -111,7 +115,13 @@ export const useLayoutStore = defineStore('layout', () => {
   }
 
   function hydrate(isMobile = false) {
-    const savedLayout = window.localStorage.getItem(LAYOUT_STORAGE_KEY)
+    let savedLayout: string | null
+    try {
+      savedLayout = window.localStorage.getItem(LAYOUT_STORAGE_KEY)
+    } catch {
+      resetToDefaults(isMobile)
+      return
+    }
     if (savedLayout === null) {
       resetToDefaults(isMobile)
       return
