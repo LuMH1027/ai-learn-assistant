@@ -63,6 +63,16 @@ describe('layout store', () => {
     expect(store.previewShare).toBe(31)
   })
 
+  it('uses a measured percentage for the compact sidebar minimum', () => {
+    const store = useLayoutStore()
+
+    store.setMinimumSidebarShare(3.8)
+    store.moveLeft(-100)
+
+    expect(store.minimumSidebarShare).toBe(3.8)
+    expect(store.sidebarShare).toBe(3.8)
+  })
+
   it('moves only the right divider within preview and center bounds', () => {
     const store = useLayoutStore()
     const sidebar = store.sidebarShare

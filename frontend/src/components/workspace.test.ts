@@ -188,6 +188,22 @@ describe('course workspace components', () => {
     expect(wrapper.get('.workspace-shell').classes()).toContain('sidebar-compact')
   })
 
+  it('recalculates the compact minimum as a percentage of workspace width', async () => {
+    const { wrapper } = await mountWorkspace()
+    const layout = useLayoutStore()
+    const shell = wrapper.get('.workspace-shell')
+    vi.spyOn(shell.element, 'getBoundingClientRect').mockReturnValue({
+      width: 1400, height: 800, x: 0, y: 0, top: 0, right: 1400,
+      bottom: 800, left: 0, toJSON: () => ({}),
+    })
+
+    window.dispatchEvent(new Event('resize'))
+    await wrapper.vm.$nextTick()
+
+    expect(layout.minimumSidebarShare).toBeLessThan(5.5)
+    expect(Number(wrapper.get('.left-resizer').attributes('aria-valuemin'))).toBeCloseTo(layout.minimumSidebarShare, 1)
+  })
+
   it('disables course actions while busy and sends on Enter but not Shift+Enter', async () => {
     const { wrapper } = await mountWorkspace()
     const chat = useChatStore()
@@ -222,7 +238,8 @@ describe('course workspace components', () => {
     expect(wrapper.get('iframe').attributes('src')).toContain('#page=7')
 
     await wrapper.get('button[aria-label="关闭资料预览"]').trigger('click')
-    expect(wrapper.find('aside[aria-label="资料预览"]').exists()).toBe(false)
+    expect(wrapper.find('aside[aria-label="资料预览"]').exists()).toBe(true)
+    expect(useLayoutStore().previewOpen).toBe(false)
     await wrapper.get('button[aria-label="打开资料预览"]').trigger('click')
     expect(wrapper.get('iframe').attributes('src')).toContain('#page=7')
     expect(wrapper.get('blockquote').text()).toContain(source.quote)

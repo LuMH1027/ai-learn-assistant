@@ -47,6 +47,7 @@ function parsePersistedLayout(value: unknown): PersistedLayout | null {
 
 export const useLayoutStore = defineStore('layout', () => {
   const sidebarShare = ref(DEFAULT_SIDEBAR_SHARE)
+  const minimumSidebarShare = ref(MIN_SIDEBAR_SHARE)
   const previewShare = ref(DEFAULT_PREVIEW_SHARE)
   const previewOpen = ref(true)
 
@@ -69,7 +70,12 @@ export const useLayoutStore = defineStore('layout', () => {
     }
   }
 
-  function moveLeft(delta: number, minimum = MIN_SIDEBAR_SHARE) {
+  function setMinimumSidebarShare(value: number) {
+    minimumSidebarShare.value = clamp(value, 3, 11.5)
+    sidebarShare.value = Math.max(sidebarShare.value, minimumSidebarShare.value)
+  }
+
+  function moveLeft(delta: number, minimum = minimumSidebarShare.value) {
     const maximum = Math.min(
       MAX_SIDEBAR_SHARE,
       CONTENT_SHARE - previewShare.value - MIN_CENTER_SHARE,
@@ -143,7 +149,7 @@ export const useLayoutStore = defineStore('layout', () => {
       )
       sidebarShare.value = clamp(
         layout.sidebarShare,
-        MIN_SIDEBAR_SHARE,
+        minimumSidebarShare.value,
         Math.min(
           MAX_SIDEBAR_SHARE,
           CONTENT_SHARE - previewShare.value - MIN_CENTER_SHARE,
@@ -162,6 +168,7 @@ export const useLayoutStore = defineStore('layout', () => {
 
   return {
     sidebarShare,
+    minimumSidebarShare,
     previewShare,
     previewOpen,
     centerShare,
@@ -170,6 +177,7 @@ export const useLayoutStore = defineStore('layout', () => {
     moveRight,
     moveRightBoundary: moveRight,
     setPreviewOpen,
+    setMinimumSidebarShare,
     resetLeft,
     resetLeftBoundary: resetLeft,
     resetRight,

@@ -86,6 +86,7 @@ select:focus-visible, summary:focus-visible, [role="separator"]:focus-visible {
 .workspace-shell:not(.preview-open) {
   grid-template-columns: var(--sidebar-share) 0.6% minmax(0, var(--center-share));
 }
+.workspace-shell:not(.preview-open) > .file-preview { display: none; }
 .course-sidebar, .chat-workspace, .file-preview { min-width: 0; min-height: 0; }
 
 .course-sidebar {

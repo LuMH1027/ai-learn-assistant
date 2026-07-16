@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { useLayoutStore } from '../stores/layout'
 
@@ -12,6 +12,27 @@ const layout = useLayoutStore()
 const shell = ref<HTMLElement | null>(null)
 const dragging = ref<'left' | 'right' | null>(null)
 let lastX = 0
+
+function measureCompactMinimum() {
+  if (!shell.value || props.isMobile) return
+  const width = shell.value.getBoundingClientRect().width || shell.value.clientWidth
+  if (width <= 0) return
+  const candidates = shell.value.querySelectorAll<HTMLElement>(
+    '.brand-mark, .icon-button, .course-icon, .file-icon',
+  )
+  const widest = [...candidates].reduce(
+    (value, element) => Math.max(value, element.getBoundingClientRect().width),
+    34,
+  )
+  layout.setMinimumSidebarShare(((widest + 18) / width) * 100)
+}
+
+onMounted(() => {
+  measureCompactMinimum()
+  window.addEventListener('resize', measureCompactMinimum)
+})
+
+onBeforeUnmount(() => window.removeEventListener('resize', measureCompactMinimum))
 
 const shellStyle = computed(() => ({
   '--sidebar-share': `${layout.sidebarShare}%`,
@@ -72,7 +93,7 @@ function onKeydown(side: 'left' | 'right', event: KeyboardEvent) {
       role="separator"
       aria-label="调整课程栏和对话栏宽度"
       aria-orientation="vertical"
-      aria-valuemin="5.5"
+      :aria-valuemin="layout.minimumSidebarShare.toFixed(1)"
       aria-valuemax="32"
       :aria-valuenow="Math.round(layout.sidebarShare)"
       tabindex="0"
@@ -84,25 +105,24 @@ function onKeydown(side: 'left' | 'right', event: KeyboardEvent) {
       @dblclick="layout.resetLeftBoundary()"
     />
     <slot name="main" />
-    <template v-if="layout.previewOpen">
-      <div
-        class="column-resizer right-resizer"
-        role="separator"
-        aria-label="调整对话栏和预览栏宽度"
-        aria-orientation="vertical"
-        aria-valuemin="20"
-        aria-valuemax="44"
-        :aria-valuenow="Math.round(layout.previewShare)"
-        tabindex="0"
-        @pointerdown="onPointerDown('right', $event)"
-        @pointermove="onPointerMove('right', $event)"
-        @pointerup="finishPointer"
-        @pointercancel="finishPointer"
-        @keydown="onKeydown('right', $event)"
-        @dblclick="layout.resetRightBoundary()"
-      />
-      <slot name="preview" />
-    </template>
+    <div
+      v-if="layout.previewOpen"
+      class="column-resizer right-resizer"
+      role="separator"
+      aria-label="调整对话栏和预览栏宽度"
+      aria-orientation="vertical"
+      aria-valuemin="20"
+      aria-valuemax="44"
+      :aria-valuenow="Math.round(layout.previewShare)"
+      tabindex="0"
+      @pointerdown="onPointerDown('right', $event)"
+      @pointermove="onPointerMove('right', $event)"
+      @pointerup="finishPointer"
+      @pointercancel="finishPointer"
+      @keydown="onKeydown('right', $event)"
+      @dblclick="layout.resetRightBoundary()"
+    />
+    <slot name="preview" />
   </div>
 </template>
 
