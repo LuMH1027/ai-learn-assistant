@@ -11,6 +11,7 @@ class AgentStrategyTest(unittest.TestCase):
             has_attachments=True,
             citation_count=2,
             memory_updated=True,
+            llm_status="used",
         )
 
         labels = [step["label"] for step in trace]
@@ -18,6 +19,7 @@ class AgentStrategyTest(unittest.TestCase):
         self.assertIn("操作系统", trace[0]["detail"])
         self.assertEqual(trace[2]["status"], "ok")
         self.assertEqual(trace[-1]["status"], "ok")
+        self.assertIn("大模型", trace[3]["detail"])
 
 
 if __name__ == "__main__":

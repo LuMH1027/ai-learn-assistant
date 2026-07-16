@@ -1,7 +1,19 @@
 from __future__ import annotations
 
 
-def build_agent_trace(course_name: str, question: str, has_attachments: bool, citation_count: int, memory_updated: bool):
+def build_agent_trace(
+    course_name: str,
+    question: str,
+    has_attachments: bool,
+    citation_count: int,
+    memory_updated: bool,
+    llm_status: str = "disabled",
+):
+    answer_details = {
+        "used": "已调用配置的大模型，并基于课程检索上下文生成回答",
+        "fallback": "大模型调用失败，已降级为本地课程检索回答",
+        "disabled": "大模型未配置，使用本地课程检索回答",
+    }
     return [
         {
             "label": "感知",
@@ -20,8 +32,8 @@ def build_agent_trace(course_name: str, question: str, has_attachments: bool, ci
         },
         {
             "label": "回答",
-            "status": "ok",
-            "detail": "基于引用片段合成回答，避免整篇资料进入上下文",
+            "status": "ok" if llm_status == "used" else "skip",
+            "detail": answer_details.get(llm_status, answer_details["fallback"]),
         },
         {
             "label": "记忆",
@@ -29,4 +41,3 @@ def build_agent_trace(course_name: str, question: str, has_attachments: bool, ci
             "detail": "已更新课程独立记忆" if memory_updated else "未更新记忆",
         },
     ]
-

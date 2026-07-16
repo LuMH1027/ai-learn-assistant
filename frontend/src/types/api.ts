@@ -119,6 +119,7 @@ export interface ChatResult {
   memory: string
   mode: string
   trace: TraceStep[]
+  llm_status?: 'used' | 'fallback' | 'disabled'
 }
 
 export interface UploadResult {

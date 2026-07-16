@@ -225,7 +225,12 @@ class Handler(SimpleHTTPRequestHandler):
             search_question = f"{search_question}\n\n拖入聊天框的截图：{image_names}"
         CTX.store.add_message(course_id, "user", question)
         result = CTX.kb.answer(course_id, search_question)
-        answer = self.synthesize_answer(search_question, result, image_paths=image_paths)
+        answer, llm_status = self.synthesize_answer(
+            search_question,
+            result,
+            image_paths=image_paths,
+            ai_config=CTX.config.get("ai", {}),
+        )
         answer = adapt_answer_by_mode(mode, answer)
         memory = CTX.store.update_memory_from_question(course_id, question)
         trace = build_agent_trace(
@@ -234,9 +239,19 @@ class Handler(SimpleHTTPRequestHandler):
             has_attachments=bool(uploads),
             citation_count=len(result["citations"]),
             memory_updated=True,
+            llm_status=llm_status,
         )
         CTX.store.add_message(course_id, "assistant", answer, result["citations"], trace=trace)
-        return self.send_json({"answer": answer, "citations": result["citations"], "memory": memory, "mode": mode, "trace": trace})
+        return self.send_json(
+            {
+                "answer": answer,
+                "citations": result["citations"],
+                "memory": memory,
+                "mode": mode,
+                "trace": trace,
+                "llm_status": llm_status,
+            }
+        )
 
     def create_study_artifact(self, course_id: str, artifact_type: str):
         course = CTX.find_course(course_id)
@@ -308,12 +323,12 @@ class Handler(SimpleHTTPRequestHandler):
                 extracted_parts.append(f"文件 {path.name}：\n{text}")
         return "\n\n".join(extracted_parts), image_paths
 
-    def synthesize_answer(self, question: str, result: dict, image_paths=None) -> str:
-        config = CTX.config
-        ai_config = config.get("ai", {})
+    def synthesize_answer(self, question: str, result: dict, image_paths=None, ai_config=None):
+        ai_config = ai_config if ai_config is not None else CTX.config.get("ai", {})
         image_paths = image_paths or []
+        client = create_llm_client(ai_config)
+        llm_configured = client.enabled()
         if image_paths:
-            client = create_llm_client(ai_config)
             image_prompt = (
                 "学生上传了课程截图或图片。请先理解图片内容，再结合课程资料回答。\n"
                 "如果图片中文字看不清，直接说明看不清，不要编造。\n\n"
@@ -322,21 +337,18 @@ class Handler(SimpleHTTPRequestHandler):
             )
             generated = client.generate_with_images(image_prompt, image_paths)
             if generated:
-                return generated
+                return generated, "used"
             fallback = result["answer"]
             return (
                 f"{fallback}\n\n"
                 "已收到截图附件，但当前配置的大模型未成功读取图片内容。"
                 "请确认 `data/config.json` 中配置的是支持视觉输入的 Kimi 模型，或把截图中的文字复制到聊天框。"
-            )
-        if not result.get("citations"):
-            return result["answer"]
-        client = create_llm_client(ai_config)
+            ), "fallback" if llm_configured else "disabled"
         prompt = build_grounded_prompt(question, result["citations"], memory="")
         generated = client.generate(prompt)
         if generated:
-            return generated
-        return result["answer"]
+            return generated, "used"
+        return result["answer"], "fallback" if llm_configured else "disabled"
 
     def send_preview(self, file_id: str):
         path = CTX.find_file(file_id)
