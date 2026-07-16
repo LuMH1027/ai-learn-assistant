@@ -3,6 +3,7 @@ let activeCourse = null;
 let activeFile = null;
 let pendingChatFiles = [];
 let requestBusy = false;
+let previewRequestVersion = 0;
 
 const $ = (id) => document.getElementById(id);
 const LAYOUT_STORAGE_KEY = "local-course-agent-layout-v1";
@@ -140,6 +141,7 @@ async function selectCourse(course) {
 }
 
 function resetCourseContext() {
+  previewRequestVersion += 1;
   activeFile = null;
   pendingChatFiles = [];
   hideChatDropState();
@@ -155,6 +157,9 @@ function resetCourseContext() {
 }
 
 async function previewFile(file, options = {}) {
+  const requestVersion = ++previewRequestVersion;
+  const courseId = activeCourse?.id;
+  const fileId = file.id;
   activeFile = file;
   closeMobileSidebar();
   setPreviewOpen(true);
@@ -176,6 +181,11 @@ async function previewFile(file, options = {}) {
     return;
   }
   const text = await fetch(url).then((response) => response.text());
+  if (
+    requestVersion !== previewRequestVersion ||
+    activeCourse?.id !== courseId ||
+    activeFile?.id !== fileId
+  ) return;
   $("preview").className = "preview-content";
   $("preview").innerHTML = `<pre class="text-preview">${escapeHtml(text)}</pre>`;
 }
@@ -266,10 +276,13 @@ function renderTrace(trace) {
 }
 
 function previewByCitation(citation) {
+  const courseId = activeCourse?.id;
+  const fileId = citation.file_id;
   const file = findFile(courses, citation.file_id);
   if (file) {
     previewFile(file, { page: citation.page })
       .then(() => {
+        if (activeCourse?.id !== courseId || activeFile?.id !== fileId) return;
         setPreviewSources(citation);
         setPreviewTab("sources");
       })

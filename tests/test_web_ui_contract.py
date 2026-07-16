@@ -106,6 +106,17 @@ class WebUiContractTest(unittest.TestCase):
             self.assertIn(token, self.html + self.css + self.js)
         self.assertNotIn("min-height: 30rem", self.css)
 
+    def test_stale_preview_responses_are_guarded(self):
+        for token in (
+            "let previewRequestVersion = 0",
+            "const requestVersion = ++previewRequestVersion",
+            "previewRequestVersion += 1",
+            "requestVersion !== previewRequestVersion",
+            "activeCourse?.id !== courseId",
+            "activeFile?.id !== fileId",
+        ):
+            self.assertIn(token, self.js)
+
 
 if __name__ == "__main__":
     unittest.main()
