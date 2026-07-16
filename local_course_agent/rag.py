@@ -9,6 +9,7 @@ from typing import Dict, Iterable, List, Sequence
 
 
 TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+")
+GENERATED_ARTIFACT_RE = re.compile(r"^(?:课程摘要|练习题)-\d{8}-\d{6}\.md$", re.IGNORECASE)
 QUERY_STOP_TOKENS = {
     "什么",
     "怎么",
@@ -70,7 +71,7 @@ class CourseKnowledgeBase:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
     def index_text(self, course_id: str, file_id: str, file_name: str, text: str, page=None) -> int:
-        chunks = self._load(course_id)
+        chunks = self._material_chunks(course_id)
         chunks = [chunk for chunk in chunks if not (chunk["file_id"] == file_id and chunk.get("page") == page)]
         next_index = len(chunks) + 1
         for text_chunk in split_text(text):
@@ -99,7 +100,7 @@ class CourseKnowledgeBase:
         if not query_tokens:
             return []
         query_counter = Counter(query_tokens)
-        chunks = self._load(course_id)
+        chunks = self._material_chunks(course_id)
         for chunk in chunks:
             # Existing indexes are upgraded lazily after tokenizer changes.
             chunk["tokens"] = tokenize(chunk.get("text", ""))
@@ -178,7 +179,7 @@ class CourseKnowledgeBase:
         return {"answer": answer, "citations": citations, "mode": "grounded"}
 
     def generate_summary(self, course_id: str, limit: int = 6) -> Dict:
-        chunks = self._load(course_id)[:limit]
+        chunks = self._material_chunks(course_id)[:limit]
         if not chunks:
             return {"content": "当前课程还没有可用于生成摘要的资料片段，请先构建知识库。", "citations": []}
         citations = [citation_from_chunk(chunk) for chunk in chunks]
@@ -194,7 +195,7 @@ class CourseKnowledgeBase:
         }
 
     def generate_quiz(self, course_id: str, count: int = 5) -> Dict:
-        chunks = self._load(course_id)[:count]
+        chunks = self._material_chunks(course_id)[:count]
         if not chunks:
             return {"content": "当前课程还没有可用于生成练习题的资料片段，请先构建知识库。", "citations": []}
         questions = []
@@ -220,6 +221,13 @@ class CourseKnowledgeBase:
 
     def _save(self, course_id: str, chunks: List[Dict]) -> None:
         self._path(course_id).write_text(json.dumps(chunks, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _material_chunks(self, course_id: str) -> List[Dict]:
+        return [
+            chunk
+            for chunk in self._load(course_id)
+            if not GENERATED_ARTIFACT_RE.fullmatch(chunk.get("file_name", ""))
+        ]
 
 
 def _summarize_evidence(query: str, hits: Iterable[Dict]) -> str:

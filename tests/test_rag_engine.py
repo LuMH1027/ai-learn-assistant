@@ -57,6 +57,16 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
             self.assertEqual(result["mode"], "no_basis")
             self.assertEqual(result["citations"], [])
 
+    def test_legacy_generated_artifacts_are_filtered_from_retrieval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "generated", "课程摘要-20260716-154735.md", "页表用于地址转换。")
+            kb.index_text("os", "source", "教材.md", "页表项保存虚拟页到物理页框的映射。")
+
+            hits = kb.search("os", "页表地址转换", limit=4)
+
+            self.assertEqual([hit["file_name"] for hit in hits], ["教材.md"])
+
     def test_bm25_does_not_overreward_repeated_terms(self):
         with tempfile.TemporaryDirectory() as tmp:
             kb = CourseKnowledgeBase(Path(tmp))
