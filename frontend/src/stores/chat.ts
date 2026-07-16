@@ -1,0 +1,243 @@
+import { reactive, ref } from 'vue'
+import { defineStore } from 'pinia'
+
+import { getJson, postFiles, postJson } from '../services/api'
+import type {
+  ArtifactResult,
+  ChatResult,
+  Message,
+  MessagesResponse,
+  Note,
+  NotesResponse,
+  SaveNotesResponse,
+} from '../types/api'
+import { useCourseStore } from './course'
+
+type StudyArtifact = 'summary' | 'quiz'
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export const useChatStore = defineStore('chat', () => {
+  const messages = ref<Message[]>([])
+  const notes = ref<Note[]>([])
+  const mode = ref('answer')
+  const pendingFiles = ref<File[]>([])
+  const busy = reactive({ chat: false, summary: false, quiz: false })
+  const error = ref<string | null>(null)
+  const courseId = ref<string | null>(null)
+  const contextVersion = ref(0)
+
+  let messagesRequestToken = 0
+  let notesRequestToken = 0
+  let chatRequestToken = 0
+  let artifactRequestToken = 0
+
+  function isCurrentContext(id: string, version: number) {
+    return courseId.value === id && contextVersion.value === version
+  }
+
+  function beginCourse(id: string, version: number) {
+    courseId.value = id
+    contextVersion.value = version
+    messages.value = []
+    notes.value = []
+    pendingFiles.value = []
+    error.value = null
+    busy.chat = false
+    busy.summary = false
+    busy.quiz = false
+    messagesRequestToken += 1
+    notesRequestToken += 1
+    chatRequestToken += 1
+    artifactRequestToken += 1
+  }
+
+  function loadMessages() {
+    const id = courseId.value
+    const version = contextVersion.value
+    if (id === null) return
+    const token = ++messagesRequestToken
+
+    return (async () => {
+      try {
+        const result = await getJson<MessagesResponse>(
+          `/api/courses/${encodeURIComponent(id)}/messages`,
+        )
+        if (isCurrentContext(id, version) && token === messagesRequestToken) {
+          messages.value = result.messages
+        }
+        return result
+      } catch (cause) {
+        if (isCurrentContext(id, version) && token === messagesRequestToken) {
+          error.value = errorMessage(cause)
+        }
+        throw cause
+      }
+    })()
+  }
+
+  function loadNotes() {
+    const id = courseId.value
+    const version = contextVersion.value
+    if (id === null) return
+    const token = ++notesRequestToken
+
+    return (async () => {
+      try {
+        const result = await getJson<NotesResponse>(
+          `/api/courses/${encodeURIComponent(id)}/notes`,
+        )
+        if (isCurrentContext(id, version) && token === notesRequestToken) {
+          notes.value = result.notes
+        }
+        return result
+      } catch (cause) {
+        if (isCurrentContext(id, version) && token === notesRequestToken) {
+          error.value = errorMessage(cause)
+        }
+        throw cause
+      }
+    })()
+  }
+
+  function send(question: string) {
+    const id = courseId.value
+    const version = contextVersion.value
+    const normalizedQuestion = question.trim()
+    if (
+      id === null ||
+      busy.chat ||
+      busy.summary ||
+      busy.quiz ||
+      (normalizedQuestion.length === 0 && pendingFiles.value.length === 0)
+    ) return
+
+    const files = [...pendingFiles.value]
+    pendingFiles.value = []
+    const token = ++chatRequestToken
+    busy.chat = true
+    error.value = null
+
+    return (async () => {
+      try {
+        let result: ChatResult
+        const path = `/api/courses/${encodeURIComponent(id)}/chat`
+        if (files.length > 0) {
+          const form = new FormData()
+          form.append('question', normalizedQuestion)
+          form.append('mode', mode.value)
+          for (const file of files) form.append('files', file, file.name)
+          result = await postFiles<ChatResult>(path, form)
+        } else {
+          result = await postJson<ChatResult>(path, {
+            question: normalizedQuestion,
+            mode: mode.value,
+          })
+        }
+        if (isCurrentContext(id, version) && token === chatRequestToken) {
+          await loadMessages()
+        }
+        return result
+      } catch (cause) {
+        if (isCurrentContext(id, version) && token === chatRequestToken) {
+          error.value = errorMessage(cause)
+        }
+        throw cause
+      } finally {
+        if (isCurrentContext(id, version) && token === chatRequestToken) {
+          busy.chat = false
+        }
+      }
+    })()
+  }
+
+  function generateArtifact(kind: StudyArtifact) {
+    const id = courseId.value
+    const version = contextVersion.value
+    if (id === null || busy.chat || busy.summary || busy.quiz) return
+
+    const token = ++artifactRequestToken
+    busy[kind] = true
+    error.value = null
+
+    return (async () => {
+      try {
+        const result = await postJson<ArtifactResult>(
+          `/api/courses/${encodeURIComponent(id)}/${kind}`,
+        )
+        if (isCurrentContext(id, version) && token === artifactRequestToken) {
+          useCourseStore().applyCourses(result.courses)
+          await loadMessages()
+        }
+        return result
+      } catch (cause) {
+        if (isCurrentContext(id, version) && token === artifactRequestToken) {
+          error.value = errorMessage(cause)
+        }
+        throw cause
+      } finally {
+        if (isCurrentContext(id, version) && token === artifactRequestToken) {
+          busy[kind] = false
+        }
+      }
+    })()
+  }
+
+  function summary() {
+    return generateArtifact('summary')
+  }
+
+  function quiz() {
+    return generateArtifact('quiz')
+  }
+
+  function saveNote(title: string, content: string) {
+    const id = courseId.value
+    const version = contextVersion.value
+    const normalizedContent = content.trim()
+    if (id === null || normalizedContent.length === 0) return
+    const token = ++notesRequestToken
+
+    return (async () => {
+      try {
+        const result = await postJson<SaveNotesResponse>(
+          `/api/courses/${encodeURIComponent(id)}/notes`,
+          {
+            title: title.trim() || '学习笔记',
+            content: normalizedContent,
+          },
+        )
+        if (isCurrentContext(id, version) && token === notesRequestToken) {
+          notes.value = result.notes
+        }
+        return result
+      } catch (cause) {
+        if (isCurrentContext(id, version) && token === notesRequestToken) {
+          error.value = errorMessage(cause)
+        }
+        throw cause
+      }
+    })()
+  }
+
+  return {
+    messages,
+    notes,
+    mode,
+    pendingFiles,
+    busy,
+    error,
+    courseId,
+    contextVersion,
+    beginCourse,
+    isCurrentContext,
+    loadMessages,
+    loadNotes,
+    send,
+    summary,
+    quiz,
+    saveNote,
+  }
+})
