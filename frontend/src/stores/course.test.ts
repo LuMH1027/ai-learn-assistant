@@ -24,6 +24,14 @@ function course(id: string, name = id): Course {
   return { id, name, path: `/courses/${id}`, children: [], file_count: 0 }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 describe('course store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -85,6 +93,27 @@ describe('course store', () => {
     expect(store.courses).toEqual([course('new')])
   })
 
+  it('ignores an old course load after saving a new root', async () => {
+    const oldCourses = deferred<CoursesResponse>()
+    api.getJson
+      .mockReturnValueOnce(oldCourses.promise)
+      .mockResolvedValueOnce({ courses: [course('new')] } satisfies CoursesResponse)
+    api.postJson.mockResolvedValue({
+      ok: true,
+      config: { root_folder: '/new-root' },
+    } satisfies SaveConfigResponse)
+    const store = useCourseStore()
+
+    const oldLoad = store.loadCourses()
+    await store.saveRoot('/new-root')
+    oldCourses.resolve({ courses: [course('old')] })
+    const oldResult = await oldLoad
+
+    expect(oldResult).toEqual([course('old')])
+    expect(store.courses).toEqual([course('new')])
+    expect(store.activeCourseId).toBeNull()
+  })
+
   it('applies uploaded course files to the course tree', async () => {
     const updated = { ...course('a'), file_count: 1 }
     api.postFiles.mockResolvedValue({
@@ -102,6 +131,30 @@ describe('course store', () => {
 
     expect(result?.saved[0]?.name).toBe('lesson.md')
     expect(store.activeCourse?.file_count).toBe(1)
+  })
+
+  it('does not apply an upload response after switching courses', async () => {
+    const upload = deferred<UploadResult>()
+    api.postFiles.mockReturnValue(upload.promise)
+    const store = useCourseStore()
+    store.courses = [course('a'), course('b')]
+    store.selectCourse('a')
+
+    const pendingUpload = store.uploadCourseFiles([
+      new File(['lesson'], 'lesson.md', { type: 'text/markdown' }),
+    ])
+    store.selectCourse('b')
+    upload.resolve({
+      ok: true,
+      saved: [{ name: 'lesson.md', path: '/courses/a/lesson.md' }],
+      courses: [{ ...course('a'), file_count: 1 }],
+    })
+    const result = await pendingUpload
+
+    expect(result?.saved[0]?.name).toBe('lesson.md')
+    expect(store.activeCourseId).toBe('b')
+    expect(store.courses).toEqual([course('a'), course('b')])
+    expect(store.contextVersion).toBe(2)
   })
 
   it('ignores duplicate indexing while the first write is busy', async () => {

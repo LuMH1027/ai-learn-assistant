@@ -18,6 +18,7 @@ export const useCourseStore = defineStore('course', () => {
   const contextVersion = ref(0)
   const loading = ref(false)
   const indexing = ref(false)
+  let coursesRequestVersion = 0
 
   const activeCourse = computed(() =>
     courses.value.find((course) => course.id === activeCourseId.value) ?? null,
@@ -46,10 +47,19 @@ export const useCourseStore = defineStore('course', () => {
   }
 
   async function loadCourses() {
+    const requestVersion = ++coursesRequestVersion
+    const requestedCourseId = activeCourseId.value
+    const requestedContextVersion = contextVersion.value
     loading.value = true
     try {
       const result = await getJson<CoursesResponse>('/api/courses')
-      applyCourses(result.courses)
+      if (
+        requestVersion === coursesRequestVersion &&
+        requestedCourseId === activeCourseId.value &&
+        requestedContextVersion === contextVersion.value
+      ) {
+        applyCourses(result.courses)
+      }
       return result.courses
     } finally {
       loading.value = false
@@ -65,6 +75,7 @@ export const useCourseStore = defineStore('course', () => {
   }
 
   async function saveRoot(rootFolder: string) {
+    coursesRequestVersion += 1
     loading.value = true
     try {
       const result = await postJson<SaveConfigResponse>('/api/config', {
@@ -80,8 +91,7 @@ export const useCourseStore = defineStore('course', () => {
       activeCourseId.value = null
       contextVersion.value += 1
 
-      const coursesResult = await getJson<CoursesResponse>('/api/courses')
-      applyCourses(coursesResult.courses)
+      await loadCourses()
       return result
     } finally {
       loading.value = false
@@ -90,6 +100,7 @@ export const useCourseStore = defineStore('course', () => {
 
   function uploadCourseFiles(files: File[]) {
     const courseId = activeCourseId.value
+    const requestedContextVersion = contextVersion.value
     if (courseId === null || files.length === 0) return
 
     return (async () => {
@@ -99,7 +110,12 @@ export const useCourseStore = defineStore('course', () => {
         `/api/courses/${encodeURIComponent(courseId)}/files`,
         form,
       )
-      applyCourses(result.courses)
+      if (
+        courseId === activeCourseId.value &&
+        requestedContextVersion === contextVersion.value
+      ) {
+        applyCourses(result.courses)
+      }
       return result
     })()
   }
