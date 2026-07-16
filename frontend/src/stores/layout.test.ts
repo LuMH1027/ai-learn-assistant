@@ -130,6 +130,19 @@ describe('layout store', () => {
     expect(store.centerShare).toBeGreaterThanOrEqual(34)
   })
 
+  it('keeps enough center space when resetting the sidebar after extreme moves', () => {
+    const store = useLayoutStore()
+    store.moveLeft(-100)
+    store.moveRight(-100)
+    const movedPreview = store.previewShare
+
+    store.resetLeft()
+
+    expect(store.sidebarShare).toBeCloseTo(20.8)
+    expect(store.previewShare).toBe(movedPreview)
+    expect(store.centerShare).toBeGreaterThanOrEqual(34)
+  })
+
   it('persists user actions under the versioned layout key and hydrates them', () => {
     const firstStore = useLayoutStore()
     firstStore.moveLeft(-4)

@@ -92,7 +92,10 @@ export const useLayoutStore = defineStore('layout', () => {
   }
 
   function resetLeft() {
-    sidebarShare.value = DEFAULT_SIDEBAR_SHARE
+    sidebarShare.value = Math.min(
+      DEFAULT_SIDEBAR_SHARE,
+      CONTENT_SHARE - previewShare.value - MIN_CENTER_SHARE,
+    )
     persist()
   }
 
