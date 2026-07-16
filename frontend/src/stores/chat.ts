@@ -21,6 +21,11 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
+function isAbortError(error: unknown) {
+  return typeof error === 'object' && error !== null &&
+    'name' in error && error.name === 'AbortError'
+}
+
 function waitForStreamPaint() {
   return new Promise<void>((resolve) => window.setTimeout(resolve, STREAM_RENDER_DELAY_MS))
 }
@@ -45,12 +50,15 @@ export const useChatStore = defineStore('chat', () => {
   let chatRequestToken = 0
   let artifactRequestToken = 0
   let noteRequestToken = 0
+  let chatAbortController: AbortController | null = null
 
   function isCurrentContext(id: string | null, version: number) {
     return courseId.value === id && contextVersion.value === version
   }
 
   function beginCourse(id: string | null, version: number) {
+    chatAbortController?.abort()
+    chatAbortController = null
     courseId.value = id
     contextVersion.value = version
     notesMutationEpoch.value = 0
@@ -141,6 +149,8 @@ export const useChatStore = defineStore('chat', () => {
     const files = [...pendingFiles.value]
     pendingFiles.value = []
     const token = ++chatRequestToken
+    const controller = new AbortController()
+    chatAbortController = controller
     busy.chat = true
     error.value = null
     messagesRequestToken += 1
@@ -169,13 +179,13 @@ export const useChatStore = defineStore('chat', () => {
         let result: ChatResult | undefined
         const path = `/api/courses/${encodeURIComponent(id)}/chat`
         const onEvent = async (event: ChatStreamEvent) => {
-          if (!isCurrentContext(id, version) || token !== chatRequestToken) return
+          if (controller.signal.aborted || !isCurrentContext(id, version) || token !== chatRequestToken) return
           if (event.type === 'status') {
             streamingMessage.stream_status = event.detail
           } else if (event.type === 'delta') {
             streamingMessage.stream_status = '正在生成回答…'
             for (const unit of displayUnits(event.delta)) {
-              if (!isCurrentContext(id, version) || token !== chatRequestToken) return
+              if (controller.signal.aborted || !isCurrentContext(id, version) || token !== chatRequestToken) return
               streamingMessage.content += unit
               await waitForStreamPaint()
             }
@@ -195,18 +205,26 @@ export const useChatStore = defineStore('chat', () => {
           form.append('question', normalizedQuestion)
           form.append('mode', mode.value)
           for (const file of files) form.append('files', file, file.name)
-          await postFilesStream<ChatStreamEvent>(path, form, onEvent)
+          await postFilesStream<ChatStreamEvent>(path, form, onEvent, controller.signal)
         } else {
           await postJsonStream<ChatStreamEvent>(path, {
             question: normalizedQuestion,
             mode: mode.value,
-          }, onEvent)
+          }, onEvent, controller.signal)
         }
         if (!result) {
           throw new Error('流式响应未正常完成')
         }
         return result
       } catch (cause) {
+        if (isAbortError(cause)) {
+          if (isCurrentContext(id, version) && token === chatRequestToken) {
+            streamingMessage.streaming = false
+            streamingMessage.stream_status = ''
+            if (!streamingMessage.content) streamingMessage.content = '已停止生成。'
+          }
+          return undefined
+        }
         if (isCurrentContext(id, version) && token === chatRequestToken) {
           error.value = errorMessage(cause)
           streamingMessage.streaming = false
@@ -215,11 +233,24 @@ export const useChatStore = defineStore('chat', () => {
         }
         throw cause
       } finally {
+        if (chatAbortController === controller) chatAbortController = null
         if (isCurrentContext(id, version) && token === chatRequestToken) {
           busy.chat = false
         }
       }
     })()
+  }
+
+  function stop() {
+    if (!busy.chat || !chatAbortController) return
+    chatAbortController.abort()
+    const latest = messages.value.at(-1)
+    if (latest?.streaming) {
+      latest.streaming = false
+      latest.stream_status = ''
+      if (!latest.content) latest.content = '已停止生成。'
+    }
+    busy.chat = false
   }
 
   function generateArtifact(kind: StudyArtifact) {
@@ -322,6 +353,7 @@ export const useChatStore = defineStore('chat', () => {
     loadMessages,
     loadNotes,
     send,
+    stop,
     summary,
     quiz,
     saveNote,

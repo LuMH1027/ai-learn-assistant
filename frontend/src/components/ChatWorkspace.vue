@@ -169,7 +169,17 @@ function onDrop(event: DragEvent) {
         placeholder="围绕当前课程资料提问…"
         @keydown="onComposerKeydown"
       />
-      <button type="button" aria-label="发送问题" :disabled="!course.activeCourse || busy" @click="send">发送</button>
+      <button
+        v-if="chat.busy.chat"
+        type="button"
+        class="stop-button"
+        aria-label="停止回答"
+        title="停止回答"
+        @click="chat.stop"
+      >
+        ■
+      </button>
+      <button v-else type="button" aria-label="发送问题" :disabled="!course.activeCourse || busy" @click="send">发送</button>
       <p v-if="chat.pendingFiles.length">已附加 {{ chat.pendingFiles.length }} 个文件</p>
     </div>
   </main>
@@ -181,5 +191,6 @@ button, select { min-height: 44px; }
 .stream-status { color: var(--muted); font-size: 12px; }
 .stream-status::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; }
 .streaming-content::after { content: '▋'; margin-left: 2px; color: var(--accent); animation: pulse .8s steps(2, end) infinite; }
+.stop-button { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); color: var(--danger); }
 @keyframes pulse { 50% { opacity: .25; } }
 </style>

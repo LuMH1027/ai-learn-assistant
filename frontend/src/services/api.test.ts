@@ -124,8 +124,10 @@ describe('postJsonStream', () => {
       `data: ${JSON.stringify({ type: 'delta', delta: '好' })}\n\n`,
     ].join('')
     let processing = false
+    const controller = new AbortController()
     const fetchStub = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get('Accept')).toBe('text/event-stream')
+      expect(init?.signal).toBe(controller.signal)
       return new Response(body, {
         headers: { 'Content-Type': 'text/event-stream' },
         status: 200,
@@ -143,6 +145,7 @@ describe('postJsonStream', () => {
         await Promise.resolve()
         processing = false
       },
+      controller.signal,
     )
 
     expect(fetchStub).toHaveBeenCalledOnce()

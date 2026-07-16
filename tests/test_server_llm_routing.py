@@ -1,9 +1,16 @@
 import io
 import json
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
-from local_course_agent.server import Handler, emit_stream_text, should_index_course_file
+from local_course_agent.server import (
+    CLARIFICATION_ANSWER,
+    ClientDisconnected,
+    Handler,
+    emit_stream_text,
+    should_index_course_file,
+)
 
 
 class FakeClient:
@@ -40,6 +47,45 @@ class FakeWebClient:
 
 
 class ServerLlmRoutingTest(unittest.TestCase):
+    def test_numeric_only_question_skips_web_and_model_guessing(self):
+        handler = Handler.__new__(Handler)
+        handler.read_maybe_multipart = mock.Mock(return_value=({"question": "1", "mode": "answer"}, []))
+        handler.index_chat_uploads = mock.Mock(return_value=("", []))
+        handler.retrieve_web_sources = mock.Mock()
+        handler.synthesize_answer = mock.Mock()
+        handler.send_json = mock.Mock(side_effect=lambda payload: payload)
+        store = mock.Mock()
+        store.get_memory.return_value = ""
+        context = SimpleNamespace(
+            config={"ai": {}, "web_search": {}},
+            find_course=lambda _course_id: {"name": "测试课程"},
+            kb=SimpleNamespace(answer=lambda _course_id, _query: {
+                "answer": "未找到依据",
+                "citations": [],
+                "retrieval_quality": "none",
+            }),
+            store=store,
+        )
+
+        with mock.patch("local_course_agent.server.CTX", context):
+            payload = handler.chat("course-1")
+
+        self.assertEqual(payload["answer"], CLARIFICATION_ANSWER)
+        self.assertEqual(payload["citations"], [])
+        self.assertEqual(payload["llm_status"], "skipped")
+        self.assertEqual(payload["web_search_status"], "clarification")
+        handler.retrieve_web_sources.assert_not_called()
+        handler.synthesize_answer.assert_not_called()
+        store.update_memory_from_question.assert_not_called()
+
+    def test_broken_stream_connection_stops_generation(self):
+        handler = Handler.__new__(Handler)
+        handler.wfile = mock.Mock()
+        handler.wfile.write.side_effect = BrokenPipeError
+
+        with self.assertRaises(ClientDisconnected):
+            handler.send_stream_event({"type": "delta", "delta": "停止"})
+
     def test_legacy_stream_splits_batched_text_into_display_units(self):
         events = []
 

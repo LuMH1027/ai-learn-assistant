@@ -15,6 +15,7 @@ def build_agent_trace(
         "used": "已调用配置的大模型，并结合可用的课程与网页证据生成回答",
         "fallback": "大模型调用失败，已降级为本地课程检索回答",
         "disabled": "大模型未配置，使用本地课程检索回答",
+        "skipped": "问题信息不足，未调用模型猜测答案",
     }
     web_details = {
         "used": f"本地证据不足或问题具有时效性，已采用 {web_source_count} 条网页来源",
@@ -22,6 +23,7 @@ def build_agent_trace(
         "failed": "网页搜索失败，已继续使用本地资料或模型能力回答",
         "disabled": "判断需要联网，但尚未配置 Web Search MCP",
         "skipped": "本地课程证据充分，无需联网",
+        "clarification": "问题信息不足，已跳过联网并请求学生补充上下文",
     }
     return [
         {
@@ -41,7 +43,7 @@ def build_agent_trace(
         },
         {
             "label": "联网",
-            "status": "ok" if web_status == "used" else ("skip" if web_status in {"skipped", "disabled"} else "empty"),
+            "status": "ok" if web_status == "used" else ("skip" if web_status in {"skipped", "disabled", "clarification"} else "empty"),
             "detail": web_details.get(web_status, web_details["failed"]),
         },
         {

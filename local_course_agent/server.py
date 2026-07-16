@@ -22,6 +22,7 @@ from local_course_agent.uploads import save_chat_upload, save_course_upload
 from local_course_agent.web_search import (
     WebSearchError,
     create_web_search_client,
+    is_underspecified_query,
     should_search_web,
 )
 
@@ -30,6 +31,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 STATIC_DIR = PROJECT_ROOT / "web" / "dist"
 CONFIG_PATH = DATA_DIR / "config.json"
+CLARIFICATION_ANSWER = "你的问题信息不足，请补充完整题目、知识点名称，或说明输入的编号对应哪一道题。为避免误导，本次没有联网搜索，也没有调用模型猜测。"
+
+
+class ClientDisconnected(Exception):
+    pass
 
 
 def resolve_static_path(request_path: str, static_dir: Path = STATIC_DIR) -> Path | None:
@@ -220,7 +226,10 @@ class Handler(SimpleHTTPRequestHandler):
                 else "ndjson" if "application/x-ndjson" in accept
                 else None
             )
-            return self.chat(course_id, stream=stream_format)
+            try:
+                return self.chat(course_id, stream=stream_format)
+            except ClientDisconnected:
+                return None
         if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/summary"):
             course_id = parsed.path.split("/")[3]
             return self.create_study_artifact(course_id, "summary")
@@ -292,16 +301,24 @@ class Handler(SimpleHTTPRequestHandler):
         emit({"type": "status", "stage": "retrieval", "detail": "正在检索课程资料…"})
         result = CTX.kb.answer(course_id, search_question)
         config = CTX.config
-        emit({"type": "status", "stage": "web", "detail": "正在判断是否需要联网…"})
-        web_sources, web_status = self.retrieve_web_sources(
-            question,
-            result,
-            config.get("web_search", {}),
-            allow_web=not uploads,
-        )
+        needs_clarification = not uploads and is_underspecified_query(question)
+        if needs_clarification:
+            emit({"type": "status", "stage": "clarification", "detail": "问题信息不足，正在请求补充…"})
+            web_sources, web_status = [], "clarification"
+        else:
+            emit({"type": "status", "stage": "web", "detail": "正在判断是否需要联网…"})
+            web_sources, web_status = self.retrieve_web_sources(
+                question,
+                result,
+                config.get("web_search", {}),
+                allow_web=not uploads,
+            )
         local_sources = [
             {**source, "source_type": "local", "reference_label": f"L{index}"}
-            for index, source in enumerate(result["citations"], start=1)
+            for index, source in enumerate(
+                [] if needs_clarification else result["citations"],
+                start=1,
+            )
         ]
         labeled_web_sources = [
             {**source, "reference_label": f"W{index}"}
@@ -318,32 +335,45 @@ class Handler(SimpleHTTPRequestHandler):
                 emit,
                 paced=stream == "ndjson",
             )
-            prefix = answer_mode_prefix(mode)
-            if prefix:
-                emit_delta(prefix)
-            generated_answer, llm_status = self.synthesize_answer_stream(
-                search_question,
-                combined_result,
-                emit_delta=emit_delta,
-                image_paths=image_paths,
-                ai_config=config.get("ai", {}),
-            )
-            answer = prefix + generated_answer
+            if needs_clarification:
+                answer = adapt_answer_by_mode(mode, CLARIFICATION_ANSWER)
+                emit_delta(answer)
+                llm_status = "skipped"
+            else:
+                prefix = answer_mode_prefix(mode)
+                if prefix:
+                    emit_delta(prefix)
+                generated_answer, llm_status = self.synthesize_answer_stream(
+                    search_question,
+                    combined_result,
+                    emit_delta=emit_delta,
+                    image_paths=image_paths,
+                    ai_config=config.get("ai", {}),
+                )
+                answer = prefix + generated_answer
         else:
-            answer, llm_status = self.synthesize_answer(
-                search_question,
-                combined_result,
-                image_paths=image_paths,
-                ai_config=config.get("ai", {}),
-            )
-            answer = adapt_answer_by_mode(mode, answer)
-        memory = CTX.store.update_memory_from_question(course_id, question)
+            if needs_clarification:
+                answer = adapt_answer_by_mode(mode, CLARIFICATION_ANSWER)
+                llm_status = "skipped"
+            else:
+                answer, llm_status = self.synthesize_answer(
+                    search_question,
+                    combined_result,
+                    image_paths=image_paths,
+                    ai_config=config.get("ai", {}),
+                )
+                answer = adapt_answer_by_mode(mode, answer)
+        memory = (
+            CTX.store.get_memory(course_id)
+            if needs_clarification
+            else CTX.store.update_memory_from_question(course_id, question)
+        )
         trace = build_agent_trace(
             course_name=course.get("name", ""),
             question=question,
             has_attachments=bool(uploads),
-            citation_count=len(result["citations"]),
-            memory_updated=True,
+            citation_count=len(local_sources),
+            memory_updated=not needs_clarification,
             llm_status=llm_status,
             web_status=web_status,
             web_source_count=len(web_sources),
@@ -590,7 +620,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(frame)
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
-            return False
+            raise ClientDisconnected
         return True
 
     def end_stream(self):

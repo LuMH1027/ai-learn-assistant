@@ -212,11 +212,17 @@ describe('course workspace components', () => {
     chat.busy.chat = true
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.get('button[aria-label="发送问题"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('button[aria-label="发送问题"]').exists()).toBe(false)
+    expect(wrapper.get('button[aria-label="停止回答"]')).toBeTruthy()
     expect(wrapper.get('button[aria-label="生成课程摘要"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('button[aria-label="生成练习题"]').attributes('disabled')).toBeDefined()
 
+    const stop = vi.spyOn(chat, 'stop')
+    await wrapper.get('button[aria-label="停止回答"]').trigger('click')
+    expect(stop).toHaveBeenCalledOnce()
+
     chat.busy.chat = false
+    await wrapper.vm.$nextTick()
     const send = vi.spyOn(chat, 'send').mockResolvedValue(undefined)
     const composer = wrapper.get('textarea[aria-label="课程问题"]')
     await composer.setValue('什么是页表？')

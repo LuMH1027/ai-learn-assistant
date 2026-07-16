@@ -197,6 +197,33 @@ describe('chat store', () => {
     await request
   })
 
+  it('aborts an active request and preserves already rendered content', async () => {
+    let emit!: (event: ChatStreamEvent) => Promise<void>
+    let capturedSignal!: AbortSignal
+    api.postJsonStream.mockImplementation(
+      (_path: string, _body: unknown, onEvent: typeof emit, signal: AbortSignal) => {
+        emit = onEvent
+        capturedSignal = signal
+        return new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+        })
+      },
+    )
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    const request = store.send('question')
+    await emit({ type: 'delta', delta: '已生成' })
+
+    store.stop()
+    await request
+
+    expect(capturedSignal.aborted).toBe(true)
+    expect(store.busy.chat).toBe(false)
+    expect(store.error).toBeNull()
+    expect(store.messages[1]?.content).toBe('已生成')
+    expect(store.messages[1]?.streaming).toBe(false)
+  })
+
   it('sends attachments as FormData and clears them after taking the request snapshot', async () => {
     api.postFilesStream.mockImplementation(async (_path: string, _form: FormData, onEvent: (event: ChatStreamEvent) => Promise<void>) => {
       await onEvent({ type: 'delta', delta: 'attachment answer' })

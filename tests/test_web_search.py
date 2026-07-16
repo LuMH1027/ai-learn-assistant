@@ -2,7 +2,11 @@ import json
 import unittest
 from unittest import mock
 
-from local_course_agent.web_search import McpWebSearchClient, should_search_web
+from local_course_agent.web_search import (
+    McpWebSearchClient,
+    is_underspecified_query,
+    should_search_web,
+)
 
 
 class FakeResponse:
@@ -24,6 +28,16 @@ class FakeResponse:
 
 
 class WebSearchTest(unittest.TestCase):
+    def test_underspecified_queries_never_trigger_web_search(self):
+        missing = {"retrieval_quality": "none", "citations": []}
+
+        for question in ("1", "1、", "?", "一"):
+            self.assertTrue(is_underspecified_query(question))
+            self.assertFalse(should_search_web(question, missing))
+
+        self.assertFalse(is_underspecified_query("解释数字 1"))
+        self.assertFalse(is_underspecified_query("树"))
+
     def test_search_decision_prefers_sufficient_local_evidence(self):
         sufficient = {"retrieval_quality": "sufficient", "citations": [{"file_name": "教材.md"}]}
 
@@ -105,6 +119,21 @@ class WebSearchTest(unittest.TestCase):
         })
 
         self.assertEqual(sources, [])
+
+    def test_web_snippets_are_bounded_before_reaching_the_prompt(self):
+        client = McpWebSearchClient({"enabled": True, "mcp_url": "https://search.example/mcp"})
+
+        sources = client.normalize_sources({
+            "structuredContent": {
+                "results": [{
+                    "title": "Long result",
+                    "url": "https://example.edu/long",
+                    "content": "x" * 1000,
+                }]
+            }
+        })
+
+        self.assertEqual(len(sources[0]["quote"]), 360)
 
     def test_search_parses_citable_title_url_highlight_text_blocks(self):
         client = McpWebSearchClient({"enabled": True, "mcp_url": "https://search.example/mcp"})

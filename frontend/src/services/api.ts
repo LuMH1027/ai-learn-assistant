@@ -45,6 +45,7 @@ export function postJsonStream<T>(
   path: string,
   body: unknown,
   onEvent: (event: T) => void | Promise<void>,
+  signal?: AbortSignal,
 ): Promise<void> {
   return requestEventStream(path, {
     method: 'POST',
@@ -53,6 +54,7 @@ export function postJsonStream<T>(
       Accept: 'text/event-stream',
     },
     body: JSON.stringify(body),
+    signal,
   }, onEvent)
 }
 
@@ -60,11 +62,13 @@ export function postFilesStream<T>(
   path: string,
   form: FormData,
   onEvent: (event: T) => void | Promise<void>,
+  signal?: AbortSignal,
 ): Promise<void> {
   return requestEventStream(path, {
     method: 'POST',
     headers: { Accept: 'text/event-stream' },
     body: form,
+    signal,
   }, onEvent)
 }
 
