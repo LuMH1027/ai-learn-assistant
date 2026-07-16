@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { renderMarkdown } from '../services/markdown'
 import { usePreviewStore, type PreviewTab } from '../stores/preview'
 
 const preview = usePreviewStore()
 const extension = computed(() => preview.activeFile?.extension.toLowerCase() ?? '')
 const isPdf = computed(() => extension.value === '.pdf')
 const isImage = computed(() => ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].includes(extension.value))
+const isMarkdown = computed(() => ['.md', '.markdown'].includes(extension.value))
+const markdownHtml = computed(() => renderMarkdown(preview.content ?? ''))
 
 const tabs: Array<{ id: PreviewTab, label: string }> = [
   { id: 'file', label: '当前文件' },
@@ -47,6 +50,7 @@ const tabs: Array<{ id: PreviewTab, label: string }> = [
         <a :href="preview.url ?? undefined" target="_blank" rel="noopener">在新窗口打开 PDF</a>
       </div>
       <img v-else-if="isImage" :src="preview.url ?? undefined" :alt="preview.activeFile.name" />
+      <div v-else-if="isMarkdown" class="markdown-preview" v-html="markdownHtml" />
       <pre v-else>{{ preview.content }}</pre>
     </section>
 
@@ -76,4 +80,36 @@ const tabs: Array<{ id: PreviewTab, label: string }> = [
 iframe { width: 100%; min-height: 70dvh; border: 0; }
 img { max-width: 100%; height: auto; }
 button { min-height: 44px; }
+.markdown-preview { color: var(--text); font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; }
+.markdown-preview :deep(h1),
+.markdown-preview :deep(h2),
+.markdown-preview :deep(h3),
+.markdown-preview :deep(h4) { margin: 1.45em 0 .55em; line-height: 1.3; }
+.markdown-preview :deep(h1:first-child),
+.markdown-preview :deep(h2:first-child),
+.markdown-preview :deep(h3:first-child) { margin-top: 0; }
+.markdown-preview :deep(h1) { border-bottom: 1px solid var(--line); padding-bottom: .4em; font-size: 1.65em; }
+.markdown-preview :deep(h2) { border-bottom: 1px solid var(--line); padding-bottom: .35em; font-size: 1.35em; }
+.markdown-preview :deep(h3) { font-size: 1.15em; }
+.markdown-preview :deep(p),
+.markdown-preview :deep(ul),
+.markdown-preview :deep(ol),
+.markdown-preview :deep(blockquote),
+.markdown-preview :deep(pre),
+.markdown-preview :deep(table) { margin: 0 0 1em; }
+.markdown-preview :deep(ul),
+.markdown-preview :deep(ol) { padding-left: 1.6em; }
+.markdown-preview :deep(li + li) { margin-top: .25em; }
+.markdown-preview :deep(a) { color: var(--accent); text-underline-offset: 2px; }
+.markdown-preview :deep(blockquote) { border-left: 3px solid var(--accent); background: var(--surface); padding: .55em .9em; color: var(--muted); }
+.markdown-preview :deep(blockquote > :last-child) { margin-bottom: 0; }
+.markdown-preview :deep(code) { border-radius: 4px; background: var(--surface); padding: .12em .32em; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .9em; }
+.markdown-preview :deep(pre) { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: .85em 1em; white-space: pre; }
+.markdown-preview :deep(pre code) { background: transparent; padding: 0; }
+.markdown-preview :deep(table) { width: 100%; border-collapse: collapse; }
+.markdown-preview :deep(th),
+.markdown-preview :deep(td) { border: 1px solid var(--line); padding: .45em .65em; text-align: left; }
+.markdown-preview :deep(th) { background: var(--surface); }
+.markdown-preview :deep(hr) { margin: 1.5em 0; border: 0; border-top: 1px solid var(--line); }
+.markdown-preview :deep(img) { max-width: 100%; }
 </style>
