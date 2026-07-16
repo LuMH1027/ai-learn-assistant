@@ -75,6 +75,27 @@ export interface NotesResponse {
   notes: Note[]
 }
 
+export interface MemoryResponse {
+  memory: string
+}
+
+export interface StudyContentResponse {
+  content: string
+  citations: Citation[]
+}
+
+export interface SaveConfigResponse {
+  ok: boolean
+  config: {
+    root_folder: string
+  }
+}
+
+export interface SaveNotesResponse {
+  ok: boolean
+  notes: Note[]
+}
+
 export interface IndexResult {
   ok: boolean
   indexed_files: number

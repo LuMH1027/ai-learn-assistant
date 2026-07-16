@@ -1,12 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type {
+  MemoryResponse,
+  SaveConfigResponse,
+  SaveNotesResponse,
+  StudyContentResponse,
+} from '../types/api'
 import { ApiError, postFiles, postJson, requestJson } from './api'
+
+const responseTypeContract = {
+  memory: { memory: '最近关注：虚拟内存' } satisfies MemoryResponse,
+  studyContent: { content: '课程摘要', citations: [] } satisfies StudyContentResponse,
+  savedConfig: { ok: true, config: { root_folder: '/courses' } } satisfies SaveConfigResponse,
+  savedNotes: { ok: true, notes: [] } satisfies SaveNotesResponse,
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
 describe('requestJson', () => {
+  it('exposes the backend response type contract', () => {
+    expect(responseTypeContract.memory.memory).toContain('虚拟内存')
+    expect(responseTypeContract.studyContent.citations).toEqual([])
+    expect(responseTypeContract.savedConfig.config.root_folder).toBe('/courses')
+    expect(responseTypeContract.savedNotes.notes).toEqual([])
+  })
+
   it('returns typed JSON from a successful response', async () => {
     interface GreetingResponse {
       greeting: string
