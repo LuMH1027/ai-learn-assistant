@@ -116,28 +116,67 @@ describe('postJson', () => {
 })
 
 describe('postJsonStream', () => {
-  it('emits every NDJSON event as soon as it is decoded', async () => {
+  it('awaits every SSE event before consuming the next token', async () => {
     const events: Array<{ type: string; delta?: string }> = []
     const body = [
-      JSON.stringify({ type: 'status', detail: '检索中' }),
-      JSON.stringify({ type: 'delta', delta: '你' }),
-      JSON.stringify({ type: 'delta', delta: '好' }),
-    ].join('\n') + '\n'
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
-      headers: { 'Content-Type': 'application/x-ndjson' },
-      status: 200,
-    })))
+      `data: ${JSON.stringify({ type: 'status', detail: '检索中' })}\n\n`,
+      `data: ${JSON.stringify({ type: 'delta', delta: '你' })}\n\n`,
+      `data: ${JSON.stringify({ type: 'delta', delta: '好' })}\n\n`,
+    ].join('')
+    let processing = false
+    const fetchStub = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get('Accept')).toBe('text/event-stream')
+      return new Response(body, {
+        headers: { 'Content-Type': 'text/event-stream' },
+        status: 200,
+      })
+    })
+    vi.stubGlobal('fetch', fetchStub)
 
     await postJsonStream<{ type: string; delta?: string }>(
       '/api/chat',
       { question: 'hello' },
-      (event) => events.push(event),
+      async (event) => {
+        expect(processing).toBe(false)
+        processing = true
+        events.push(event)
+        await Promise.resolve()
+        processing = false
+      },
     )
 
+    expect(fetchStub).toHaveBeenCalledOnce()
     expect(events).toEqual([
       { type: 'status', detail: '检索中' },
       { type: 'delta', delta: '你' },
       { type: 'delta', delta: '好' },
+    ])
+  })
+
+  it('parses SSE events split across response chunks', async () => {
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"delta","del'))
+        controller.enqueue(encoder.encode('ta":"逐"}\n\ndata: {"type":"delta","delta":"字"}\n\n'))
+        controller.close()
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
+      headers: { 'Content-Type': 'text/event-stream' },
+      status: 200,
+    })))
+    const events: Array<{ type: string; delta: string }> = []
+
+    await postJsonStream<{ type: string; delta: string }>(
+      '/api/chat',
+      { question: 'hello' },
+      (event) => { events.push(event) },
+    )
+
+    expect(events).toEqual([
+      { type: 'delta', delta: '逐' },
+      { type: 'delta', delta: '字' },
     ])
   })
 })

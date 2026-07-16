@@ -181,8 +181,13 @@ class Handler(SimpleHTTPRequestHandler):
             return self.upload_course_files(course_id)
         if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/chat"):
             course_id = parsed.path.split("/")[3]
-            wants_stream = "application/x-ndjson" in self.headers.get("Accept", "")
-            return self.chat(course_id, stream=wants_stream)
+            accept = self.headers.get("Accept", "")
+            stream_format = (
+                "sse" if "text/event-stream" in accept
+                else "ndjson" if "application/x-ndjson" in accept
+                else None
+            )
+            return self.chat(course_id, stream=stream_format)
         if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/summary"):
             course_id = parsed.path.split("/")[3]
             return self.create_study_artifact(course_id, "summary")
@@ -225,9 +230,12 @@ class Handler(SimpleHTTPRequestHandler):
         mode = body.get("mode", "answer")
         if not question and not uploads:
             return self.send_error_json("问题不能为空")
-        emit = self.send_stream_event if stream else lambda _event: None
         if stream:
-            self.begin_stream()
+            emit = lambda event: self.send_stream_event(event, stream)
+        else:
+            emit = lambda _event: None
+        if stream:
+            self.begin_stream(stream)
             emit(
                 {
                     "type": "status",
@@ -520,17 +528,25 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def begin_stream(self):
+    def begin_stream(self, stream_format="sse"):
         self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        content_type = (
+            "text/event-stream; charset=utf-8"
+            if stream_format == "sse"
+            else "application/x-ndjson; charset=utf-8"
+        )
+        self.send_header("Content-Type", content_type)
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Cache-Control", "no-cache, no-transform")
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
 
-    def send_stream_event(self, event):
-        raw = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
+    def send_stream_event(self, event, stream_format="sse"):
+        payload = json.dumps(event, ensure_ascii=False)
+        raw = (
+            f"data: {payload}\n\n" if stream_format == "sse" else f"{payload}\n"
+        ).encode("utf-8")
         frame = f"{len(raw):X}\r\n".encode("ascii") + raw + b"\r\n"
         try:
             self.wfile.write(frame)

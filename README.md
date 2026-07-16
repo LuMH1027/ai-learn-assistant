@@ -28,21 +28,35 @@
 - Chrome、Edge、Safari 等现代浏览器。
 - 一个本地课程资料目录。
 
-Python 依赖：
+## 一键安装全部项目依赖
 
-```bash
-python3 -m pip install -r requirements.txt
-```
+安装脚本会创建隔离的 `.venv`、安装 `requirements.txt` 中的 Python 包，并根据 `frontend/package-lock.json` 执行 `npm ci --include=dev` 安装 Vue、Vite、TypeScript、Pinia 和测试工具。它覆盖 pip 与 npm 两套依赖，不会把 Python 包写入系统环境。
 
-Windows 可使用：
+Windows：
 
 ```bat
-py -m pip install -r requirements.txt
+install-deps.bat
+```
+
+macOS/Linux：
+
+```bash
+chmod +x install-deps.sh start.sh
+./install-deps.sh
+```
+
+脚本不自动修改系统级运行时。若缺少 Python、Node.js 或 npm，会明确提示先安装符合“环境要求”的版本。只有 pip 与 npm 都成功后才会写入安装完成标记；下载中断后直接重试即可。重复执行安装脚本会按锁文件重新校准依赖，适合依赖损坏或切换分支后修复环境。
+
+只需重装某一类依赖时，也可以手动执行：
+
+```bash
+.venv/bin/python -m pip install -r requirements.txt
+npm ci --prefix frontend
 ```
 
 ## 一键启动
 
-脚本会在缺少 `frontend/node_modules` 时运行 `npm ci`，随后把 Vue 前端构建到 `web/dist`，最后启动 Python 服务。
+脚本发现 `.venv` 或 `frontend/node_modules` 缺失时会先调用对应平台的依赖安装器，随后把 Vue 前端构建到 `web/dist`，最后使用 `.venv` 中的 Python 启动服务。
 
 Windows：
 
@@ -63,14 +77,14 @@ chmod +x start.sh
 http://127.0.0.1:8000
 ```
 
-如果直接执行 `python3 run.py` 但尚未构建前端，服务会提示先运行启动脚本。
+如果绕过脚本直接执行 Python 但尚未构建前端，服务会提示先运行启动脚本。
 
 ## 开发模式
 
 终端 1 启动 Python API：
 
 ```bash
-python3 run.py
+.venv/bin/python run.py
 ```
 
 终端 2 启动 Vite，开发服务器会把 `/api` 代理到 Python：
@@ -194,3 +208,5 @@ data/
 生成的摘要与练习题保存在对应课程的 `AI生成/` 文件夹。
 
 检索实现、研究依据与后续向量检索路线见 [`docs/rag-retrieval-strategy.md`](docs/rag-retrieval-strategy.md)。
+
+项目开发中遇到的 UI、异步状态、RAG、联网、流式传输、跨平台依赖和配置安全问题，以及对应解决过程，见 [`docs/开发问题与解决记录.md`](docs/开发问题与解决记录.md)。

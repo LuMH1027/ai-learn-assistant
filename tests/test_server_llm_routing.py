@@ -48,7 +48,7 @@ class ServerLlmRoutingTest(unittest.TestCase):
 
         handler.begin_stream()
 
-        handler.send_header.assert_any_call("Content-Type", "application/x-ndjson; charset=utf-8")
+        handler.send_header.assert_any_call("Content-Type", "text/event-stream; charset=utf-8")
         handler.send_header.assert_any_call("X-Content-Type-Options", "nosniff")
         handler.send_header.assert_any_call("Transfer-Encoding", "chunked")
         self.assertEqual(Handler.protocol_version, "HTTP/1.1")
@@ -57,13 +57,29 @@ class ServerLlmRoutingTest(unittest.TestCase):
         handler = Handler.__new__(Handler)
         handler.wfile = io.BytesIO()
         event = {"type": "status", "detail": "正在检索"}
-        raw = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
+        raw = ("data: " + json.dumps(event, ensure_ascii=False) + "\n\n").encode("utf-8")
 
         handler.send_stream_event(event)
         handler.end_stream()
 
         expected = f"{len(raw):X}\r\n".encode("ascii") + raw + b"\r\n0\r\n\r\n"
         self.assertEqual(handler.wfile.getvalue(), expected)
+
+    def test_stream_keeps_ndjson_compatibility_for_open_legacy_tabs(self):
+        handler = Handler.__new__(Handler)
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+        handler.wfile = io.BytesIO()
+
+        handler.begin_stream("ndjson")
+        handler.send_stream_event({"type": "delta", "delta": "旧"}, "ndjson")
+
+        handler.send_header.assert_any_call(
+            "Content-Type", "application/x-ndjson; charset=utf-8"
+        )
+        framed = handler.wfile.getvalue()
+        self.assertIn('{"type": "delta", "delta": "旧"}\n'.encode("utf-8"), framed)
 
     def test_streaming_synthesis_emits_model_deltas(self):
         client = FakeClient(["课程", "回答"])

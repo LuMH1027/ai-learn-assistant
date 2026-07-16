@@ -15,9 +15,18 @@ import type {
 import { useCourseStore } from './course'
 
 type StudyArtifact = 'summary' | 'quiz'
+const STREAM_RENDER_DELAY_MS = 16
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
+}
+
+function waitForStreamPaint() {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, STREAM_RENDER_DELAY_MS))
+}
+
+function displayUnits(text: string) {
+  return text.match(/[\p{Script=Han}]|[A-Za-z0-9_]+|\s+|[^\s]/gu) ?? []
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -158,16 +167,22 @@ export const useChatStore = defineStore('chat', () => {
       try {
         let result: ChatResult | undefined
         const path = `/api/courses/${encodeURIComponent(id)}/chat`
-        const onEvent = (event: ChatStreamEvent) => {
+        const onEvent = async (event: ChatStreamEvent) => {
           if (!isCurrentContext(id, version) || token !== chatRequestToken) return
           if (event.type === 'status') {
             assistantMessage.stream_status = event.detail
           } else if (event.type === 'delta') {
-            assistantMessage.content += event.delta
             assistantMessage.stream_status = '正在生成回答…'
+            for (const unit of displayUnits(event.delta)) {
+              if (!isCurrentContext(id, version) || token !== chatRequestToken) return
+              assistantMessage.content += unit
+              await waitForStreamPaint()
+            }
           } else if (event.type === 'done') {
             result = event.result
-            assistantMessage.content = event.result.answer
+            if (assistantMessage.content !== event.result.answer) {
+              assistantMessage.content = event.result.answer
+            }
             assistantMessage.citations = event.result.citations
             assistantMessage.trace = event.result.trace
             assistantMessage.streaming = false

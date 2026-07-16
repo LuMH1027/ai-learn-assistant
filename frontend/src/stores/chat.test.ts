@@ -139,7 +139,7 @@ describe('chat store', () => {
 
   it('shows status and token deltas immediately and ignores a duplicate write', async () => {
     const write = deferred<void>()
-    let emit!: (event: ChatStreamEvent) => void
+    let emit!: (event: ChatStreamEvent) => Promise<void>
     api.postJsonStream.mockImplementation((_path: string, _body: unknown, onEvent: typeof emit) => {
       emit = onEvent
       return write.promise
@@ -154,12 +154,13 @@ describe('chat store', () => {
     expect(duplicate).toBeUndefined()
     expect(store.messages.map((item) => item.content)).toEqual(['question', ''])
     expect(store.messages[1]?.stream_status).toBe('正在发送…')
-    emit({ type: 'status', stage: 'retrieval', detail: '正在检索课程资料…' })
+    await emit({ type: 'status', stage: 'retrieval', detail: '正在检索课程资料…' })
     expect(store.messages[1]?.stream_status).toBe('正在检索课程资料…')
-    emit({ type: 'delta', delta: '答' })
-    emit({ type: 'delta', delta: '案' })
+    await emit({ type: 'delta', delta: '答' })
+    expect(store.messages[1]?.content).toBe('答')
+    await emit({ type: 'delta', delta: '案' })
     expect(store.messages[1]?.content).toBe('答案')
-    emit({
+    await emit({
       type: 'done',
       result: { answer: '答案', citations: [], memory: '', mode: 'answer', trace: [] },
     })
@@ -172,10 +173,34 @@ describe('chat store', () => {
     expect(api.postJsonStream).toHaveBeenCalledOnce()
   })
 
+  it('reveals a batched model delta as separate display tokens', async () => {
+    const write = deferred<void>()
+    let emit!: (event: ChatStreamEvent) => Promise<void>
+    api.postJsonStream.mockImplementation((_path: string, _body: unknown, onEvent: typeof emit) => {
+      emit = onEvent
+      return write.promise
+    })
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    const request = store.send('question')
+
+    const rendering = emit({ type: 'delta', delta: '逐字输出' })
+    expect(store.messages[1]?.content).toBe('逐')
+    await rendering
+    expect(store.messages[1]?.content).toBe('逐字输出')
+
+    await emit({
+      type: 'done',
+      result: { answer: '逐字输出', citations: [], memory: '', mode: 'answer', trace: [] },
+    })
+    write.resolve()
+    await request
+  })
+
   it('sends attachments as FormData and clears them after taking the request snapshot', async () => {
-    api.postFilesStream.mockImplementation(async (_path: string, _form: FormData, onEvent: (event: ChatStreamEvent) => void) => {
-      onEvent({ type: 'delta', delta: 'attachment answer' })
-      onEvent({
+    api.postFilesStream.mockImplementation(async (_path: string, _form: FormData, onEvent: (event: ChatStreamEvent) => Promise<void>) => {
+      await onEvent({ type: 'delta', delta: 'attachment answer' })
+      await onEvent({
         type: 'done',
         result: { answer: 'attachment answer', citations: [], memory: '', mode: 'answer', trace: [] },
       })
@@ -227,7 +252,7 @@ describe('chat store', () => {
 
   it('mutually excludes chat and study artifact writes', async () => {
     const chatWrite = deferred<void>()
-    let finishChat!: (event: ChatStreamEvent) => void
+    let finishChat!: (event: ChatStreamEvent) => Promise<void>
     api.postJsonStream.mockImplementation((_path: string, _body: unknown, onEvent: typeof finishChat) => {
       finishChat = onEvent
       return chatWrite.promise
@@ -242,7 +267,7 @@ describe('chat store', () => {
 
     expect(store.summary()).toBeUndefined()
     expect(store.quiz()).toBeUndefined()
-    finishChat({ type: 'done', result: { answer: 'answer', citations: [], memory: '', mode: 'answer', trace: [] } })
+    await finishChat({ type: 'done', result: { answer: 'answer', citations: [], memory: '', mode: 'answer', trace: [] } })
     chatWrite.resolve()
     await chat
 

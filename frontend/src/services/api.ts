@@ -44,13 +44,13 @@ export function postFiles<T>(path: string, form: FormData): Promise<T> {
 export function postJsonStream<T>(
   path: string,
   body: unknown,
-  onEvent: (event: T) => void,
+  onEvent: (event: T) => void | Promise<void>,
 ): Promise<void> {
-  return requestNdjson(path, {
+  return requestEventStream(path, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Accept: 'application/x-ndjson',
+      Accept: 'text/event-stream',
     },
     body: JSON.stringify(body),
   }, onEvent)
@@ -59,19 +59,19 @@ export function postJsonStream<T>(
 export function postFilesStream<T>(
   path: string,
   form: FormData,
-  onEvent: (event: T) => void,
+  onEvent: (event: T) => void | Promise<void>,
 ): Promise<void> {
-  return requestNdjson(path, {
+  return requestEventStream(path, {
     method: 'POST',
-    headers: { Accept: 'application/x-ndjson' },
+    headers: { Accept: 'text/event-stream' },
     body: form,
   }, onEvent)
 }
 
-async function requestNdjson<T>(
+async function requestEventStream<T>(
   path: string,
   init: RequestInit,
-  onEvent: (event: T) => void,
+  onEvent: (event: T) => void | Promise<void>,
 ): Promise<void> {
   const response = await fetch(path, init)
   if (!response.ok) {
@@ -86,22 +86,42 @@ async function requestNdjson<T>(
   let buffer = ''
   while (true) {
     const { done, value } = await reader.read()
-    buffer += decoder.decode(value, { stream: !done })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      if (!line.trim()) continue
-      const event = JSON.parse(line) as T
-      if (isStreamError(event)) throw new Error(event.error)
-      onEvent(event)
-    }
+    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n')
+    buffer = await consumeEventBlocks(buffer, onEvent)
     if (done) break
   }
   if (buffer.trim()) {
-    const event = JSON.parse(buffer) as T
-    if (isStreamError(event)) throw new Error(event.error)
-    onEvent(event)
+    await consumeEventBlock(buffer, onEvent)
   }
+}
+
+async function consumeEventBlocks<T>(
+  input: string,
+  onEvent: (event: T) => void | Promise<void>,
+): Promise<string> {
+  let buffer = input
+  let boundary = buffer.indexOf('\n\n')
+  while (boundary >= 0) {
+    await consumeEventBlock(buffer.slice(0, boundary), onEvent)
+    buffer = buffer.slice(boundary + 2)
+    boundary = buffer.indexOf('\n\n')
+  }
+  return buffer
+}
+
+async function consumeEventBlock<T>(
+  block: string,
+  onEvent: (event: T) => void | Promise<void>,
+): Promise<void> {
+  const data = block
+    .split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trimStart())
+    .join('\n')
+  if (!data || data === '[DONE]') return
+  const event = JSON.parse(data) as T
+  if (isStreamError(event)) throw new Error(event.error)
+  await onEvent(event)
 }
 
 function isStreamError(value: unknown): value is { type: 'error'; error: string } {
