@@ -3,118 +3,157 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>本地课程 RAG Agent 学习助手</title>
+    <title>本地课程学习助手</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <a class="skip-link" href="#appWorkspace">跳到主内容</a>
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="brand-block">
-          <div class="brand-mark" aria-hidden="true">LA</div>
-          <div>
-            <h1>本地课程 RAG Agent 学习助手</h1>
-            <p>Agent loop：感知课程 → 读取附件 → 检索资料 → 合成回答 → 更新记忆。</p>
-          </div>
-        </div>
-        <div class="top-status">
-          <div class="run-state"><i class="dot"></i><span id="runStateText">Idle</span></div>
-          <div class="status-chip" id="aiStatus">AI：读取中</div>
-          <div class="status-chip" id="mineruStatus">MinerU：读取中</div>
-        </div>
-        <div class="root-config">
-          <div class="field root-field">
-            <label for="rootFolder">资料根目录</label>
-            <input id="rootFolder" placeholder="例如 D:\StudyMaterials" />
-          </div>
-          <button id="saveRoot">设置目录</button>
-          <button id="refreshCourses" class="secondary-button">刷新课程</button>
-        </div>
-      </header>
+    <a class="skip-link" href="#agentPanel">跳到学习对话</a>
 
-      <main id="appWorkspace" class="workspace">
-      <aside class="panel course-panel">
-        <div class="panel-title">
-          <div>
-            <span>课程与文件</span>
-            <small>一级文件夹即课程</small>
+    <div id="appWorkspace" class="workspace-shell">
+      <aside id="courseSidebar" class="course-sidebar" aria-label="课程与资料">
+        <header class="brand-block">
+          <div class="brand-mark" aria-hidden="true">LC</div>
+          <div class="brand-copy">
+            <strong>Local Course</strong>
+            <span>课程学习助手</span>
           </div>
-          <button id="indexCourse" disabled>构建知识库</button>
-        </div>
-        <div id="courseDropZone" class="drop-zone">拖文件到这里，加入当前课程资料</div>
-        <div class="course-warning">当前处于开发和测试阶段，传入 PDF 建议小于 20 页。</div>
-        <div id="courseList" class="course-list empty">请先设置资料根目录</div>
+        </header>
+
+        <section class="sidebar-section course-section" aria-labelledby="courseSectionTitle">
+          <div class="section-heading">
+            <h2 id="courseSectionTitle">课程</h2>
+            <button id="refreshCourses" class="icon-button" type="button" title="刷新课程" aria-label="刷新课程">↻</button>
+          </div>
+          <div id="courseList" class="course-list empty">请先设置资料根目录</div>
+        </section>
+
+        <section class="sidebar-section file-section" aria-labelledby="fileSectionTitle">
+          <div class="section-heading">
+            <h2 id="fileSectionTitle">当前资料</h2>
+          </div>
+          <div id="activeFileTree" class="file-tree empty">选择课程后显示文件</div>
+        </section>
+
+        <footer class="sidebar-footer">
+          <div class="service-status" aria-label="服务状态">
+            <span id="aiStatus">AI：读取中</span>
+            <span id="mineruStatus">MinerU：读取中</span>
+          </div>
+          <div class="root-config">
+            <label class="sr-only" for="rootFolder">资料根目录</label>
+            <input id="rootFolder" placeholder="资料根目录" />
+            <button id="saveRoot" class="secondary-button" type="button">设置</button>
+          </div>
+          <input id="courseFilePicker" type="file" multiple hidden />
+          <button id="courseFilePickerButton" class="secondary-button upload-button" type="button">
+            <span class="picker-icon" aria-hidden="true">＋</span>
+            <span class="picker-label">添加课程资料</span>
+          </button>
+          <div id="courseDropZone" class="drop-zone" tabindex="0">拖入文件，加入当前课程</div>
+          <p class="course-warning">开发测试阶段，PDF 建议小于 20 页。</p>
+        </footer>
       </aside>
 
-      <section class="panel preview-panel">
-        <div class="panel-title">
-          <div>
-            <span id="previewTitle">文件预览</span>
-            <small id="previewHint">PDF 可直接浏览，文本文件显示内容</small>
-          </div>
-        </div>
-        <div id="preview" class="preview-empty">PDF 将通过独立预览窗口打开；文本文件会在这里显示。</div>
-      </section>
+      <div
+        id="leftResizer"
+        class="column-resizer"
+        role="separator"
+        aria-label="调整课程栏和对话栏宽度"
+        aria-orientation="vertical"
+        tabindex="0"
+      ></div>
 
-      <aside class="panel agent-panel">
-        <div class="panel-title">
-          <div>
-            <span id="agentTitle">课程 Agent</span>
-            <small>当前课程独立会话与记忆</small>
-          </div>
-          <div class="agent-title-tools">
-            <button id="notesToggle" class="icon-button secondary-button" disabled title="课程笔记" aria-label="打开课程笔记">笔记</button>
-            <div class="mode-field">
-              <label for="chatMode">模式</label>
-              <select id="chatMode" aria-label="问答模式">
-                <option value="answer">答疑模式</option>
-                <option value="socratic">启发模式</option>
-                <option value="homework">作业提示</option>
-                <option value="review">复习模式</option>
-              </select>
+      <main id="agentPanel" class="agent-panel">
+        <header class="agent-header">
+          <div class="agent-heading">
+            <button id="sidebarToggle" class="icon-button sidebar-toggle" type="button" aria-label="打开课程栏" aria-expanded="false">☰</button>
+            <div>
+              <h1 id="agentTitle">课程 Agent</h1>
+              <p id="courseMeta">选择一门课程开始学习</p>
             </div>
           </div>
+          <div class="agent-header-actions">
+            <div class="run-state"><i class="dot" aria-hidden="true"></i><span id="runStateText">Idle</span></div>
+            <button id="indexCourse" class="secondary-button" type="button" disabled>构建知识库</button>
+            <button id="previewToggle" class="icon-button" type="button" aria-label="关闭资料预览" aria-pressed="true" title="打开或关闭资料预览">▣</button>
+          </div>
+        </header>
+
+        <nav class="study-toolbar" aria-label="学习工具">
+          <button class="toolbar-button active" type="button" aria-current="page">对话</button>
+          <button id="generateSummary" class="toolbar-button" type="button" disabled>生成摘要</button>
+          <button id="generateQuiz" class="toolbar-button" type="button" disabled>生成练习</button>
+          <button id="notesToggle" class="toolbar-button" type="button" disabled>课程笔记</button>
+          <label class="mode-field" for="chatMode">
+            <span>模式</span>
+            <select id="chatMode" aria-label="问答模式">
+              <option value="answer">答疑</option>
+              <option value="socratic">启发</option>
+              <option value="homework">作业提示</option>
+              <option value="review">复习</option>
+            </select>
+          </label>
+        </nav>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <div class="composer-wrap">
+          <div id="chatDropHint" class="chat-drop-hint">松开后临时读取附件，不写入课程目录</div>
+          <div class="composer">
+            <input id="chatFilePicker" type="file" multiple hidden />
+            <button id="chatFilePickerButton" class="icon-button attach-button" type="button" aria-label="添加聊天附件" title="添加聊天附件">＋</button>
+            <label for="question" class="sr-only">课程问题</label>
+            <textarea id="question" rows="1" placeholder="围绕当前课程资料提问…"></textarea>
+            <button id="sendQuestion" type="button" disabled>发送</button>
+          </div>
         </div>
-        <div class="agent-actions">
-          <button id="generateSummary" class="secondary-button" disabled>生成摘要</button>
-          <button id="generateQuiz" class="secondary-button" disabled>生成练习题</button>
-        </div>
-        <div class="strategy-rail">
-          <span>策略</span>
-          <b>课程隔离</b>
-          <b>附件临读</b>
-          <b>引用优先</b>
-          <b>记忆压缩</b>
-        </div>
-        <div id="messages" class="messages"></div>
-        <div class="composer">
-          <label for="question" class="sr-only">课程问题</label>
-          <textarea id="question" placeholder="围绕当前课程资料提问；也可以把 PDF/Markdown/TXT 拖进这里让 AI 读取"></textarea>
-          <button id="sendQuestion" disabled>发送</button>
-        </div>
-        <div id="chatDropHint" class="chat-drop-hint">松开后作为聊天附件读取，不写入课程目录</div>
-      </aside>
       </main>
+
+      <div
+        id="rightResizer"
+        class="column-resizer"
+        role="separator"
+        aria-label="调整对话栏和预览栏宽度"
+        aria-orientation="vertical"
+        tabindex="0"
+      ></div>
+
+      <aside id="previewPanel" class="preview-panel" aria-label="资料预览">
+        <header class="preview-header">
+          <div>
+            <h2 id="previewTitle">资料预览</h2>
+            <p id="previewHint">选择文件后在此阅读</p>
+          </div>
+          <button class="icon-button preview-close" type="button" data-preview-close aria-label="关闭资料预览">×</button>
+        </header>
+        <div class="preview-tabs" role="tablist" aria-label="预览内容">
+          <button id="previewTabFile" class="preview-tab active" type="button" role="tab" aria-selected="true" aria-controls="preview">当前文件</button>
+          <button id="previewTabSources" class="preview-tab" type="button" role="tab" aria-selected="false" aria-controls="previewSources">引用来源</button>
+          <button id="previewTabInfo" class="preview-tab" type="button" role="tab" aria-selected="false" aria-controls="previewInfo">信息</button>
+        </div>
+        <div id="preview" class="preview-content preview-empty" role="tabpanel">选择左侧资料，或点击回答中的引用。</div>
+        <div id="previewSources" class="preview-content" role="tabpanel" hidden>回答中的引用会显示在这里。</div>
+        <div id="previewInfo" class="preview-content" role="tabpanel" hidden>选择文件后显示文件信息。</div>
+      </aside>
     </div>
 
-    <aside id="notesDrawer" class="notes-drawer" aria-hidden="true">
+    <aside id="notesDrawer" class="notes-drawer" aria-hidden="true" aria-labelledby="notesTitle" inert>
       <div class="notes-head">
         <div>
-          <div class="notes-title">课程笔记</div>
+          <h2 id="notesTitle" class="notes-title">课程笔记</h2>
           <small>保存为当前课程的文件型记忆</small>
         </div>
-        <button id="notesClose" class="icon-button secondary-button" aria-label="关闭课程笔记">关闭</button>
+        <button id="notesClose" class="icon-button" type="button" aria-label="关闭课程笔记">×</button>
       </div>
       <label for="noteTitle">笔记标题</label>
       <input id="noteTitle" placeholder="例如：页表易错点" />
       <label for="noteContent">笔记内容</label>
       <textarea id="noteContent" placeholder="记录重点、错题或 AI 回答"></textarea>
-      <button id="saveNote" disabled>保存笔记</button>
+      <button id="saveNote" type="button" disabled>保存笔记</button>
       <div id="notesList" class="notes-list"></div>
     </aside>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
     <script src="/app.js"></script>
   </body>
 </html>
