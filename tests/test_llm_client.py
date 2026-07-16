@@ -7,7 +7,7 @@ from local_course_agent.llm import OpenAICompatibleClient, build_grounded_prompt
 
 
 class LlmPromptTest(unittest.TestCase):
-    def test_grounded_prompt_requires_citations_and_no_fabrication(self):
+    def test_grounded_prompt_prioritizes_course_material_and_labels_supplements(self):
         prompt = build_grounded_prompt(
             question="页表有什么作用？",
             evidence=[
@@ -21,10 +21,18 @@ class LlmPromptTest(unittest.TestCase):
             memory="- 最近关注：虚拟内存",
         )
 
-        self.assertIn("只能依据资料片段回答", prompt)
+        self.assertIn("课程资料是第一优先级", prompt)
         self.assertIn("页表有什么作用", prompt)
         self.assertIn("README.md", prompt)
-        self.assertIn("如果资料片段不足", prompt)
+        self.assertIn("补充知识", prompt)
+        self.assertIn("不得伪造课程引用", prompt)
+
+    def test_prompt_allows_general_knowledge_when_course_retrieval_is_empty(self):
+        prompt = build_grounded_prompt(question="什么是量子纠缠？", evidence=[])
+
+        self.assertIn("未检索到相关课程资料", prompt)
+        self.assertIn("可以使用你的通用知识回答", prompt)
+        self.assertIn("本回答未找到课程资料依据", prompt)
 
     def test_openai_compatible_client_uses_chat_completions_endpoint(self):
         client = OpenAICompatibleClient(

@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from local_course_agent.server import Handler
+from local_course_agent.server import Handler, should_index_course_file
 
 
 class FakeClient:
@@ -19,6 +19,10 @@ class FakeClient:
 
 
 class ServerLlmRoutingTest(unittest.TestCase):
+    def test_generated_study_artifacts_are_not_reindexed_as_course_evidence(self):
+        self.assertFalse(should_index_course_file("/courses/os", "/courses/os/AI生成/课程摘要.md"))
+        self.assertTrue(should_index_course_file("/courses/os", "/courses/os/课件/第一章.md"))
+
     def test_configured_llm_is_called_even_without_retrieval_citations(self):
         client = FakeClient("我是课程学习助手。")
         handler = Handler.__new__(Handler)

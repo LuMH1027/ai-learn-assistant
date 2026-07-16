@@ -15,10 +15,22 @@ def build_grounded_prompt(question: str, evidence: List[Dict], memory: str = "")
         for index, item in enumerate(evidence, start=1)
     )
     memory_text = memory.strip() or "暂无课程记忆。"
+    if evidence:
+        evidence_policy = (
+            "已检索到课程资料。先用这些资料回答，并把资料支持的关键结论标上 [1]、[2] 等引用编号。\n"
+            "只有当课程资料没有覆盖问题的必要部分时，才可使用通用知识；这部分必须单列为“补充知识”，"
+            "说明它不是来自课程资料，也不得给它添加课程引用。"
+        )
+    else:
+        evidence_policy = (
+            "未检索到相关课程资料。你可以使用你的通用知识回答，但开头必须明确说明"
+            "“本回答未找到课程资料依据，以下为通用知识补充”。不得伪造课程引用。"
+        )
     return (
-        "你是一个本地课程学习 Agent。只能依据资料片段回答，不能编造资料中没有的内容。\n"
-        "如果资料片段不足以回答，要明确说明“当前课程资料不足以确认”。\n"
-        "回答要适合学生复习：先给结论，再解释关键点，最后列出引用编号。\n\n"
+        "你是一个本地课程学习 Agent。课程资料是第一优先级，通用知识只用于补足课程资料未覆盖的内容。\n"
+        "不得改变课程资料的原意，不得伪造课程引用，也不要把通用知识说成课程原文。\n"
+        "回答要适合学生复习：先给结论，再解释关键点；有课程依据时最后列出引用编号。\n"
+        f"{evidence_policy}\n\n"
         f"课程记忆：\n{memory_text}\n\n"
         f"学生问题：\n{question}\n\n"
         f"资料片段：\n{evidence_text}\n"
@@ -40,7 +52,7 @@ class OpenAICompatibleClient:
             return None
         return self._chat_completion(
             [
-                {"role": "system", "content": "你是一个严格基于课程资料回答的学习助手。"},
+                {"role": "system", "content": "你是课程资料优先的学习助手；资料未覆盖时可明确标注后使用通用知识补充。"},
                 {"role": "user", "content": prompt},
             ]
         )

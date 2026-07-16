@@ -2,10 +2,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from local_course_agent.rag import CourseKnowledgeBase
+from local_course_agent.rag import CourseKnowledgeBase, tokenize
 
 
 class CourseKnowledgeBaseTest(unittest.TestCase):
+    def test_chinese_tokenization_keeps_terms_and_character_ngrams(self):
+        tokens = tokenize("虚拟内存 page table")
+
+        self.assertIn("虚拟内存", tokens)
+        self.assertIn("虚拟", tokens)
+        self.assertIn("内存", tokens)
+        self.assertIn("page", tokens)
+
     def test_query_is_limited_to_current_course_and_returns_citations(self):
         with tempfile.TemporaryDirectory() as tmp:
             storage = Path(tmp)
@@ -38,6 +46,44 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
 
             self.assertIn("未在当前课程资料中找到可靠依据", result["answer"])
             self.assertEqual(result["citations"], [])
+
+    def test_question_words_alone_do_not_create_false_course_hits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "f1", "intro.md", "操作系统是什么，以及它有哪些主要作用？")
+
+            result = kb.answer("os", "量子纠缠是什么，有哪些作用？")
+
+            self.assertEqual(result["mode"], "no_basis")
+            self.assertEqual(result["citations"], [])
+
+    def test_bm25_does_not_overreward_repeated_terms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "spam", "重复.md", "页表 " * 80 + "只重复术语。")
+            kb.index_text("os", "useful", "教材.md", "页表保存虚拟页到物理页框的映射，用于完成地址转换。")
+
+            hits = kb.search("os", "页表如何完成地址转换？", limit=2)
+
+            self.assertEqual(hits[0]["file_name"], "教材.md")
+            self.assertEqual(hits[0]["retrieval_method"], "bm25_rrf_mmr")
+
+    def test_search_diversifies_sources_and_expands_neighbor_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            long_text = (
+                "虚拟内存先把进程地址空间划分为页面。" * 18
+                + "页表项记录虚拟页号到物理页框号的映射，并包含有效位。"
+                + "发生缺页时操作系统调页并更新页表。" * 18
+            )
+            kb.index_text("os", "book", "教材.md", long_text)
+            kb.index_text("os", "slides", "课件.md", "地址转换会查询页表，TLB 用来缓存常用页表项。")
+
+            hits = kb.search("os", "页表 地址转换 TLB", limit=3)
+
+            self.assertGreaterEqual(len({hit["file_id"] for hit in hits}), 2)
+            book_hit = next(hit for hit in hits if hit["file_id"] == "book")
+            self.assertGreater(len(book_hit["context_text"]), len(book_hit["text"]))
 
     def test_generate_summary_and_quiz_from_course_chunks(self):
         with tempfile.TemporaryDirectory() as tmp:

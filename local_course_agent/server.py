@@ -196,6 +196,8 @@ class Handler(SimpleHTTPRequestHandler):
         config = CTX.config
         for file_node in iter_files(course.get("children", [])):
             path = Path(file_node["path"])
+            if not should_index_course_file(course["path"], path):
+                continue
             for page in extract_text(path, mineru_config=config.get("mineru", {})):
                 indexed_chunks = CTX.kb.index_text(
                     course_id=course_id,
@@ -433,6 +435,14 @@ def save_study_artifact(course_path: Path, label: str, content: str, citations: 
         text += "\n## 来源\n\n" + "\n".join(citation_lines) + "\n"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def should_index_course_file(course_path, file_path) -> bool:
+    try:
+        relative = Path(file_path).resolve().relative_to(Path(course_path).resolve())
+    except ValueError:
+        return False
+    return "AI生成" not in relative.parts
 
 
 def main():
