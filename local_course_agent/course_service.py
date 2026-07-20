@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +27,49 @@ def build_course_index(kb, course: dict, course_id: str, mineru_config=None) -> 
         indexed_files += 1
     indexed_chunks = kb.rebuild_course(course_id, documents)
     return {"ok": True, "indexed_files": indexed_files, "total_chunks": indexed_chunks}
+
+
+class CourseIndexJobs:
+    def __init__(self, kb, max_workers: int = 1):
+        self.kb = kb
+        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._lock = threading.Lock()
+        self._jobs: dict[str, dict] = {}
+
+    def start(self, course_id: str, course: dict, mineru_config=None) -> dict:
+        job_id = uuid.uuid4().hex
+        snapshot = dict(course)
+        snapshot["children"] = list(course.get("children", []))
+        job = {
+            "id": job_id,
+            "course_id": course_id,
+            "status": "queued",
+            "result": None,
+            "error": "",
+        }
+        with self._lock:
+            self._jobs[job_id] = job
+        self._executor.submit(self._run, job_id, course_id, snapshot, dict(mineru_config or {}))
+        return self.get(job_id)
+
+    def get(self, job_id: str) -> dict | None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return dict(job) if job else None
+
+    def _run(self, job_id: str, course_id: str, course: dict, mineru_config: dict) -> None:
+        self._update(job_id, status="running")
+        try:
+            result = build_course_index(self.kb, course, course_id, mineru_config=mineru_config)
+        except Exception as exc:
+            self._update(job_id, status="failed", error=str(exc))
+            return
+        self._update(job_id, status="succeeded", result=result)
+
+    def _update(self, job_id: str, **changes) -> None:
+        with self._lock:
+            if job_id in self._jobs:
+                self._jobs[job_id].update(changes)
 
 
 def create_study_artifact(kb, store, courses_provider, course: dict, course_id: str, artifact_type: str, invalidate=None) -> dict:

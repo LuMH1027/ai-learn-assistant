@@ -14,6 +14,7 @@ from local_course_agent.agent_strategy import build_agent_trace
 from local_course_agent.config import load_config, write_config
 from local_course_agent.course_service import (
     build_course_index,
+    CourseIndexJobs,
     create_study_artifact as create_study_artifact_payload,
     iter_files,
     save_study_artifact,
@@ -102,6 +103,7 @@ class AppContext:
         self.store = AppStore(DATA_DIR)
         self.kb = CourseKnowledgeBase(DATA_DIR / "indexes")
         self.course_cache = CourseCatalogCache()
+        self.index_jobs = CourseIndexJobs(self.kb)
 
     @property
     def config(self):
@@ -182,6 +184,12 @@ class Handler(SimpleHTTPRequestHandler):
             )
         if parsed.path == "/api/courses":
             return self.send_json({"courses": CTX.courses()})
+        if parsed.path.startswith("/api/index-jobs/"):
+            job_id = parsed.path.split("/")[-1]
+            job = CTX.index_jobs.get(job_id)
+            if not job:
+                return self.send_error_json("索引任务不存在", HTTPStatus.NOT_FOUND)
+            return self.send_json(job)
         if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/messages"):
             course_id = parsed.path.split("/")[3]
             return self.send_json({"messages": CTX.store.list_messages(course_id)})
@@ -226,6 +234,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/index"):
             course_id = parsed.path.split("/")[3]
             return self.index_course(course_id)
+        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/index/jobs"):
+            course_id = parsed.path.split("/")[3]
+            return self.start_index_job(course_id)
         if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/files"):
             course_id = parsed.path.split("/")[3]
             return self.upload_course_files(course_id)
@@ -260,6 +271,13 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
         payload = build_course_index(CTX.kb, course, course_id, mineru_config=CTX.config.get("mineru", {}))
         return self.send_json(payload)
+
+    def start_index_job(self, course_id: str):
+        course = CTX.find_course(course_id)
+        if not course:
+            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
+        job = CTX.index_jobs.start(course_id, course, mineru_config=CTX.config.get("mineru", {}))
+        return self.send_json(job, HTTPStatus.ACCEPTED)
 
     def chat(self, course_id: str, stream=False):
         body, uploads = self.read_maybe_multipart()
