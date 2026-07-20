@@ -121,6 +121,36 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
             self.assertIn("自测题", quiz["content"])
             self.assertEqual(len(quiz["citations"]), 2)
 
+    def test_rebuild_course_writes_all_documents_at_once_and_replaces_old_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "old", "旧资料.md", "旧索引内容。")
+
+            total = kb.rebuild_course(
+                "os",
+                [
+                    {
+                        "file_id": "book",
+                        "file_name": "教材.md",
+                        "pages": [
+                            {"page": 1, "text": "页表用于虚拟地址到物理地址转换。"},
+                            {"page": 2, "text": "TLB 缓存常用页表项。"},
+                        ],
+                    },
+                    {
+                        "file_id": "slides",
+                        "file_name": "课件.md",
+                        "pages": [{"page": None, "text": "缺页中断会触发调页。"}],
+                    },
+                ],
+            )
+
+            hits = kb.search("os", "页表 TLB 缺页", limit=5)
+
+            self.assertEqual(total, 3)
+            self.assertEqual({hit["file_name"] for hit in hits}, {"教材.md", "课件.md"})
+            self.assertNotIn("旧资料.md", [hit["file_name"] for hit in hits])
+
 
 if __name__ == "__main__":
     unittest.main()

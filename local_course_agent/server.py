@@ -247,23 +247,23 @@ class Handler(SimpleHTTPRequestHandler):
         course = CTX.find_course(course_id)
         if not course:
             return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        CTX.kb.clear_course(course_id)
         indexed_files = 0
-        indexed_chunks = 0
+        documents = []
         config = CTX.config
         for file_node in iter_files(course.get("children", [])):
             path = Path(file_node["path"])
             if not should_index_course_file(course["path"], path):
                 continue
-            for page in extract_text(path, mineru_config=config.get("mineru", {})):
-                indexed_chunks = CTX.kb.index_text(
-                    course_id=course_id,
-                    file_id=file_node["id"],
-                    file_name=file_node["name"],
-                    text=page["text"],
-                    page=page.get("page"),
-                )
+            pages = extract_text(path, mineru_config=config.get("mineru", {}))
+            documents.append(
+                {
+                    "file_id": file_node["id"],
+                    "file_name": file_node["name"],
+                    "pages": pages,
+                }
+            )
             indexed_files += 1
+        indexed_chunks = CTX.kb.rebuild_course(course_id, documents)
         return self.send_json({"ok": True, "indexed_files": indexed_files, "total_chunks": indexed_chunks})
 
     def chat(self, course_id: str, stream=False):

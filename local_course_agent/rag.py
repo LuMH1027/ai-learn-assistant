@@ -74,20 +74,32 @@ class CourseKnowledgeBase:
         chunks = self._material_chunks(course_id)
         chunks = [chunk for chunk in chunks if not (chunk["file_id"] == file_id and chunk.get("page") == page)]
         next_index = len(chunks) + 1
-        for text_chunk in split_text(text):
-            chunks.append(
-                {
-                    "id": f"{file_id}-{page or 'text'}-{next_index}",
-                    "course_id": course_id,
-                    "file_id": file_id,
-                    "file_name": file_name,
-                    "page": page,
-                    "chunk_index": next_index,
-                    "text": text_chunk,
-                    "tokens": tokenize(text_chunk),
-                }
-            )
-            next_index += 1
+        next_index = self._append_text_chunks(
+            chunks,
+            course_id=course_id,
+            file_id=file_id,
+            file_name=file_name,
+            text=text,
+            page=page,
+            next_index=next_index,
+        )
+        self._save(course_id, chunks)
+        return len(chunks)
+
+    def rebuild_course(self, course_id: str, documents: Sequence[Dict]) -> int:
+        chunks: List[Dict] = []
+        next_index = 1
+        for document in documents:
+            for page in document.get("pages", []):
+                next_index = self._append_text_chunks(
+                    chunks,
+                    course_id=course_id,
+                    file_id=document["file_id"],
+                    file_name=document["file_name"],
+                    text=page.get("text", ""),
+                    page=page.get("page"),
+                    next_index=next_index,
+                )
         self._save(course_id, chunks)
         return len(chunks)
 
@@ -238,6 +250,32 @@ class CourseKnowledgeBase:
 
     def _save(self, course_id: str, chunks: List[Dict]) -> None:
         self._path(course_id).write_text(json.dumps(chunks, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _append_text_chunks(
+        self,
+        chunks: List[Dict],
+        course_id: str,
+        file_id: str,
+        file_name: str,
+        text: str,
+        page=None,
+        next_index: int = 1,
+    ) -> int:
+        for text_chunk in split_text(text):
+            chunks.append(
+                {
+                    "id": f"{file_id}-{page or 'text'}-{next_index}",
+                    "course_id": course_id,
+                    "file_id": file_id,
+                    "file_name": file_name,
+                    "page": page,
+                    "chunk_index": next_index,
+                    "text": text_chunk,
+                    "tokens": tokenize(text_chunk),
+                }
+            )
+            next_index += 1
+        return next_index
 
     def _material_chunks(self, course_id: str) -> List[Dict]:
         return [
