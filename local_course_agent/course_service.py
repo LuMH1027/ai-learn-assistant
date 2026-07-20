@@ -26,7 +26,7 @@ def build_course_index(kb, course: dict, course_id: str, mineru_config=None) -> 
     return {"ok": True, "indexed_files": indexed_files, "total_chunks": indexed_chunks}
 
 
-def create_study_artifact(kb, store, courses_provider, course: dict, course_id: str, artifact_type: str) -> dict:
+def create_study_artifact(kb, store, courses_provider, course: dict, course_id: str, artifact_type: str, invalidate=None) -> dict:
     if artifact_type == "summary":
         label = "课程摘要"
         result = kb.generate_summary(course_id)
@@ -37,6 +37,8 @@ def create_study_artifact(kb, store, courses_provider, course: dict, course_id: 
     artifact_path = save_study_artifact(course_path, label, result["content"], result.get("citations", []))
     message = f"{label}已生成并保存到课程资料：{artifact_path.relative_to(course_path)}\n\n{result['content']}"
     store.add_message(course_id, "assistant", message, result.get("citations", []))
+    if invalidate:
+        invalidate()
     return {
         "ok": True,
         "content": result["content"],

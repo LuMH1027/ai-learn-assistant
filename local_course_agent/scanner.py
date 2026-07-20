@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import threading
+import time
 from pathlib import Path
 from typing import Dict, List
 
@@ -84,3 +86,29 @@ class CourseScanner:
             else:
                 total += self._count_files(node.get("children", []))
         return total
+
+
+class CourseCatalogCache:
+    def __init__(self, ttl_seconds: float = 1.0):
+        self.ttl_seconds = ttl_seconds
+        self._lock = threading.Lock()
+        self._root: Path | None = None
+        self._expires_at = 0.0
+        self._courses: List[Dict] | None = None
+
+    def get(self, root: Path) -> List[Dict]:
+        resolved = Path(root).expanduser().resolve()
+        now = time.monotonic()
+        with self._lock:
+            if self._courses is not None and self._root == resolved and now < self._expires_at:
+                return self._courses
+            courses = CourseScanner(resolved).scan()
+            self._root = resolved
+            self._courses = courses
+            self._expires_at = now + self.ttl_seconds
+            return courses
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._expires_at = 0.0
+            self._courses = None

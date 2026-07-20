@@ -22,7 +22,7 @@ from local_course_agent.course_service import (
 from local_course_agent.llm import build_grounded_prompt, create_llm_client
 from local_course_agent.parser import extract_text
 from local_course_agent.rag import CourseKnowledgeBase
-from local_course_agent.scanner import CourseScanner, is_image_file, stable_id
+from local_course_agent.scanner import CourseCatalogCache, is_image_file, stable_id
 from local_course_agent.store import AppStore
 from local_course_agent.uploads import save_chat_upload, save_course_upload
 from local_course_agent.web_search import (
@@ -101,6 +101,7 @@ class AppContext:
         DATA_DIR.mkdir(exist_ok=True)
         self.store = AppStore(DATA_DIR)
         self.kb = CourseKnowledgeBase(DATA_DIR / "indexes")
+        self.course_cache = CourseCatalogCache()
 
     @property
     def config(self):
@@ -116,7 +117,10 @@ class AppContext:
         root = self.root()
         if not root:
             return []
-        return CourseScanner(root).scan()
+        return self.course_cache.get(root)
+
+    def invalidate_courses(self) -> None:
+        self.course_cache.invalidate()
 
     def find_file(self, file_id: str) -> Path | None:
         for course in self.courses():
@@ -217,6 +221,7 @@ class Handler(SimpleHTTPRequestHandler):
             next_config = dict(current)
             next_config["root_folder"] = str(root)
             write_config(CONFIG_PATH, next_config)
+            CTX.invalidate_courses()
             return self.send_json({"ok": True, "config": {"root_folder": str(root)}})
         if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/index"):
             course_id = parsed.path.split("/")[3]
@@ -407,6 +412,7 @@ class Handler(SimpleHTTPRequestHandler):
             course,
             course_id,
             artifact_type,
+            invalidate=CTX.invalidate_courses,
         )
         return self.send_json(payload)
 
@@ -424,6 +430,7 @@ class Handler(SimpleHTTPRequestHandler):
             except ValueError as exc:
                 return self.send_error_json(str(exc))
             saved.append({"name": path.name, "path": str(path)})
+        CTX.invalidate_courses()
         return self.send_json({"ok": True, "saved": saved, "courses": CTX.courses()})
 
     def index_chat_uploads(self, course_id: str, uploads: list):

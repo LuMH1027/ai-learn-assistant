@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from local_course_agent.scanner import CourseScanner
+from local_course_agent.scanner import CourseCatalogCache, CourseScanner
 
 
 class CourseScannerTest(unittest.TestCase):
@@ -34,6 +34,24 @@ class CourseScannerTest(unittest.TestCase):
             names = {node["name"] for node in course["children"]}
 
             self.assertEqual(names, {"chapter.pdf"})
+
+    def test_catalog_cache_reuses_scan_until_invalidated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Math").mkdir()
+            (root / "Math" / "chapter.pdf").write_bytes(b"%PDF-1.4")
+            cache = CourseCatalogCache(ttl_seconds=60)
+
+            first = cache.get(root)
+            (root / "Physics").mkdir()
+            (root / "Physics" / "motion.pdf").write_bytes(b"%PDF-1.4")
+            cached = cache.get(root)
+            cache.invalidate()
+            refreshed = cache.get(root)
+
+            self.assertEqual([course["name"] for course in first], ["Math"])
+            self.assertIs(first, cached)
+            self.assertEqual([course["name"] for course in refreshed], ["Math", "Physics"])
 
 
 if __name__ == "__main__":
