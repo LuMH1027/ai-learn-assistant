@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from local_course_agent.server import save_study_artifact
@@ -21,6 +22,21 @@ class FileStoreTest(unittest.TestCase):
             self.assertTrue((course_dir / "notes.json").exists())
             self.assertIn("页表", memory)
             self.assertEqual(store.list_messages("course-1")[0]["content"], "什么是页表？")
+
+    def test_concurrent_message_writes_are_not_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+
+            def write_message(index):
+                store.add_message("course-1", "user", f"问题 {index}")
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(write_message, range(40)))
+
+            messages = store.list_messages("course-1")
+
+            self.assertEqual(len(messages), 40)
+            self.assertEqual({message["content"] for message in messages}, {f"问题 {index}" for index in range(40)})
 
     def test_study_artifact_is_saved_inside_course_folder(self):
         with tempfile.TemporaryDirectory() as tmp:

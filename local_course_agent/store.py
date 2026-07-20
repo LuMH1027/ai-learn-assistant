@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -21,20 +22,23 @@ class AppStore:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.memory_dir = self.data_dir / "course_memory"
         self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self._locks: Dict[str, threading.RLock] = {}
+        self._locks_guard = threading.Lock()
         self._migrate_legacy_sqlite()
 
     def add_message(self, course_id: str, role: str, content: str, citations=None, trace=None) -> None:
-        messages = self.list_messages(course_id)
-        messages.append(
-            {
-                "role": role,
-                "content": content,
-                "citations": citations or [],
-                "trace": trace or [],
-                "created_at": now_text(),
-            }
-        )
-        self._write_json(self._messages_path(course_id), messages)
+        with self._lock_for(course_id):
+            messages = self.list_messages(course_id)
+            messages.append(
+                {
+                    "role": role,
+                    "content": content,
+                    "citations": citations or [],
+                    "trace": trace or [],
+                    "created_at": now_text(),
+                }
+            )
+            self._write_json(self._messages_path(course_id), messages)
 
     def list_messages(self, course_id: str) -> List[Dict]:
         return self._read_json(self._messages_path(course_id), [])
@@ -46,27 +50,29 @@ class AppStore:
         return path.read_text(encoding="utf-8")
 
     def update_memory_from_question(self, course_id: str, question: str) -> str:
-        current = self.get_memory(course_id)
-        item = f"- 最近关注：{question[:80]}"
-        lines = [line for line in current.splitlines() if line.strip()]
-        lines.append(item)
-        compact = "\n".join(lines[-8:])
-        self._write_text(self._memory_path(course_id), compact)
-        return compact
+        with self._lock_for(course_id):
+            current = self.get_memory(course_id)
+            item = f"- 最近关注：{question[:80]}"
+            lines = [line for line in current.splitlines() if line.strip()]
+            lines.append(item)
+            compact = "\n".join(lines[-8:])
+            self._write_text(self._memory_path(course_id), compact)
+            return compact
 
     def add_note(self, course_id: str, title: str, content: str) -> None:
-        notes = self.list_notes(course_id)
-        next_id = max([int(note.get("id", 0)) for note in notes] or [0]) + 1
-        notes.insert(
-            0,
-            {
-                "id": next_id,
-                "title": title,
-                "content": content,
-                "created_at": now_text(),
-            },
-        )
-        self._write_json(self._notes_path(course_id), notes)
+        with self._lock_for(course_id):
+            notes = self.list_notes(course_id)
+            next_id = max([int(note.get("id", 0)) for note in notes] or [0]) + 1
+            notes.insert(
+                0,
+                {
+                    "id": next_id,
+                    "title": title,
+                    "content": content,
+                    "created_at": now_text(),
+                },
+            )
+            self._write_json(self._notes_path(course_id), notes)
 
     def list_notes(self, course_id: str) -> List[Dict]:
         return self._read_json(self._notes_path(course_id), [])
@@ -84,6 +90,13 @@ class AppStore:
 
     def _notes_path(self, course_id: str) -> Path:
         return self._course_dir(course_id) / "notes.json"
+
+    def _lock_for(self, course_id: str) -> threading.RLock:
+        key = safe_course_id(course_id)
+        with self._locks_guard:
+            if key not in self._locks:
+                self._locks[key] = threading.RLock()
+            return self._locks[key]
 
     def _read_json(self, path: Path, default):
         if not path.exists():
