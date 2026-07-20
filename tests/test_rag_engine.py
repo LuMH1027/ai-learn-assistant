@@ -151,6 +151,18 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
             self.assertEqual({hit["file_name"] for hit in hits}, {"教材.md", "课件.md"})
             self.assertNotIn("旧资料.md", [hit["file_name"] for hit in hits])
 
+    def test_hybrid_search_expands_related_course_terms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "book", "教材.md", "TLB 缓存常用页表项，可以加速虚拟地址到物理地址的访问。")
+
+            lexical_hits = kb.search("os", "后备缓冲为什么更快？", strategy="lexical")
+            hybrid_hits = kb.search("os", "后备缓冲为什么更快？", strategy="hybrid")
+
+            self.assertEqual(lexical_hits, [])
+            self.assertEqual(hybrid_hits[0]["file_name"], "教材.md")
+            self.assertEqual(hybrid_hits[0]["retrieval_method"], "hybrid_bm25_rrf_mmr")
+
 
 if __name__ == "__main__":
     unittest.main()

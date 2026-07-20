@@ -25,6 +25,16 @@ QUERY_STOP_TOKENS = {
     "介绍",
     "说明",
 }
+QUERY_EXPANSIONS = {
+    "地址转换": ["页表", "tlb", "虚拟地址", "物理地址"],
+    "缺页": ["缺页中断", "页面置换", "调页"],
+    "调度": ["进程", "线程", "cpu"],
+    "后进先出": ["栈", "lifo"],
+    "先进先出": ["队列", "fifo"],
+    "映射": ["地址转换", "页表"],
+    "缓存": ["tlb", "高速缓存"],
+    "后备缓冲": ["tlb", "缓存"],
+}
 
 
 def tokenize(text: str) -> List[str]:
@@ -106,13 +116,14 @@ class CourseKnowledgeBase:
     def clear_course(self, course_id: str) -> None:
         self._path(course_id).write_text("[]", encoding="utf-8")
 
-    def search(self, course_id: str, query: str, limit: int = 5) -> List[Dict]:
+    def search(self, course_id: str, query: str, limit: int = 5, strategy: str = "lexical") -> List[Dict]:
         normalized_query = _normalize_query(query)
-        query_tokens = [
+        original_query_tokens = [
             token
             for token in tokenize(normalized_query)
             if not (token.isdigit() and len(token) < 4)
         ]
+        query_tokens = _expand_query_tokens(normalized_query, original_query_tokens) if strategy == "hybrid" else original_query_tokens
         if not query_tokens:
             return []
         query_counter = Counter(query_tokens)
@@ -169,16 +180,16 @@ class CourseKnowledgeBase:
         for item in selected:
             item["context_text"] = _neighbor_context(item, chunks)
             item["score"] = round(item["rrf_score"] * 1000, 4)
-            item["retrieval_method"] = "bm25_rrf_mmr"
-            query_set = set(query_tokens)
+            item["retrieval_method"] = "hybrid_bm25_rrf_mmr" if strategy == "hybrid" else "bm25_rrf_mmr"
+            query_set = set(original_query_tokens)
             item["query_coverage"] = round(
                 len(query_set & set(item.get("tokens", []))) / max(len(query_set), 1),
                 4,
             )
         return selected
 
-    def answer(self, course_id: str, query: str) -> Dict:
-        hits = self.search(course_id, query, limit=4)
+    def answer(self, course_id: str, query: str, strategy: str = "hybrid") -> Dict:
+        hits = self.search(course_id, query, limit=4, strategy=strategy)
         if not hits:
             return {
                 "answer": "未在当前课程资料中找到可靠依据。建议先确认该课程资料是否已完成入库，或换一种更贴近资料原文的提问方式。",
@@ -325,6 +336,16 @@ def _normalize_query(query: str) -> str:
     for stopword in sorted(QUERY_STOP_TOKENS, key=len, reverse=True):
         normalized = normalized.replace(stopword, " ")
     return normalized
+
+
+def _expand_query_tokens(query: str, tokens: Sequence[str]) -> List[str]:
+    expanded = list(tokens)
+    query_text = query.lower()
+    for trigger, additions in QUERY_EXPANSIONS.items():
+        trigger_tokens = tokenize(trigger)
+        if trigger in query_text or any(token in tokens for token in trigger_tokens):
+            expanded.extend(token for addition in additions for token in tokenize(addition))
+    return expanded
 
 
 def _phrase_score(chunk: Dict, phrases: Sequence[str]) -> float:
