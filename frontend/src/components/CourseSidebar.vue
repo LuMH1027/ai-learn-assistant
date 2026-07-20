@@ -98,7 +98,7 @@ function onDrop(event: DragEvent) {
       <label for="root-folder">资料根目录</label>
       <input id="root-folder" v-model="rootFolder" />
       <button type="button" :disabled="course.savingRoot" @click="run(() => course.saveRoot(rootFolder))">设置</button>
-      <button type="button" :disabled="!course.activeCourse || course.indexing" @click="run(course.indexActiveCourse)">构建知识库</button>
+      <button type="button" :disabled="!course.activeCourse || course.indexing" @click="run(course.indexActiveCourse)">{{ course.indexStatus ?? '构建知识库' }}</button>
       <input
         ref="coursePicker"
         type="file"

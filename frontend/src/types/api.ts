@@ -108,6 +108,14 @@ export interface IndexResult {
   total_chunks: number
 }
 
+export interface IndexJob {
+  id: string
+  course_id: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  result: IndexResult | null
+  error: string
+}
+
 export interface ArtifactResult {
   ok: boolean
   content: string

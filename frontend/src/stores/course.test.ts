@@ -5,6 +5,7 @@ import type {
   ConfigResponse,
   Course,
   CoursesResponse,
+  IndexJob,
   IndexResult,
   SaveConfigResponse,
   UploadResult,
@@ -48,6 +49,16 @@ function deferred<T>() {
     reject = rejectPromise
   })
   return { promise, reject, resolve }
+}
+
+function indexJob(status: IndexJob['status'], result: IndexResult | null = null): IndexJob {
+  return {
+    id: 'job-1',
+    course_id: 'a',
+    status,
+    result,
+    error: '',
+  }
 }
 
 describe('course store', () => {
@@ -466,8 +477,8 @@ describe('course store', () => {
   })
 
   it('ignores duplicate indexing while the first write is busy', async () => {
-    let resolveIndex!: (result: IndexResult) => void
-    api.postJson.mockReturnValue(new Promise<IndexResult>((resolve) => {
+    let resolveIndex!: (result: IndexJob) => void
+    api.postJson.mockReturnValue(new Promise<IndexJob>((resolve) => {
       resolveIndex = resolve
     }))
     const store = useCourseStore()
@@ -479,10 +490,29 @@ describe('course store', () => {
 
     expect(store.indexing).toBe(true)
     expect(duplicate).toBeUndefined()
-    resolveIndex({ ok: true, indexed_files: 2, total_chunks: 8 })
+    expect(store.indexStatus).toBe('正在启动索引任务…')
+    resolveIndex(indexJob('succeeded', { ok: true, indexed_files: 2, total_chunks: 8 }))
     await first
 
     expect(store.indexing).toBe(false)
+    expect(store.indexStatus).toBeNull()
     expect(api.postJson).toHaveBeenCalledOnce()
+  })
+
+  it('does not let a stale index job clear a newer course state', async () => {
+    const started = deferred<IndexJob>()
+    api.postJson.mockReturnValue(started.promise)
+    const store = useCourseStore()
+    store.courses = [course('a'), course('b')]
+    store.selectCourse('a')
+
+    const pending = store.indexActiveCourse()
+    store.selectCourse('b')
+    started.resolve(indexJob('succeeded', { ok: true, indexed_files: 1, total_chunks: 1 }))
+    await pending
+
+    expect(store.activeCourseId).toBe('b')
+    expect(store.indexing).toBe(false)
+    expect(store.indexStatus).toBeNull()
   })
 })

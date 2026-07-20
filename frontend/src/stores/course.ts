@@ -6,6 +6,7 @@ import type {
   ConfigResponse,
   Course,
   CoursesResponse,
+  IndexJob,
   IndexResult,
   SaveConfigResponse,
   UploadResult,
@@ -13,6 +14,11 @@ import type {
 
 type CourseConfig = Pick<ConfigResponse, 'root_folder'> &
   Partial<Omit<ConfigResponse, 'root_folder'>>
+const INDEX_POLL_MS = 250
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+}
 
 export const useCourseStore = defineStore('course', () => {
   const courses = ref<Course[]>([])
@@ -26,6 +32,9 @@ export const useCourseStore = defineStore('course', () => {
   const configRequestId = ref(0)
   const pendingRequests = ref(0)
   const indexing = ref(false)
+  const indexStatus = ref<string | null>(null)
+  const indexJobId = ref<string | null>(null)
+  const indexRequestId = ref(0)
   const savingRoot = ref(false)
 
   const activeCourse = computed(() =>
@@ -90,6 +99,7 @@ export const useCourseStore = defineStore('course', () => {
     const nextId = typeof course === 'string' ? course : course?.id ?? null
     if (nextId === activeCourseId.value) return
 
+    resetIndexState()
     activeCourseId.value = nextId
     contextVersion.value += 1
   }
@@ -105,6 +115,7 @@ export const useCourseStore = defineStore('course', () => {
 
         rootVersion.value += 1
         configEpoch.value += 1
+        resetIndexState()
         config.value = {
           ...(config.value ?? {}),
           root_folder: result.config.root_folder,
@@ -152,16 +163,63 @@ export const useCourseStore = defineStore('course', () => {
     const courseId = activeCourseId.value
     if (courseId === null || indexing.value) return
 
+    const requestId = ++indexRequestId.value
+    const requestedRootVersion = rootVersion.value
     indexing.value = true
+    indexStatus.value = '正在启动索引任务…'
+    indexJobId.value = null
     return (async () => {
       try {
-        return await postJson<IndexResult>(
-          `/api/courses/${encodeURIComponent(courseId)}/index`,
+        const started = await postJson<IndexJob>(
+          `/api/courses/${encodeURIComponent(courseId)}/index/jobs`,
         )
+        if (!isCurrentIndexRequest(courseId, requestedRootVersion, requestId)) return undefined
+        indexJobId.value = started.id
+        return await waitForIndexJob(started, courseId, requestedRootVersion, requestId)
       } finally {
-        indexing.value = false
+        if (isCurrentIndexRequest(courseId, requestedRootVersion, requestId)) {
+          indexing.value = false
+          indexStatus.value = null
+          indexJobId.value = null
+        }
       }
     })()
+  }
+
+  function resetIndexState() {
+    indexRequestId.value += 1
+    indexing.value = false
+    indexStatus.value = null
+    indexJobId.value = null
+  }
+
+  function isCurrentIndexRequest(courseId: string, requestedRootVersion: number, requestId: number) {
+    return activeCourseId.value === courseId &&
+      rootVersion.value === requestedRootVersion &&
+      requestId === indexRequestId.value
+  }
+
+  async function waitForIndexJob(
+    started: IndexJob,
+    courseId: string,
+    requestedRootVersion: number,
+    requestId: number,
+  ): Promise<IndexResult | undefined> {
+    let job = started
+    while (isCurrentIndexRequest(courseId, requestedRootVersion, requestId)) {
+      if (job.status === 'succeeded') {
+        indexStatus.value = '索引完成'
+        return job.result ?? undefined
+      }
+      if (job.status === 'failed') {
+        throw new Error(job.error || '索引任务失败')
+      }
+      indexStatus.value = job.status === 'queued' ? '索引排队中…' : '正在构建知识库…'
+      await wait(INDEX_POLL_MS)
+      if (!isCurrentIndexRequest(courseId, requestedRootVersion, requestId)) return undefined
+      job = await getJson<IndexJob>(`/api/index-jobs/${encodeURIComponent(job.id)}`)
+    }
+    return undefined
   }
 
   return {
@@ -177,6 +235,9 @@ export const useCourseStore = defineStore('course', () => {
     pendingRequests,
     loading,
     indexing,
+    indexStatus,
+    indexJobId,
+    indexRequestId,
     savingRoot,
     activeCourse,
     applyCourses,
