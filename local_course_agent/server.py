@@ -5,7 +5,6 @@ import mimetypes
 import cgi
 import re
 import time
-from datetime import datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,6 +12,13 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from local_course_agent.agent_strategy import build_agent_trace
 from local_course_agent.config import load_config, write_config
+from local_course_agent.course_service import (
+    build_course_index,
+    create_study_artifact as create_study_artifact_payload,
+    iter_files,
+    save_study_artifact,
+    should_index_course_file,
+)
 from local_course_agent.llm import build_grounded_prompt, create_llm_client
 from local_course_agent.parser import extract_text
 from local_course_agent.rag import CourseKnowledgeBase
@@ -247,24 +253,8 @@ class Handler(SimpleHTTPRequestHandler):
         course = CTX.find_course(course_id)
         if not course:
             return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        indexed_files = 0
-        documents = []
-        config = CTX.config
-        for file_node in iter_files(course.get("children", [])):
-            path = Path(file_node["path"])
-            if not should_index_course_file(course["path"], path):
-                continue
-            pages = extract_text(path, mineru_config=config.get("mineru", {}))
-            documents.append(
-                {
-                    "file_id": file_node["id"],
-                    "file_name": file_node["name"],
-                    "pages": pages,
-                }
-            )
-            indexed_files += 1
-        indexed_chunks = CTX.kb.rebuild_course(course_id, documents)
-        return self.send_json({"ok": True, "indexed_files": indexed_files, "total_chunks": indexed_chunks})
+        payload = build_course_index(CTX.kb, course, course_id, mineru_config=CTX.config.get("mineru", {}))
+        return self.send_json(payload)
 
     def chat(self, course_id: str, stream=False):
         body, uploads = self.read_maybe_multipart()
@@ -410,24 +400,15 @@ class Handler(SimpleHTTPRequestHandler):
         course = CTX.find_course(course_id)
         if not course:
             return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        if artifact_type == "summary":
-            label = "课程摘要"
-            result = CTX.kb.generate_summary(course_id)
-        else:
-            label = "练习题"
-            result = CTX.kb.generate_quiz(course_id)
-        artifact_path = save_study_artifact(Path(course["path"]), label, result["content"], result.get("citations", []))
-        message = f"{label}已生成并保存到课程资料：{artifact_path.relative_to(Path(course['path']))}\n\n{result['content']}"
-        CTX.store.add_message(course_id, "assistant", message, result.get("citations", []))
-        return self.send_json(
-            {
-                "ok": True,
-                "content": result["content"],
-                "citations": result.get("citations", []),
-                "artifact": {"name": artifact_path.name, "path": str(artifact_path)},
-                "courses": CTX.courses(),
-            }
+        payload = create_study_artifact_payload(
+            CTX.kb,
+            CTX.store,
+            CTX.courses,
+            course,
+            course_id,
+            artifact_type,
         )
+        return self.send_json(payload)
 
     def upload_course_files(self, course_id: str):
         course = CTX.find_course(course_id)
@@ -635,14 +616,6 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json({"ok": False, "error": message}, status)
 
 
-def iter_files(nodes):
-    for node in nodes:
-        if node["type"] == "file":
-            yield node
-        else:
-            yield from iter_files(node.get("children", []))
-
-
 def adapt_answer_by_mode(mode: str, answer: str) -> str:
     return answer_mode_prefix(mode) + answer
 
@@ -662,30 +635,6 @@ def append_web_fallback(answer: str, web_sources: list) -> str:
         snippet = source.get("quote", "").strip()
         lines.append(f"[W{index}] {source.get('file_name', '网页来源')}：{snippet}")
     return "\n".join(lines)
-
-
-def save_study_artifact(course_path: Path, label: str, content: str, citations: list) -> Path:
-    target_dir = course_path / "AI生成"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    path = target_dir / f"{label}-{timestamp}.md"
-    citation_lines = []
-    for citation in citations:
-        page = f" 第 {citation.get('page')} 页" if citation.get("page") else ""
-        citation_lines.append(f"- {citation.get('file_name', '未知文件')}{page}，片段 {citation.get('chunk_index')}")
-    text = f"# {label}\n\n{content.strip()}\n"
-    if citation_lines:
-        text += "\n## 来源\n\n" + "\n".join(citation_lines) + "\n"
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
-def should_index_course_file(course_path, file_path) -> bool:
-    try:
-        relative = Path(file_path).resolve().relative_to(Path(course_path).resolve())
-    except ValueError:
-        return False
-    return "AI生成" not in relative.parts
 
 
 def main():
