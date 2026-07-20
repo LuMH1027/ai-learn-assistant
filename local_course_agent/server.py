@@ -25,7 +25,7 @@ from local_course_agent.parser import extract_text
 from local_course_agent.rag import CourseKnowledgeBase
 from local_course_agent.scanner import CourseCatalogCache, is_image_file, stable_id
 from local_course_agent.store import AppStore
-from local_course_agent.uploads import save_chat_upload, save_course_upload
+from local_course_agent.uploads import MAX_TOTAL_UPLOAD_BYTES, save_chat_upload, save_course_upload
 from local_course_agent.web_search import (
     WebSearchError,
     create_web_search_client,
@@ -280,7 +280,10 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json(job, HTTPStatus.ACCEPTED)
 
     def chat(self, course_id: str, stream=False):
-        body, uploads = self.read_maybe_multipart()
+        try:
+            body, uploads = self.read_maybe_multipart()
+        except ValueError as exc:
+            return self.send_error_json(str(exc), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
         question = body.get("question", "").strip()
         mode = body.get("mode", "answer")
         if not question and not uploads:
@@ -301,7 +304,14 @@ class Handler(SimpleHTTPRequestHandler):
         course = CTX.find_course(course_id) or {"name": ""}
         if uploads:
             emit({"type": "status", "stage": "attachments", "detail": "正在读取附件…"})
-        attachment_text, image_paths = self.index_chat_uploads(course_id, uploads)
+        try:
+            attachment_text, image_paths = self.index_chat_uploads(course_id, uploads)
+        except ValueError as exc:
+            if stream:
+                emit({"type": "error", "error": str(exc)})
+                self.end_stream()
+                return None
+            return self.send_error_json(str(exc))
         if (attachment_text or image_paths) and not question:
             question = "请阅读并总结我拖入的文件。"
         search_question = question
@@ -438,7 +448,10 @@ class Handler(SimpleHTTPRequestHandler):
         course = CTX.find_course(course_id)
         if not course:
             return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        _, uploads = self.read_maybe_multipart()
+        try:
+            _, uploads = self.read_maybe_multipart()
+        except ValueError as exc:
+            return self.send_error_json(str(exc), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
         if not uploads:
             return self.send_error_json("没有收到文件")
         saved = []
@@ -460,8 +473,8 @@ class Handler(SimpleHTTPRequestHandler):
         for upload in uploads:
             try:
                 path = save_chat_upload(DATA_DIR, course_id, upload["filename"], upload["content"])
-            except ValueError:
-                continue
+            except ValueError as exc:
+                raise ValueError(str(exc)) from exc
             if is_image_file(path):
                 image_paths.append(path)
                 extracted_parts.append(f"截图 {path.name} 已保存为聊天附件。")
@@ -576,6 +589,10 @@ class Handler(SimpleHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "")
         if not content_type.startswith("multipart/form-data"):
             return self.read_body(), []
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length > MAX_TOTAL_UPLOAD_BYTES:
+            limit_mb = MAX_TOTAL_UPLOAD_BYTES // (1024 * 1024)
+            raise ValueError(f"上传内容过大，总大小不能超过 {limit_mb} MB")
         form = cgi.FieldStorage(
             fp=self.rfile,
             headers=self.headers,
