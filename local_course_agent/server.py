@@ -78,6 +78,15 @@ def is_frontend_entry(request_path: str) -> bool:
     return urlparse(request_path).path in ("/", "/index.html")
 
 
+def parse_course_route(request_path: str) -> tuple[str, str] | None:
+    match = re.fullmatch(r"/api/courses/([^/]+)/([^/]+)(?:/([^/]+))?", urlparse(request_path).path)
+    if not match:
+        return None
+    course_id = unquote(match.group(1))
+    action = "/".join(part for part in match.groups()[1:] if part)
+    return course_id, action
+
+
 def emit_stream_text(text: str, emit, paced=False, delay=0.016) -> None:
     units = re.findall(r"[\u3400-\u9fff]|[A-Za-z0-9_]+|\s+|[^\s]", text) if paced else [text]
     for unit in units:
@@ -167,6 +176,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        course_route = parse_course_route(self.path)
         if parsed.path == "/api/config":
             config = CTX.config
             ai_client = create_llm_client(config.get("ai", {}))
@@ -190,20 +200,20 @@ class Handler(SimpleHTTPRequestHandler):
             if not job:
                 return self.send_error_json("索引任务不存在", HTTPStatus.NOT_FOUND)
             return self.send_json(job)
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/messages"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "messages":
+            course_id = course_route[0]
             return self.send_json({"messages": CTX.store.list_messages(course_id)})
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/memory"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "memory":
+            course_id = course_route[0]
             return self.send_json({"memory": CTX.store.get_memory(course_id)})
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/summary"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "summary":
+            course_id = course_route[0]
             return self.send_json(CTX.kb.generate_summary(course_id))
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/quiz"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "quiz":
+            course_id = course_route[0]
             return self.send_json(CTX.kb.generate_quiz(course_id))
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/notes"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "notes":
+            course_id = course_route[0]
             return self.send_json({"notes": CTX.store.list_notes(course_id)})
         if parsed.path == "/api/files/preview":
             return self.send_preview(parse_qs(parsed.query).get("id", [""])[0])
@@ -217,6 +227,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        course_route = parse_course_route(self.path)
         if parsed.path == "/api/config":
             body = self.read_body()
             current = CTX.config
@@ -231,17 +242,17 @@ class Handler(SimpleHTTPRequestHandler):
             write_config(CONFIG_PATH, next_config)
             CTX.invalidate_courses()
             return self.send_json({"ok": True, "config": {"root_folder": str(root)}})
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/index"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "index":
+            course_id = course_route[0]
             return self.index_course(course_id)
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/index/jobs"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "index/jobs":
+            course_id = course_route[0]
             return self.start_index_job(course_id)
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/files"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "files":
+            course_id = course_route[0]
             return self.upload_course_files(course_id)
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/chat"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "chat":
+            course_id = course_route[0]
             accept = self.headers.get("Accept", "")
             stream_format = (
                 "sse" if "text/event-stream" in accept
@@ -252,14 +263,14 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.chat(course_id, stream=stream_format)
             except ClientDisconnected:
                 return None
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/summary"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "summary":
+            course_id = course_route[0]
             return self.create_study_artifact(course_id, "summary")
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/quiz"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "quiz":
+            course_id = course_route[0]
             return self.create_study_artifact(course_id, "quiz")
-        if parsed.path.startswith("/api/courses/") and parsed.path.endswith("/notes"):
-            course_id = parsed.path.split("/")[3]
+        if course_route and course_route[1] == "notes":
+            course_id = course_route[0]
             body = self.read_body()
             CTX.store.add_note(course_id, body.get("title", "学习笔记"), body.get("content", ""))
             return self.send_json({"ok": True, "notes": CTX.store.list_notes(course_id)})

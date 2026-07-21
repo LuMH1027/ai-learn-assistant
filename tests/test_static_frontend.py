@@ -7,6 +7,7 @@ from local_course_agent.server import (
     STATIC_DIR,
     frontend_build_error,
     is_frontend_entry,
+    parse_course_route,
     resolve_static_path,
     static_cache_control,
 )
@@ -47,6 +48,11 @@ class StaticFrontendTest(unittest.TestCase):
         message = frontend_build_error()
         self.assertIn("前端尚未构建", message)
         self.assertIn("start", message.lower())
+
+    def test_course_api_routes_are_parsed_centrally(self):
+        self.assertEqual(parse_course_route("/api/courses/os-1/messages"), ("os-1", "messages"))
+        self.assertEqual(parse_course_route("/api/courses/os-1/index/jobs"), ("os-1", "index/jobs"))
+        self.assertEqual(parse_course_route("/api/config"), None)
 
 
 if __name__ == "__main__":
