@@ -117,9 +117,25 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
             quiz = kb.generate_quiz("ds", count=2)
 
             self.assertIn("课程复习摘要", summary["content"])
+            self.assertIn("## 核心知识点", summary["content"])
+            self.assertIn("复习建议", summary["content"])
             self.assertGreaterEqual(len(summary["citations"]), 2)
             self.assertIn("自测题", quiz["content"])
+            self.assertIn("应用题", quiz["content"])
             self.assertEqual(len(quiz["citations"]), 2)
+
+    def test_summary_selects_representative_chunks_across_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "intro", "导论.md", "操作系统管理资源。" * 60)
+            kb.index_text("os", "memory", "内存.md", "页表保存虚拟页到物理页框的映射，用于地址转换。")
+            kb.index_text("os", "process", "进程.md", "进程调度决定 CPU 在多个进程之间的分配。")
+
+            summary = kb.generate_summary("os", limit=2)
+            citation_files = {citation["file_name"] for citation in summary["citations"]}
+
+            self.assertEqual(len(citation_files), 2)
+            self.assertNotEqual(citation_files, {"导论.md"})
 
     def test_rebuild_course_writes_all_documents_at_once_and_replaces_old_index(self):
         with tempfile.TemporaryDirectory() as tmp:

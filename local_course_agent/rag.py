@@ -224,34 +224,35 @@ class CourseKnowledgeBase:
         }
 
     def generate_summary(self, course_id: str, limit: int = 6) -> Dict:
-        chunks = self._material_chunks(course_id)[:limit]
+        chunks = _representative_chunks(self._material_chunks(course_id), limit)
         if not chunks:
             return {"content": "当前课程还没有可用于生成摘要的资料片段，请先构建知识库。", "citations": []}
         citations = [citation_from_chunk(chunk) for chunk in chunks]
-        points = []
+        points = ["课程复习摘要", "", "## 核心知识点"]
         for chunk in chunks:
-            text = chunk["text"]
-            if len(text) > 120:
-                text = text[:120] + "..."
-            points.append(f"- 《{chunk['file_name']}》：{text}")
+            keyword = _pick_keyword(chunk["text"])
+            points.append(f"- {keyword}：{_compact_sentence(chunk['text'])}（来源：《{chunk['file_name']}》）")
+        points.extend(["", "## 复习建议"])
+        points.append("- 先按上面的核心知识点复述定义，再回到来源文件核对例子、条件和易错边界。")
         return {
-            "content": "课程复习摘要\n\n" + "\n".join(points),
+            "content": "\n".join(points),
             "citations": citations,
         }
 
     def generate_quiz(self, course_id: str, count: int = 5) -> Dict:
-        chunks = self._material_chunks(course_id)[:count]
+        chunks = _representative_chunks(self._material_chunks(course_id), count)
         if not chunks:
             return {"content": "当前课程还没有可用于生成练习题的资料片段，请先构建知识库。", "citations": []}
-        questions = []
+        questions = ["课程自测题"]
         for index, chunk in enumerate(chunks, start=1):
             keyword = _pick_keyword(chunk["text"])
             questions.append(
-                f"{index}. 自测题：请结合《{chunk['file_name']}》说明“{keyword}”的含义或作用。\n"
-                f"   参考要点：{chunk['text'][:120]}"
+                f"{index}. 基础题：说明“{keyword}”的含义或作用，并指出它解决了什么问题。\n"
+                f"   应用题：结合《{chunk['file_name']}》中的材料，举一个使用“{keyword}”的场景。\n"
+                f"   参考要点：{_compact_sentence(chunk['text'])}"
             )
         return {
-            "content": "课程自测题\n\n" + "\n\n".join(questions),
+            "content": "\n\n".join(questions),
             "citations": [citation_from_chunk(chunk) for chunk in chunks],
         }
 
@@ -443,6 +444,44 @@ def _neighbor_context(item: Dict, chunks: Sequence[Dict]) -> str:
         if chunk.get("file_id") == item.get("file_id") and chunk.get("page") == item.get("page"):
             related.append(chunk["text"])
     return "\n".join(related)
+
+
+def _representative_chunks(chunks: Sequence[Dict], limit: int) -> List[Dict]:
+    ranked = sorted(
+        chunks,
+        key=lambda chunk: (
+            len(set(token for token in chunk.get("tokens", []) if len(token) > 1)),
+            len(chunk.get("text", "")),
+        ),
+        reverse=True,
+    )
+    selected: List[Dict] = []
+    used_files = set()
+    used_keywords = set()
+    for chunk in ranked:
+        keyword = _pick_keyword(chunk.get("text", ""))
+        if len(selected) < limit and (chunk.get("file_id") not in used_files or keyword not in used_keywords):
+            selected.append(chunk)
+            used_files.add(chunk.get("file_id"))
+            used_keywords.add(keyword)
+        if len(selected) >= limit:
+            break
+    for chunk in ranked:
+        if len(selected) >= limit:
+            break
+        if chunk not in selected:
+            selected.append(chunk)
+    return selected
+
+
+def _compact_sentence(text: str, limit: int = 150) -> str:
+    clean = re.sub(r"\s+", " ", text).strip()
+    if len(clean) <= limit:
+        return clean
+    boundary = max(clean.rfind("。", 0, limit), clean.rfind("；", 0, limit), clean.rfind(".", 0, limit))
+    if boundary >= 40:
+        return clean[: boundary + 1]
+    return clean[:limit].rstrip() + "..."
 
 
 def _pick_keyword(text: str) -> str:
