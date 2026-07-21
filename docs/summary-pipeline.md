@@ -1,0 +1,120 @@
+# 章节级 Map-Reduce 摘要 Pipeline
+
+当前切片只实现纯函数式编排，不接入 `course_service.py`、`server.py` 或前端接口。
+
+## 目标
+
+课程摘要从“一组代表片段直接生成”升级为两阶段流程：
+
+1. Map：按 `file_id + section_title` 聚合 evidence，对每个章节/文件生成章节摘要 prompt。
+2. Reduce：把章节摘要归并为课程总摘要 prompt，保留原始 evidence 标签，例如 `[S1]`。
+
+这样可以在资料较多时先压缩章节局部信息，再做课程级归纳，减少单次 prompt 过长和章节关系丢失。
+
+## 模块边界
+
+实现文件：`local_course_agent/summary.py`
+
+核心函数：
+
+- `normalize_summary_evidence(chunks)`：把 RAG chunk/citation 字典规范化为 `SummaryEvidence`。
+- `group_evidence_by_section(evidence)`：按文件和章节聚合 evidence。
+- `build_map_prompt(course_name, group)`：生成单个章节的 map prompt。
+- `build_reduce_prompt(course_name, map_summaries)`：生成课程总摘要 reduce prompt。
+- `build_summary_pipeline(chunks)`：返回纯字典结构，方便后续 API 集成和调试。
+- `run_map_reduce_summary(chunks, llm_client, course_name=...)`：用注入的 LLM client 执行 map-reduce。
+- `generate_map_reduce_course_summary(kb, course_id, course_name, ai_config, create_client)`：面向 `course_service.py` 的高层适配函数，从 `kb.summary_chunks()` 取证据、创建 LLM client、返回可直接用于摘要接口的 payload。
+
+`run_map_reduce_summary` 不读写文件，不读取配置，不创建网络 client。调用方需要传入满足以下协议的 client：
+
+```python
+class SummaryLLMClient:
+    def enabled(self) -> bool: ...
+    def generate(self, prompt: str) -> str | None: ...
+```
+
+`generate_map_reduce_course_summary` 同样不读写文件，也不直接导入 `course_service.py` 或 `llm.py`。调用方通过 `create_client(ai_config)` 注入现有 OpenAI-compatible client 工厂，避免在摘要 pipeline 中绑定服务层实现。
+
+## 输入
+
+输入是现有 RAG chunk 或 citation 形态的字典列表，优先读取：
+
+- `context_text`
+- `quote`
+- `text`
+
+元数据字段：
+
+- `file_id`
+- `file_name`
+- `file_path`
+- `section_title`
+- `material_type`
+- `page`
+- `chunk_index`
+
+缺失字段会使用安全默认值。
+
+## 输出
+
+`run_map_reduce_summary` 返回：
+
+- `content`：最终课程摘要。
+- `llm_status`：`used`、`empty`、`disabled` 或 `failed`。
+- `map_summaries`：每个章节的中间摘要。
+- `map_prompts`：实际生成的章节 prompt。
+- `reduce_prompt`：实际生成的总摘要 prompt。
+- `evidence_groups`：章节/文件聚合后的 evidence。
+
+`generate_map_reduce_course_summary` 在上述字段基础上补充：
+
+- `citations`：由 summary chunks 派生的引用信息，包含文件、页码、章节、片段和 quote。
+- `status`：高层状态。成功时为 `used`；失败或不可用时可能是 `empty`、`disabled`、`failed`、`client_error`、`summary_error`。
+- `fallback_needed`：布尔值。`status != "used"` 时为 `true`，服务层可据此沿用旧的本地摘要 fallback。
+- `fallback_reason`：明确回退原因，例如 `no_summary_chunks`、`llm_disabled`、`llm_generation_failed`、`create_client_failed: ...`。
+
+成功 payload 示例：
+
+```json
+{
+  "content": "课程复习摘要\n\n## 总体脉络\n- ... [S1]",
+  "llm_status": "used",
+  "status": "used",
+  "fallback_needed": false,
+  "fallback_reason": "",
+  "citations": [
+    {
+      "file_id": "net",
+      "file_name": "网络.md",
+      "section_title": "TCP",
+      "location": "第 3 页",
+      "quote": "TCP 通过确认、重传和序号提供可靠传输。"
+    }
+  ]
+}
+```
+
+## 后续接入
+
+后续主接口可以在 `course_service.generate_course_summary()` 中替换当前单 prompt 摘要：
+
+1. 导入 `generate_map_reduce_course_summary`。
+2. 调用 `generate_map_reduce_course_summary(kb, course_id, course_name, ai_config, create_llm_client)`。
+3. 当 `fallback_needed` 为 `false` 时直接返回新摘要。
+4. 当 `fallback_needed` 为 `true` 时沿用当前 `kb.generate_summary()` 本地 fallback，并可把 `status` / `fallback_reason` 透传给调试信息。
+
+这一步不在当前切片中实现，避免同时改变 API 行为和摘要算法。
+
+## 验证
+
+测试文件：`tests/test_summary_pipeline.py`
+
+覆盖内容：
+
+- evidence 按 file/section 分组。
+- map prompt 和 reduce prompt 保留来源标签。
+- LLM stub 按 map prompts -> reduce prompt 的顺序被调用。
+- 空 evidence 与 disabled client 不触发生成。
+- pipeline 输出纯字典，便于后续 API 集成。
+- 高层函数可以直接用 `kb.summary_chunks()` 和 stub client 生成摘要 payload。
+- 高层函数在 empty、disabled、client error 时返回明确 `fallback_needed` 与 `fallback_reason`。

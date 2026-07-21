@@ -88,6 +88,54 @@ class AppStore:
     def list_notes(self, course_id: str) -> List[Dict]:
         return self._read_json(self._notes_path(course_id), [])
 
+    def list_study_plan(self, course_id: str) -> List[Dict]:
+        return self._read_json(self._study_plan_path(course_id), [])
+
+    def ensure_study_plan(self, course_id: str, seed_items: List[Dict]) -> List[Dict]:
+        with self._lock_for(course_id):
+            current = self.list_study_plan(course_id)
+            if current:
+                return current
+            now = now_text()
+            items = []
+            for index, item in enumerate(seed_items, start=1):
+                items.append(normalize_study_plan_item({**item, "id": index}, now))
+            self._write_json(self._study_plan_path(course_id), items)
+            return items
+
+    def add_study_plan_item(self, course_id: str, item: Dict) -> List[Dict]:
+        with self._lock_for(course_id):
+            items = self.list_study_plan(course_id)
+            next_id = max([int(plan_item.get("id", 0)) for plan_item in items] or [0]) + 1
+            items.append(normalize_study_plan_item({**item, "id": next_id}, now_text()))
+            self._write_json(self._study_plan_path(course_id), items)
+            return items
+
+    def update_study_plan_item(self, course_id: str, item_id: int, changes: Dict) -> List[Dict]:
+        with self._lock_for(course_id):
+            items = self.list_study_plan(course_id)
+            updated = []
+            found = False
+            for item in items:
+                if int(item.get("id", 0)) != int(item_id):
+                    updated.append(item)
+                    continue
+                found = True
+                next_item = dict(item)
+                for key in ("title", "kind", "status", "estimated_minutes"):
+                    if key in changes:
+                        next_item[key] = changes[key]
+                next_item["updated_at"] = now_text()
+                if next_item.get("status") == "done" and not next_item.get("completed_at"):
+                    next_item["completed_at"] = next_item["updated_at"]
+                elif next_item.get("status") != "done":
+                    next_item["completed_at"] = ""
+                updated.append(normalize_study_plan_item(next_item, next_item["updated_at"]))
+            if not found:
+                raise KeyError(f"study plan item not found: {item_id}")
+            self._write_json(self._study_plan_path(course_id), updated)
+            return updated
+
     def _course_dir(self, course_id: str) -> Path:
         path = self.memory_dir / safe_course_id(course_id)
         path.mkdir(parents=True, exist_ok=True)
@@ -101,6 +149,9 @@ class AppStore:
 
     def _notes_path(self, course_id: str) -> Path:
         return self._course_dir(course_id) / "notes.json"
+
+    def _study_plan_path(self, course_id: str) -> Path:
+        return self._course_dir(course_id) / "study_plan.json"
 
     def _lock_for(self, course_id: str) -> threading.RLock:
         key = safe_course_id(course_id)
@@ -207,6 +258,35 @@ def parse_memory_items(text: str) -> List[Dict]:
             sample = legacy.group(1)
             items.append({"count": 1, "topic": memory_topic(sample), "sample": sample})
     return items
+
+
+def normalize_study_plan_item(item: Dict, timestamp: str) -> Dict:
+    title = str(item.get("title", "")).strip()[:120]
+    if not title:
+        title = "未命名学习项"
+    kind = str(item.get("kind", "read"))
+    if kind not in {"read", "review", "practice"}:
+        kind = "read"
+    status = str(item.get("status", "todo"))
+    if status not in {"todo", "doing", "done"}:
+        status = "todo"
+    try:
+        estimated_minutes = int(item.get("estimated_minutes", 25))
+    except (TypeError, ValueError):
+        estimated_minutes = 25
+    estimated_minutes = min(max(estimated_minutes, 5), 240)
+    return {
+        "id": int(item.get("id", 0)),
+        "title": title,
+        "kind": kind,
+        "status": status,
+        "estimated_minutes": estimated_minutes,
+        "source_file_id": str(item.get("source_file_id", "")),
+        "source_file_name": str(item.get("source_file_name", "")),
+        "created_at": str(item.get("created_at") or timestamp),
+        "updated_at": str(item.get("updated_at") or timestamp),
+        "completed_at": str(item.get("completed_at") or ""),
+    }
 
 
 def now_text() -> str:

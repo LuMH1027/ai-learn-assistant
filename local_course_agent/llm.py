@@ -56,6 +56,34 @@ def build_grounded_prompt(question: str, evidence: List[Dict], memory: str = "")
     )
 
 
+def build_course_summary_prompt(course_name: str, evidence: List[Dict]) -> str:
+    evidence_blocks = []
+    for index, item in enumerate(evidence, start=1):
+        page = item.get("page") or "无"
+        quote = str(item.get("quote") or "")[:900]
+        evidence_blocks.append(
+            f"[S{index}] 课程文件：{item.get('file_name', '未知文件')}，页码：{page}，片段：{item.get('chunk_index')}\n{quote}"
+        )
+    evidence_text = "\n\n".join(evidence_blocks)
+    return (
+        "你是一个严谨的课程复习摘要助手。请只基于给定课程资料片段生成摘要，不要加入资料外的知识，"
+        "不要虚构章节、定义、结论或引用。\n"
+        "摘要面向学生复习，要求有层次、有取舍，避免逐条复述原文。\n\n"
+        "请输出 Markdown，结构固定为：\n"
+        "课程复习摘要\n\n"
+        "## 总体脉络\n"
+        "- 用 2-4 条概括本课程资料共同覆盖的主题和关系。\n\n"
+        "## 核心知识点\n"
+        "- 每条包含一个知识点、解释、作用或适用场景，并在句末标注来源，如 [S1]。\n\n"
+        "## 易混点与复习提醒\n"
+        "- 提醒学生容易混淆或需要回到原文核对的边界；证据不足时明确写“资料片段不足”。\n\n"
+        "## 下一步学习建议\n"
+        "- 给出 2-3 条可执行的复习动作。\n\n"
+        f"课程名称：{course_name or '当前课程'}\n\n"
+        f"课程资料片段：\n{evidence_text}\n"
+    )
+
+
 class OpenAICompatibleClient:
     def __init__(self, base_url: str, api_key: str, model: str, timeout: int = 60):
         self.base_url = (base_url or "").rstrip("/")

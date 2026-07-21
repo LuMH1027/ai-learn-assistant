@@ -3,11 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type {
   ConfigResponse,
+  ConfigStatusResponse,
   Course,
+  CourseDashboard,
   CoursesResponse,
   IndexJob,
   IndexResult,
   SaveConfigResponse,
+  SaveStudyPlanResponse,
+  StudyPlan,
   UploadResult,
 } from '../types/api'
 
@@ -35,10 +39,40 @@ function config(rootFolder: string): ConfigResponse {
   }
 }
 
+function configStatus(rootFolder = '/courses', overall: ConfigStatusResponse['overall'] = 'ok'): ConfigStatusResponse {
+  return {
+    data_dir: '/project/data',
+    root_folder: rootFolder,
+    overall,
+    capabilities: [
+      {
+        key: 'ai',
+        label: 'AI 生成',
+        status: 'ok',
+        enabled: true,
+        detail: 'AI 已配置',
+        missing: [],
+      },
+      {
+        key: 'rag_index',
+        label: 'RAG 索引',
+        status: 'ok',
+        enabled: true,
+        detail: '索引可用',
+        missing: [],
+        index_files: 1,
+        total_chunks: 12,
+      },
+    ],
+  }
+}
+
 function mockRootRefresh(rootFolder: string, nextCourses: Course[]) {
-  api.getJson.mockImplementation((path: string) => path === '/api/config'
-    ? Promise.resolve(config(rootFolder))
-    : Promise.resolve({ courses: nextCourses } satisfies CoursesResponse))
+  api.getJson.mockImplementation((path: string) => {
+    if (path === '/api/config') return Promise.resolve(config(rootFolder))
+    if (path === '/api/config/status') return Promise.resolve(configStatus(rootFolder))
+    return Promise.resolve({ courses: nextCourses } satisfies CoursesResponse)
+  })
 }
 
 function deferred<T>() {
@@ -58,6 +92,84 @@ function indexJob(status: IndexJob['status'], result: IndexResult | null = null)
     status,
     result,
     error: '',
+  }
+}
+
+function studyPlan(progress = 0): StudyPlan {
+  return {
+    items: [
+      {
+        id: 1,
+        title: '阅读第一章',
+        kind: 'read',
+        status: progress >= 100 ? 'done' : 'todo',
+        estimated_minutes: 30,
+        source_file_id: 'f1',
+        source_file_name: '第一章.md',
+        created_at: '2026-07-21 10:00:00',
+        updated_at: '2026-07-21 10:00:00',
+        completed_at: progress >= 100 ? '2026-07-21 10:10:00' : '',
+      },
+    ],
+    stats: {
+      total: 1,
+      completed: progress >= 100 ? 1 : 0,
+      doing: 0,
+      remaining_minutes: progress >= 100 ? 0 : 30,
+      progress_percent: progress,
+      next_item_id: progress >= 100 ? null : 1,
+    },
+  }
+}
+
+function dashboard(progress = 25): CourseDashboard {
+  return {
+    course: { id: 'a', name: 'a', path: '/courses/a' },
+    learning_progress: {
+      total: 4,
+      done: 1,
+      doing: 1,
+      todo: 2,
+      progress_percent: progress,
+      remaining_minutes: 90,
+      completed_minutes: 30,
+      next_item_id: 2,
+      next_item_title: '订正页表练习',
+    },
+    recent_activity: [{
+      type: 'note',
+      title: 'TLB 易错点',
+      created_at: '2026-07-21 09:00:00',
+    }],
+    materials: {
+      file_count: 3,
+      generated_file_count: 2,
+      total_bytes: 1024,
+      by_extension: { '.pdf': 1, '.md': 2 },
+      indexed_files: 2,
+      indexed_chunks: 12,
+      schema_version: 2,
+      tokenizer_version: 'zh_ngrams_v2',
+    },
+    review_queue: [{
+      id: 2,
+      title: '订正页表练习',
+      kind: 'practice',
+      status: 'doing',
+      estimated_minutes: 40,
+      source_file_name: '复习题.txt',
+    }],
+    generated_artifacts: {
+      total: 2,
+      summaries: 1,
+      quizzes: 1,
+      other: 0,
+      latest: {
+        type: 'generated_artifact',
+        title: '课程摘要.md',
+        created_at: '2026-07-21 10:00:00',
+      },
+    },
   }
 }
 
@@ -89,6 +201,18 @@ describe('course store', () => {
     expect(store.loading).toBe(false)
   })
 
+  it('loads config health status independently', async () => {
+    api.getJson.mockResolvedValue(configStatus('/courses', 'warning'))
+    const store = useCourseStore()
+
+    await store.loadConfigStatus()
+
+    expect(api.getJson).toHaveBeenCalledWith('/api/config/status')
+    expect(store.configStatus?.overall).toBe('warning')
+    expect(store.configStatus?.capabilities[0]?.key).toBe('ai')
+    expect(store.configStatusLoading).toBe(false)
+  })
+
   it('does not let an old config GET overwrite a successful root save', async () => {
     const oldConfig = deferred<ConfigResponse>()
     let configRequests = 0
@@ -99,6 +223,7 @@ describe('course store', () => {
           ? oldConfig.promise
           : Promise.resolve(config('/new-root'))
       }
+      if (path === '/api/config/status') return Promise.resolve(configStatus('/new-root'))
       return Promise.resolve({ courses: [course('new')] } satisfies CoursesResponse)
     })
     api.postJson.mockResolvedValue({
@@ -139,6 +264,7 @@ describe('course store', () => {
           ? oldConfig.promise
           : Promise.resolve(authoritativeConfig)
       }
+      if (path === '/api/config/status') return Promise.resolve(configStatus('/new-root'))
       return Promise.resolve({ courses: [course('new')] } satisfies CoursesResponse)
     })
     api.postJson.mockResolvedValue({
@@ -168,9 +294,11 @@ describe('course store', () => {
       ok: true,
       config: { root_folder: '/new-root' },
     } satisfies SaveConfigResponse)
-    api.getJson.mockImplementation((path: string) => path === '/api/config'
-      ? Promise.reject(new Error('config refresh failed'))
-      : Promise.resolve({ courses: [course('new')] } satisfies CoursesResponse))
+    api.getJson.mockImplementation((path: string) => {
+      if (path === '/api/config') return Promise.reject(new Error('config refresh failed'))
+      if (path === '/api/config/status') return Promise.resolve(configStatus('/new-root'))
+      return Promise.resolve({ courses: [course('new')] } satisfies CoursesResponse)
+    })
     const store = useCourseStore()
 
     await expect(store.saveRoot('/new-root')).resolves.toMatchObject({ ok: true })
@@ -289,9 +417,11 @@ describe('course store', () => {
       ok: true,
       config: { root_folder: '/new-root' },
     } satisfies SaveConfigResponse)
-    api.getJson.mockImplementation((path: string) => path === '/api/config'
-      ? Promise.resolve(config('/new-root'))
-      : newRootLoad.promise)
+    api.getJson.mockImplementation((path: string) => {
+      if (path === '/api/config') return Promise.resolve(config('/new-root'))
+      if (path === '/api/config/status') return Promise.resolve(configStatus('/new-root'))
+      return newRootLoad.promise
+    })
     const store = useCourseStore()
     store.applyCourses([course('old')])
     store.selectCourse('old')
@@ -353,6 +483,7 @@ describe('course store', () => {
     let courseRequests = 0
     api.getJson.mockImplementation((path: string) => {
       if (path === '/api/config') return Promise.resolve(config('/new-root'))
+      if (path === '/api/config/status') return Promise.resolve(configStatus('/new-root'))
       courseRequests += 1
       return courseRequests === 1
         ? oldCourses.promise
@@ -514,5 +645,82 @@ describe('course store', () => {
     expect(store.activeCourseId).toBe('b')
     expect(store.indexing).toBe(false)
     expect(store.indexStatus).toBeNull()
+  })
+
+  it('loads the active course study plan', async () => {
+    api.getJson.mockResolvedValue({ plan: studyPlan(0) })
+    const store = useCourseStore()
+    store.courses = [course('a')]
+    store.selectCourse('a')
+
+    await store.loadStudyPlan()
+
+    expect(api.getJson).toHaveBeenCalledWith('/api/courses/a/plan')
+    expect(store.studyPlan?.stats.progress_percent).toBe(0)
+    expect(store.planLoading).toBe(false)
+  })
+
+  it('loads the active course dashboard', async () => {
+    api.getJson.mockResolvedValue({ dashboard: dashboard(33) })
+    const store = useCourseStore()
+    store.courses = [course('a')]
+    store.selectCourse('a')
+
+    await store.loadDashboard()
+
+    expect(api.getJson).toHaveBeenCalledWith('/api/courses/a/dashboard')
+    expect(store.dashboard?.learning_progress.progress_percent).toBe(33)
+    expect(store.dashboard?.materials.indexed_chunks).toBe(12)
+    expect(store.dashboardLoading).toBe(false)
+  })
+
+  it('drops a stale study plan response after switching courses', async () => {
+    const oldPlan = deferred<{ plan: StudyPlan }>()
+    api.getJson.mockReturnValue(oldPlan.promise)
+    const store = useCourseStore()
+    store.courses = [course('a'), course('b')]
+    store.selectCourse('a')
+
+    const pending = store.loadStudyPlan()
+    store.selectCourse('b')
+    oldPlan.resolve({ plan: studyPlan(0) })
+    await pending
+
+    expect(store.activeCourseId).toBe('b')
+    expect(store.studyPlan).toBeNull()
+    expect(store.planLoading).toBe(false)
+  })
+
+  it('drops a stale dashboard response after switching courses', async () => {
+    const oldDashboard = deferred<{ dashboard: CourseDashboard }>()
+    api.getJson.mockReturnValue(oldDashboard.promise)
+    const store = useCourseStore()
+    store.courses = [course('a'), course('b')]
+    store.selectCourse('a')
+
+    const pending = store.loadDashboard()
+    store.selectCourse('b')
+    oldDashboard.resolve({ dashboard: dashboard(50) })
+    await pending
+
+    expect(store.activeCourseId).toBe('b')
+    expect(store.dashboard).toBeNull()
+    expect(store.dashboardLoading).toBe(false)
+  })
+
+  it('updates study plan status and applies returned stats', async () => {
+    api.postJson.mockResolvedValue({
+      ok: true,
+      plan: studyPlan(100),
+    } satisfies SaveStudyPlanResponse)
+    const store = useCourseStore()
+    store.courses = [course('a')]
+    store.selectCourse('a')
+    store.studyPlan = studyPlan(0)
+
+    await store.cycleStudyPlanItem(store.studyPlan.items[0])
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/a/plan/1', { status: 'doing' })
+    expect(store.studyPlan?.stats.progress_percent).toBe(100)
   })
 })

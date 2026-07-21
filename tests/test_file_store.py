@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -23,6 +24,40 @@ class FileStoreTest(unittest.TestCase):
             self.assertTrue((course_dir / "notes.json").exists())
             self.assertIn("页表", memory)
             self.assertEqual(store.list_messages("course-1")[0]["content"], "什么是页表？")
+
+    def test_study_plan_is_seeded_and_updated_as_course_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+
+            seeded = store.ensure_study_plan(
+                "course-1",
+                [{"title": "阅读第一章", "kind": "read", "estimated_minutes": 30}],
+            )
+            unchanged = store.ensure_study_plan(
+                "course-1",
+                [{"title": "不应覆盖", "kind": "practice"}],
+            )
+            updated = store.update_study_plan_item("course-1", seeded[0]["id"], {"status": "done"})
+
+            course_dir = Path(tmp) / "course_memory" / "course-1"
+            self.assertTrue((course_dir / "study_plan.json").exists())
+            self.assertEqual(unchanged[0]["title"], "阅读第一章")
+            self.assertEqual(updated[0]["status"], "done")
+            self.assertTrue(updated[0]["completed_at"])
+
+    def test_study_plan_normalizes_invalid_user_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+
+            items = store.add_study_plan_item(
+                "course-1",
+                {"title": "", "kind": "broken", "status": "invalid", "estimated_minutes": 999},
+            )
+
+            self.assertEqual(items[0]["title"], "未命名学习项")
+            self.assertEqual(items[0]["kind"], "read")
+            self.assertEqual(items[0]["status"], "todo")
+            self.assertEqual(items[0]["estimated_minutes"], 240)
 
     def test_concurrent_message_writes_are_not_dropped(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,7 +113,9 @@ class FileStoreTest(unittest.TestCase):
             kb.index_text("os", "f1", "教材.md", "页表用于地址转换。")
             kb.clear_course("os")
 
-            self.assertEqual((Path(tmp) / "os.json").read_text(encoding="utf-8"), "[]")
+            payload = json.loads((Path(tmp) / "os.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["chunks"], [])
+            self.assertEqual(payload["schema_version"], 2)
             self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
 
     def test_study_artifact_is_saved_inside_course_folder(self):

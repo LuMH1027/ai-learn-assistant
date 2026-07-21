@@ -85,7 +85,126 @@ function mockApi() {
         mineru_configured: false,
       })
     }
+    if (path === '/api/config/status') {
+      return Promise.resolve({
+        data_dir: '/project/data',
+        root_folder: '/courses',
+        overall: 'warning',
+        capabilities: [
+          {
+            key: 'ai',
+            label: 'AI 生成',
+            status: 'ok',
+            enabled: true,
+            detail: 'AI 已配置',
+            missing: [],
+          },
+          {
+            key: 'rag_index',
+            label: 'RAG 索引',
+            status: 'warning',
+            enabled: false,
+            detail: '还没有索引。',
+            missing: [],
+            index_files: 0,
+            total_chunks: 0,
+          },
+          {
+            key: 'vector',
+            label: '向量检索',
+            status: 'ok',
+            enabled: true,
+            detail: '本地向量能力可用。',
+            missing: [],
+          },
+          {
+            key: 'material_root',
+            label: '资料根目录',
+            status: 'ok',
+            enabled: true,
+            detail: '/courses',
+            missing: [],
+          },
+          {
+            key: 'data_dir',
+            label: '数据目录',
+            status: 'ok',
+            enabled: true,
+            detail: '/project/data',
+            missing: [],
+          },
+          {
+            key: 'telemetry',
+            label: '遥测诊断',
+            status: 'ok',
+            enabled: true,
+            detail: '内存遥测记录器可用。',
+            missing: [],
+          },
+          {
+            key: 'backup',
+            label: '备份恢复',
+            status: 'ok',
+            enabled: true,
+            detail: '可备份 2 个数据文件。',
+            missing: [],
+          },
+        ],
+      })
+    }
     if (path === '/api/courses') return Promise.resolve({ courses: [course] })
+    if (path.endsWith('/dashboard')) {
+      return Promise.resolve({
+        dashboard: {
+          course: { id: course.id, name: course.name, path: course.path },
+          learning_progress: {
+            total: 3,
+            done: 1,
+            doing: 1,
+            todo: 1,
+            progress_percent: 33,
+            remaining_minutes: 60,
+            completed_minutes: 30,
+            next_item_id: 2,
+            next_item_title: '订正页表练习',
+          },
+          recent_activity: [{
+            type: 'note',
+            title: 'TLB 易错点',
+            created_at: '2026-07-21 09:00:00',
+          }],
+          materials: {
+            file_count: 3,
+            generated_file_count: 2,
+            total_bytes: 4096,
+            by_extension: { '.pdf': 1, '.md': 2 },
+            indexed_files: 2,
+            indexed_chunks: 12,
+            schema_version: 2,
+            tokenizer_version: 'zh_ngrams_v2',
+          },
+          review_queue: [{
+            id: 2,
+            title: '订正页表练习',
+            kind: 'practice',
+            status: 'doing',
+            estimated_minutes: 40,
+            source_file_name: '复习题.txt',
+          }],
+          generated_artifacts: {
+            total: 2,
+            summaries: 1,
+            quizzes: 1,
+            other: 0,
+            latest: {
+              type: 'generated_artifact',
+              title: '课程摘要.md',
+              created_at: '2026-07-21 10:00:00',
+            },
+          },
+        },
+      })
+    }
     if (path.endsWith('/messages')) return Promise.resolve({ messages: [answer] })
     if (path.endsWith('/notes')) {
       return Promise.resolve({
@@ -95,6 +214,21 @@ function mockApi() {
           content: '复习页表',
           created_at: '2026-07-16T00:00:00Z',
         }],
+      })
+    }
+    if (path.endsWith('/plan')) {
+      return Promise.resolve({
+        plan: {
+          items: [],
+          stats: {
+            total: 0,
+            completed: 0,
+            doing: 0,
+            remaining_minutes: 0,
+            progress_percent: 0,
+            next_item_id: null,
+          },
+        },
       })
     }
     throw new Error(`Unexpected GET ${path}`)
@@ -144,6 +278,32 @@ describe('course workspace components', () => {
     const fileInputs = wrapper.findAll('input[type="file"][multiple]')
     expect(fileInputs).toHaveLength(2)
     expect(fileInputs.every((input) => input.attributes('hidden') !== undefined)).toBe(true)
+  })
+
+  it('renders the compact course dashboard in the sidebar', async () => {
+    const { wrapper } = await mountWorkspace()
+    await flushPromises()
+
+    const dashboard = wrapper.get('section[aria-labelledby="course-dashboard-title"]')
+    expect(dashboard.text()).toContain('课程概览')
+    expect(dashboard.text()).toContain('33%')
+    expect(dashboard.text()).toContain('2/3')
+    expect(dashboard.text()).toContain('12')
+    expect(dashboard.text()).toContain('下一步：订正页表练习')
+    expect(dashboard.text()).toContain('最近：笔记 · TLB 易错点')
+  })
+
+  it('renders config health status in the sidebar', async () => {
+    const { wrapper } = await mountWorkspace()
+    await flushPromises()
+
+    const health = wrapper.get('[aria-label="配置健康状态"]')
+    expect(health.text()).toContain('配置健康：需关注')
+    expect(health.text()).toContain('AI 生成：正常')
+    expect(health.text()).toContain('RAG 索引：需配置')
+    expect(health.text()).toContain('向量检索：正常')
+    expect(health.text()).toContain('遥测诊断：正常')
+    expect(health.text()).toContain('备份恢复：正常')
   })
 
   it('changes and resets a divider with keyboard and double click', async () => {

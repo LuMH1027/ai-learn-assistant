@@ -1,6 +1,9 @@
 import io
 import json
+import tempfile
 import unittest
+from http import HTTPStatus
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -8,6 +11,7 @@ from local_course_agent.server import (
     CLARIFICATION_ANSWER,
     ClientDisconnected,
     Handler,
+    course_index_stats,
     emit_stream_text,
     should_index_course_file,
 )
@@ -46,6 +50,26 @@ class FakeWebClient:
         return self.sources
 
 
+class CapturingKb:
+    def __init__(self):
+        self.queries = []
+
+    def answer(self, course_id, query):
+        self.queries.append((course_id, query))
+        return {
+            "answer": "本地回答",
+            "citations": [
+                {
+                    "file_name": "作业.md",
+                    "quote": "TLB 能缓存页表项，减少访存次数。",
+                    "score": 1.0,
+                }
+            ],
+            "retrieval_quality": "sufficient",
+            "retrieval_trace": {"candidates": []},
+        }
+
+
 class ServerLlmRoutingTest(unittest.TestCase):
     def test_numeric_only_question_skips_web_and_model_guessing(self):
         handler = Handler.__new__(Handler)
@@ -55,6 +79,7 @@ class ServerLlmRoutingTest(unittest.TestCase):
         handler.synthesize_answer = mock.Mock()
         handler.send_json = mock.Mock(side_effect=lambda payload: payload)
         store = mock.Mock()
+        store.list_messages.return_value = []
         store.get_memory.return_value = ""
         context = SimpleNamespace(
             config={"ai": {}, "web_search": {}},
@@ -77,6 +102,72 @@ class ServerLlmRoutingTest(unittest.TestCase):
         handler.retrieve_web_sources.assert_not_called()
         handler.synthesize_answer.assert_not_called()
         store.update_memory_from_question.assert_not_called()
+
+    def test_chat_rewrites_numbered_follow_up_before_retrieval(self):
+        handler = Handler.__new__(Handler)
+        handler.read_maybe_multipart = mock.Mock(return_value=({"question": "第二问怎么做？", "mode": "answer"}, []))
+        handler.index_chat_uploads = mock.Mock(return_value=("", []))
+        handler.retrieve_web_sources = mock.Mock(return_value=([], "skipped"))
+        handler.synthesize_answer = mock.Mock(return_value=("模型回答", "used"))
+        handler.send_json = mock.Mock(side_effect=lambda payload: payload)
+        kb = CapturingKb()
+        store = mock.Mock()
+        store.list_messages.return_value = [
+            {
+                "role": "user",
+                "content": "1. 解释页表。2. TLB 为什么能加速地址转换？3. 缺页中断流程。",
+            },
+            {"role": "assistant", "content": "先判断每一问对应的知识点。"},
+        ]
+        store.update_memory_from_question.return_value = "- 关注 1 次：第二问"
+        context = SimpleNamespace(
+            config={"ai": {"api_key": "configured"}, "web_search": {}},
+            find_course=lambda _course_id: {"name": "操作系统"},
+            kb=kb,
+            store=store,
+        )
+
+        with mock.patch("local_course_agent.server.CTX", context):
+            payload = handler.chat("course-1")
+
+        self.assertEqual(store.add_message.call_args_list[0].args[:3], ("course-1", "user", "第二问怎么做？"))
+        self.assertEqual(kb.queries[0][0], "course-1")
+        self.assertIn("TLB 为什么能加速地址转换", kb.queries[0][1])
+        self.assertIn("当前追问", kb.queries[0][1])
+        self.assertEqual(payload["retrieval_trace"]["contextual_query"]["used"], True)
+        self.assertIn("第二", "".join(payload["retrieval_trace"]["contextual_query"]["signals"]))
+        self.assertEqual(payload["trace"][2]["label"], "上下文")
+        self.assertEqual(payload["trace"][2]["status"], "ok")
+
+    def test_chat_rewrites_pronoun_follow_up_before_retrieval(self):
+        handler = Handler.__new__(Handler)
+        handler.read_maybe_multipart = mock.Mock(return_value=({"question": "这个为什么更快？", "mode": "answer"}, []))
+        handler.index_chat_uploads = mock.Mock(return_value=("", []))
+        handler.retrieve_web_sources = mock.Mock(return_value=([], "skipped"))
+        handler.synthesize_answer = mock.Mock(return_value=("模型回答", "used"))
+        handler.send_json = mock.Mock(side_effect=lambda payload: payload)
+        kb = CapturingKb()
+        store = mock.Mock()
+        store.list_messages.return_value = [
+            {"role": "user", "content": "TLB 在页表地址转换中起什么作用？"},
+            {"role": "assistant", "content": "TLB 缓存常用页表项，减少访问页表的次数。"},
+        ]
+        store.update_memory_from_question.return_value = "- 关注 1 次：TLB"
+        context = SimpleNamespace(
+            config={"ai": {"api_key": "configured"}, "web_search": {}},
+            find_course=lambda _course_id: {"name": "操作系统"},
+            kb=kb,
+            store=store,
+        )
+
+        with mock.patch("local_course_agent.server.CTX", context):
+            payload = handler.chat("course-1")
+
+        self.assertEqual(store.add_message.call_args_list[0].args[:3], ("course-1", "user", "这个为什么更快？"))
+        self.assertIn("TLB 在页表地址转换中起什么作用", kb.queries[0][1])
+        self.assertIn("这个为什么更快", kb.queries[0][1])
+        self.assertTrue(payload["retrieval_trace"]["contextual_query"]["used"])
+        self.assertIn("这个", payload["retrieval_trace"]["contextual_query"]["signals"])
 
     def test_broken_stream_connection_stops_generation(self):
         handler = Handler.__new__(Handler)
@@ -136,6 +227,34 @@ class ServerLlmRoutingTest(unittest.TestCase):
         )
         framed = handler.wfile.getvalue()
         self.assertIn('{"type": "delta", "delta": "旧"}\n'.encode("utf-8"), framed)
+
+    def test_config_status_endpoint_returns_sanitized_health_payload(self):
+        handler = Handler.__new__(Handler)
+        handler.path = "/api/config/status"
+        handler.send_json = mock.Mock(side_effect=lambda payload: payload)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "materials"
+            root.mkdir()
+            context = SimpleNamespace(
+                config={
+                    "root_folder": str(root),
+                    "ai": {
+                        "base_url": "https://llm.example/v1",
+                        "api_key": "secret-token",
+                        "model": "course-model",
+                    },
+                },
+                courses=lambda: [{"id": "course-1"}],
+            )
+            with (
+                mock.patch("local_course_agent.server.CTX", context),
+                mock.patch("local_course_agent.server.DATA_DIR", Path(tmp) / "data"),
+            ):
+                payload = handler.do_GET()
+
+        self.assertEqual(payload["root_folder"], str(root))
+        self.assertIn("capabilities", payload)
+        self.assertNotIn("secret-token", json.dumps(payload, ensure_ascii=False))
 
     def test_streaming_synthesis_emits_model_deltas(self):
         client = FakeClient(["课程", "回答"])
@@ -229,6 +348,101 @@ class ServerLlmRoutingTest(unittest.TestCase):
 
         self.assertEqual(answer, "本地回退")
         self.assertEqual(status, "disabled")
+
+    def test_dashboard_route_aggregates_store_and_index_stats(self):
+        course = {
+            "id": "course-1",
+            "name": "操作系统",
+            "path": "/courses/os",
+            "children": [
+                {
+                    "type": "file",
+                    "name": "内存管理.md",
+                    "path": "/courses/os/内存管理.md",
+                    "size": 100,
+                }
+            ],
+        }
+        store = SimpleNamespace(
+            list_messages=lambda _course_id: [
+                {"role": "user", "content": "解释页表", "created_at": "2026-07-21 10:00:00"}
+            ],
+            list_notes=lambda _course_id: [
+                {"title": "TLB", "content": "命中后不查页表", "created_at": "2026-07-21 11:00:00"}
+            ],
+            list_study_plan=lambda _course_id: [
+                {"id": 1, "title": "读课件", "kind": "read", "status": "done", "estimated_minutes": 30},
+                {"id": 2, "title": "做练习", "kind": "practice", "status": "doing", "estimated_minutes": 45},
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            index_path = Path(tmp) / "course-1.json"
+            index_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "tokenizer_version": "zh_ngrams_v2",
+                        "chunks": [
+                            {"file_id": "f1", "file_name": "内存管理.md", "text": "页表"},
+                            {"file_id": "f1", "file_name": "内存管理.md", "text": "TLB"},
+                            {"file_id": "f2", "file_name": "练习.txt", "text": "地址转换"},
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            context = SimpleNamespace(
+                find_course=lambda course_id: course if course_id == "course-1" else None,
+                store=store,
+                kb=SimpleNamespace(storage_dir=Path(tmp)),
+            )
+            handler = Handler.__new__(Handler)
+            handler.path = "/api/courses/course-1/dashboard"
+            handler.send_json = mock.Mock(side_effect=lambda payload, *args: payload)
+
+            with mock.patch("local_course_agent.server.CTX", context):
+                payload = handler.do_GET()
+
+        dashboard = payload["dashboard"]
+        self.assertEqual(dashboard["course"]["name"], "操作系统")
+        self.assertEqual(dashboard["learning_progress"]["done"], 1)
+        self.assertEqual(dashboard["learning_progress"]["doing"], 1)
+        self.assertEqual(dashboard["materials"]["indexed_files"], 2)
+        self.assertEqual(dashboard["materials"]["indexed_chunks"], 3)
+        self.assertEqual(dashboard["materials"]["schema_version"], 2)
+        self.assertEqual(dashboard["materials"]["tokenizer_version"], "zh_ngrams_v2")
+
+    def test_dashboard_route_reports_missing_course(self):
+        handler = Handler.__new__(Handler)
+        handler.path = "/api/courses/missing/dashboard"
+        handler.send_error_json = mock.Mock(side_effect=lambda message, status: {"error": message, "status": status})
+        context = SimpleNamespace(find_course=lambda _course_id: None)
+
+        with mock.patch("local_course_agent.server.CTX", context):
+            payload = handler.do_GET()
+
+        self.assertEqual(payload, {"error": "课程不存在", "status": HTTPStatus.NOT_FOUND})
+
+    def test_course_index_stats_supports_legacy_list_indexes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "course-1.json").write_text(
+                json.dumps(
+                    [
+                        {"file_id": "f1", "file_name": "a.md"},
+                        {"file_id": "f2", "file_name": "b.md"},
+                        {"file_id": "f2", "file_name": "b.md"},
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            stats = course_index_stats(SimpleNamespace(storage_dir=Path(tmp)), "course-1")
+
+        self.assertEqual(stats["indexed_files"], 2)
+        self.assertEqual(stats["total_chunks"], 3)
+        self.assertIsNone(stats["schema_version"])
 
 
 if __name__ == "__main__":

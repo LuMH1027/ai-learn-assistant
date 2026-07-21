@@ -46,7 +46,7 @@ watch(
     preview.beginCourse(id, version)
     notesOpen.value = false
     if (id !== null) {
-      void Promise.allSettled([chat.loadMessages(), chat.loadNotes()]).then((results) => {
+      void Promise.allSettled([chat.loadMessages(), chat.loadNotes(), course.loadStudyPlan()]).then((results) => {
         const rejected = results.find((result) => result.status === 'rejected')
         if (rejected?.status === 'rejected') showError(rejected.reason)
       })
@@ -60,7 +60,10 @@ onMounted(() => {
   syncMedia(media)
   media.addEventListener?.('change', syncMedia)
   layout.hydrate(media.matches)
-  void course.loadConfig().catch(showError)
+  void Promise.allSettled([course.loadConfig(), course.loadConfigStatus()]).then((results) => {
+    const rejected = results.find((result) => result.status === 'rejected')
+    if (rejected?.status === 'rejected') showError(rejected.reason)
+  })
   void course.loadCourses().catch(showError)
 })
 

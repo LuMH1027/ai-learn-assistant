@@ -8,10 +8,13 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
 from local_course_agent.store import atomic_write_text
+from local_course_agent.vector_index import build_vector_index_from_chunks, hybrid_merge_lexical_vector
 
 
 TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+")
 GENERATED_ARTIFACT_RE = re.compile(r"^(?:课程摘要|练习题)-\d{8}-\d{6}\.md$", re.IGNORECASE)
+INDEX_SCHEMA_VERSION = 2
+INDEX_TOKENIZER_VERSION = "zh_ngrams_v2"
 QUERY_STOP_TOKENS = {
     "什么",
     "怎么",
@@ -71,6 +74,14 @@ def split_text(text: str, chunk_size: int = 520, overlap: int = 80) -> List[str]
     return chunks
 
 
+def split_structured_text(text: str, chunk_size: int = 520, overlap: int = 80) -> List[Dict]:
+    chunks = []
+    for section in _markdown_sections(text):
+        for text_chunk in split_text(section["text"], chunk_size=chunk_size, overlap=overlap):
+            chunks.append({"text": text_chunk, "section_title": section["title"]})
+    return chunks
+
+
 class CourseKnowledgeBase:
     """A lightweight local RAG store with per-course isolation.
 
@@ -110,13 +121,14 @@ class CourseKnowledgeBase:
                     file_name=document["file_name"],
                     text=page.get("text", ""),
                     page=page.get("page"),
+                    file_path=document.get("path", ""),
                     next_index=next_index,
                 )
         self._save(course_id, chunks)
         return len(chunks)
 
     def clear_course(self, course_id: str) -> None:
-        atomic_write_text(self._path(course_id), "[]")
+        self._save(course_id, [])
 
     def search(self, course_id: str, query: str, limit: int = 5, strategy: str = "lexical") -> List[Dict]:
         normalized_query = _normalize_query(query)
@@ -132,7 +144,9 @@ class CourseKnowledgeBase:
         chunks = self._material_chunks(course_id)
         for chunk in chunks:
             # Existing indexes are upgraded lazily after tokenizer changes.
-            chunk["tokens"] = tokenize(chunk.get("text", ""))
+            chunk["section_title"] = chunk.get("section_title", "")
+            chunk["material_type"] = chunk.get("material_type") or _material_type(chunk.get("file_name", ""), chunk.get("file_path", ""))
+            chunk["tokens"] = tokenize(_indexable_chunk_text(chunk))
         if not chunks:
             return []
         total_docs = max(len(chunks), 1)
@@ -183,16 +197,33 @@ class CourseKnowledgeBase:
             [bm25_ranking, phrase_ranking, metadata_ranking, semantic_ranking],
             candidate_limit=max(limit * 6, 18),
         )
-        selected = _select_diverse(candidates, limit)
+        for candidate in candidates:
+            candidate["local_rerank_score"] = _local_rerank_score(
+                candidate,
+                query_tokens=query_tokens,
+                phrases=phrases,
+                normalized_query=normalized_query,
+            )
+        candidates.sort(key=lambda item: (item.get("local_rerank_score", 0), item.get("rrf_score", 0)), reverse=True)
+        selected = (
+            _select_hybrid_vector_hits(chunks, candidates, normalized_query, limit)
+            if strategy == "hybrid"
+            else _select_diverse(candidates, limit)
+        )
         for item in selected:
             item["context_text"] = _neighbor_context(item, chunks)
-            item["score"] = round(item["rrf_score"] * 1000, 4)
-            item["retrieval_method"] = "hybrid_bm25_semantic_rrf_mmr" if strategy == "hybrid" else "bm25_rrf_mmr"
+            if "hybrid_rrf_score" in item:
+                item["score"] = round(item["hybrid_rrf_score"] * 1000, 4)
+                item["retrieval_method"] = item.get("retrieval_method") or "hybrid_lexical_vector_rrf"
+            else:
+                item["score"] = round(item["rrf_score"] * 1000, 4)
+                item["retrieval_method"] = "hybrid_bm25_semantic_rrf_mmr" if strategy == "hybrid" else "bm25_rrf_mmr"
             query_set = set(original_query_tokens)
             item["query_coverage"] = round(
                 len(query_set & set(item.get("tokens", []))) / max(len(query_set), 1),
                 4,
             )
+            item["matched_terms"] = sorted(set(original_query_tokens) & set(item.get("tokens", [])))[:12]
         return selected
 
     def answer(self, course_id: str, query: str, strategy: str = "hybrid") -> Dict:
@@ -217,16 +248,18 @@ class CourseKnowledgeBase:
             f"{evidence}"
         )
         max_coverage = max((hit.get("query_coverage", 0) for hit in hits), default=0)
-        quality = "sufficient" if max_coverage >= 0.25 else "partial"
+        max_score = max((hit.get("score", 0) for hit in hits), default=0)
+        quality = _retrieval_quality(max_coverage, max_score, len(hits))
         return {
             "answer": answer,
             "citations": citations,
             "mode": "grounded",
             "retrieval_quality": quality,
+            "retrieval_trace": _retrieval_trace(hits),
         }
 
     def generate_summary(self, course_id: str, limit: int = 6) -> Dict:
-        chunks = _representative_chunks(self._material_chunks(course_id), limit)
+        chunks = self.summary_chunks(course_id, limit)
         if not chunks:
             return {"content": "当前课程还没有可用于生成摘要的资料片段，请先构建知识库。", "citations": []}
         citations = [citation_from_chunk(chunk) for chunk in chunks]
@@ -240,6 +273,9 @@ class CourseKnowledgeBase:
             "content": "\n".join(points),
             "citations": citations,
         }
+
+    def summary_chunks(self, course_id: str, limit: int = 6) -> List[Dict]:
+        return _representative_chunks(self._material_chunks(course_id), limit)
 
     def generate_quiz(self, course_id: str, count: int = 5) -> Dict:
         chunks = _representative_chunks(self._material_chunks(course_id), count)
@@ -265,10 +301,18 @@ class CourseKnowledgeBase:
         path = self._path(course_id)
         if not path.exists():
             return []
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return payload.get("chunks", [])
+        return payload
 
     def _save(self, course_id: str, chunks: List[Dict]) -> None:
-        atomic_write_text(self._path(course_id), json.dumps(chunks, ensure_ascii=False, indent=2))
+        payload = {
+            "schema_version": INDEX_SCHEMA_VERSION,
+            "tokenizer_version": INDEX_TOKENIZER_VERSION,
+            "chunks": chunks,
+        }
+        atomic_write_text(self._path(course_id), json.dumps(payload, ensure_ascii=False, indent=2))
 
     def _append_text_chunks(
         self,
@@ -278,19 +322,26 @@ class CourseKnowledgeBase:
         file_name: str,
         text: str,
         page=None,
+        file_path: str = "",
         next_index: int = 1,
     ) -> int:
-        for text_chunk in split_text(text):
+        for structured_chunk in split_structured_text(text):
+            text_chunk = structured_chunk["text"]
+            section_title = structured_chunk.get("section_title", "")
+            indexed_text = f"{section_title}\n{text_chunk}" if section_title else text_chunk
             chunks.append(
                 {
                     "id": f"{file_id}-{page or 'text'}-{next_index}",
                     "course_id": course_id,
                     "file_id": file_id,
                     "file_name": file_name,
+                    "file_path": file_path,
+                    "section_title": section_title,
+                    "material_type": _material_type(file_name, file_path),
                     "page": page,
                     "chunk_index": next_index,
                     "text": text_chunk,
-                    "tokens": tokenize(text_chunk),
+                    "tokens": tokenize(indexed_text),
                 }
             )
             next_index += 1
@@ -317,11 +368,56 @@ def citation_from_chunk(chunk: Dict) -> Dict:
         "source_type": "local",
         "file_id": chunk["file_id"],
         "file_name": chunk["file_name"],
+        "section_title": chunk.get("section_title", ""),
+        "material_type": chunk.get("material_type", ""),
         "page": chunk.get("page"),
         "chunk_index": chunk["chunk_index"],
         "score": chunk.get("score", 0),
         "quote": chunk.get("context_text", chunk["text"])[:600],
     }
+
+
+def _markdown_sections(text: str) -> List[Dict]:
+    sections = []
+    current_title = ""
+    current_lines = []
+    for raw_line in text.splitlines():
+        heading = re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$", raw_line)
+        if heading:
+            if current_lines:
+                sections.append({"title": current_title, "text": "\n".join(current_lines).strip()})
+            current_title = heading.group(2).strip()
+            current_lines = [current_title]
+            continue
+        current_lines.append(raw_line)
+    if current_lines:
+        sections.append({"title": current_title, "text": "\n".join(current_lines).strip()})
+    if not sections:
+        return [{"title": "", "text": text}]
+    return [section for section in sections if section["text"].strip()]
+
+
+def _material_type(file_name: str, file_path: str = "") -> str:
+    text = f"{file_path}/{file_name}".lower()
+    if any(keyword in text for keyword in ("习题", "练习", "quiz", "作业", "exercise")):
+        return "practice"
+    if any(keyword in text for keyword in ("课件", "slides", "ppt", "lecture")):
+        return "slides"
+    if any(keyword in text for keyword in ("教材", "book", "chapter", "讲义")):
+        return "textbook"
+    if any(keyword in text for keyword in ("笔记", "note")):
+        return "notes"
+    return "material"
+
+
+def _indexable_chunk_text(chunk: Dict) -> str:
+    parts = [
+        chunk.get("file_name", ""),
+        chunk.get("file_path", ""),
+        chunk.get("section_title", ""),
+        chunk.get("text", ""),
+    ]
+    return "\n".join(part for part in parts if part)
 
 
 def _query_phrases(query: str) -> List[str]:
@@ -357,17 +453,28 @@ def _expand_query_tokens(query: str, tokens: Sequence[str]) -> List[str]:
 
 
 def _phrase_score(chunk: Dict, phrases: Sequence[str]) -> float:
-    text = chunk.get("text", "").lower()
+    text = _indexable_chunk_text(chunk).lower()
     return sum(len(phrase) * text.count(phrase) for phrase in phrases)
 
 
 def _metadata_score(chunk: Dict, query_tokens: Sequence[str]) -> float:
-    filename_tokens = Counter(tokenize(chunk.get("file_name", "")))
-    return sum(filename_tokens[token] for token in set(query_tokens))
+    metadata_tokens = Counter(
+        tokenize(
+            " ".join(
+                [
+                    chunk.get("file_name", ""),
+                    chunk.get("file_path", ""),
+                    chunk.get("section_title", ""),
+                    chunk.get("material_type", ""),
+                ]
+            )
+        )
+    )
+    return sum(metadata_tokens[token] for token in set(query_tokens))
 
 
 def _semantic_score(query: str, query_tokens: Sequence[str], chunk: Dict) -> float:
-    text = f"{chunk.get('file_name', '')} {chunk.get('text', '')}".lower()
+    text = _indexable_chunk_text(chunk).lower()
     aliases = {
         "后进先出": ("栈", "lifo"),
         "先进先出": ("队列", "fifo"),
@@ -412,6 +519,38 @@ def _reciprocal_rank_fusion(rankings: Sequence[Sequence[Dict]], candidate_limit:
     return sorted(fused.values(), key=lambda item: item["rrf_score"], reverse=True)[:candidate_limit]
 
 
+def _select_hybrid_vector_hits(
+    chunks: Sequence[Dict],
+    lexical_candidates: Sequence[Dict],
+    query: str,
+    limit: int,
+) -> List[Dict]:
+    lexical_selected = _select_diverse(lexical_candidates, max(limit * 2, limit))
+    try:
+        vector_index = build_vector_index_from_chunks(chunks)
+        vector_hits = vector_index.search(
+            query,
+            limit=max(limit * 4, 12),
+            min_score=0.2,
+        )
+    except Exception:
+        return _select_diverse(lexical_candidates, limit)
+
+    if not vector_hits:
+        return _select_diverse(lexical_candidates, limit)
+
+    merged = hybrid_merge_lexical_vector(
+        lexical_selected,
+        vector_hits,
+        limit=max(limit * 4, 12),
+    )
+    for hit in merged:
+        hit["rrf_score"] = hit.get("hybrid_rrf_score", hit.get("rrf_score", 0.0))
+        if "local_rerank_score" not in hit:
+            hit["local_rerank_score"] = min(max(float(hit.get("vector_score", 0.0)), 0.0), 1.0)
+    return _select_diverse(merged, limit)
+
+
 def _select_diverse(candidates: Sequence[Dict], limit: int) -> List[Dict]:
     selected: List[Dict] = []
     remaining = list(candidates)
@@ -419,9 +558,10 @@ def _select_diverse(candidates: Sequence[Dict], limit: int) -> List[Dict]:
     while remaining and len(selected) < limit:
         def utility(item: Dict) -> float:
             relevance = item["rrf_score"] / max_score
+            rerank = item.get("local_rerank_score", 0)
             redundancy = max((_token_similarity(item, chosen) for chosen in selected), default=0)
             source_bonus = 0.12 if selected and all(item["file_id"] != chosen["file_id"] for chosen in selected) else 0
-            return 0.78 * relevance - 0.22 * redundancy + source_bonus
+            return 0.56 * relevance + 0.28 * rerank - 0.22 * redundancy + source_bonus
 
         best = max(remaining, key=utility)
         selected.append(best)
@@ -434,6 +574,48 @@ def _token_similarity(left: Dict, right: Dict) -> float:
     right_tokens = set(right.get("tokens", []))
     union = left_tokens | right_tokens
     return len(left_tokens & right_tokens) / len(union) if union else 0
+
+
+def _local_rerank_score(
+    chunk: Dict,
+    query_tokens: Sequence[str],
+    phrases: Sequence[str],
+    normalized_query: str,
+) -> float:
+    token_set = set(query_tokens)
+    chunk_tokens = set(chunk.get("tokens", []))
+    coverage = len(token_set & chunk_tokens) / max(len(token_set), 1)
+    phrase = min(_phrase_score(chunk, phrases) / 20, 1.0)
+    metadata = min(_metadata_score(chunk, query_tokens) / 3, 1.0)
+    semantic = min(_semantic_score(normalized_query, query_tokens, chunk), 1.0)
+    title_hit = 0.12 if token_set & set(tokenize(chunk.get("section_title", ""))) else 0.0
+    type_bonus = 0.06 if chunk.get("material_type") in {"textbook", "slides"} else 0.0
+    return round(0.42 * coverage + 0.22 * phrase + 0.16 * semantic + 0.12 * metadata + title_hit + type_bonus, 4)
+
+
+def _retrieval_quality(max_coverage: float, max_score: float, hit_count: int) -> str:
+    if hit_count == 0:
+        return "none"
+    if max_coverage >= 0.33 or (max_coverage >= 0.24 and max_score >= 45):
+        return "sufficient"
+    return "partial"
+
+
+def _retrieval_trace(hits: Sequence[Dict]) -> Dict:
+    return {
+        "selected": [
+            {
+                "file_name": hit.get("file_name", ""),
+                "section_title": hit.get("section_title", ""),
+                "material_type": hit.get("material_type", ""),
+                "score": hit.get("score", 0),
+                "query_coverage": hit.get("query_coverage", 0),
+                "matched_terms": hit.get("matched_terms", []),
+                "retrieval_method": hit.get("retrieval_method", ""),
+            }
+            for hit in hits
+        ]
+    }
 
 
 def _neighbor_context(item: Dict, chunks: Sequence[Dict]) -> str:

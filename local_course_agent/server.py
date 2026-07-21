@@ -11,15 +11,22 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from local_course_agent.agent_strategy import build_agent_trace
+from local_course_agent.citation_check import postprocess_answer_with_citation_check
 from local_course_agent.config import load_config, write_config
+from local_course_agent.config_status import build_config_status
+from local_course_agent.conversation_context import build_contextual_retrieval_query
 from local_course_agent.course_service import (
     build_course_index,
     CourseIndexJobs,
     create_study_artifact as create_study_artifact_payload,
+    generate_course_summary,
     iter_files,
     save_study_artifact,
     should_index_course_file,
+    study_plan_payload,
+    study_plan_stats,
 )
+from local_course_agent.dashboard import build_course_dashboard
 from local_course_agent.llm import build_grounded_prompt, create_llm_client
 from local_course_agent.parser import extract_text
 from local_course_agent.rag import CourseKnowledgeBase
@@ -207,6 +214,8 @@ class Handler(SimpleHTTPRequestHandler):
                     "web_search_configured": web_client.enabled(),
                 }
             )
+        if parsed.path == "/api/config/status":
+            return self.send_json(build_config_status(DATA_DIR, CTX.config, CTX.courses()))
         if parsed.path == "/api/courses":
             return self.send_json({"courses": CTX.courses()})
         if parsed.path.startswith("/api/index-jobs/"):
@@ -223,13 +232,19 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json({"memory": CTX.store.get_memory(course_id)})
         if course_route and course_route[1] == "summary":
             course_id = course_route[0]
-            return self.send_json(CTX.kb.generate_summary(course_id))
+            return self.get_course_summary(course_id)
         if course_route and course_route[1] == "quiz":
             course_id = course_route[0]
             return self.send_json(CTX.kb.generate_quiz(course_id))
         if course_route and course_route[1] == "notes":
             course_id = course_route[0]
             return self.send_json({"notes": CTX.store.list_notes(course_id)})
+        if course_route and course_route[1] == "plan":
+            course_id = course_route[0]
+            return self.get_study_plan(course_id)
+        if course_route and course_route[1] == "dashboard":
+            course_id = course_route[0]
+            return self.get_course_dashboard(course_id)
         if parsed.path == "/api/files/preview":
             return self.send_preview(parse_qs(parsed.query).get("id", [""])[0])
         if not (STATIC_DIR / "index.html").is_file():
@@ -291,6 +306,13 @@ class Handler(SimpleHTTPRequestHandler):
             body = self.read_body()
             CTX.store.add_note(course_id, body.get("title", "学习笔记"), body.get("content", ""))
             return self.send_json({"ok": True, "notes": CTX.store.list_notes(course_id)})
+        if course_route and course_route[1] == "plan":
+            course_id = course_route[0]
+            return self.add_study_plan_item(course_id)
+        if course_route and course_route[1].startswith("plan/"):
+            course_id = course_route[0]
+            item_id = course_route[1].split("/", 1)[1]
+            return self.update_study_plan_item(course_id, item_id)
         return self.send_error_json("未知接口", HTTPStatus.NOT_FOUND)
 
     def index_course(self, course_id: str):
@@ -342,9 +364,19 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_error_json(str(exc))
         if (attachment_text or image_paths) and not question:
             question = "请阅读并总结我拖入的文件。"
-        search_question = question
+        previous_messages = CTX.store.list_messages(course_id)
+        contextual_query = build_contextual_retrieval_query(question, previous_messages)
+        contextual_query_trace = {
+            "used": contextual_query.is_follow_up,
+            "original_query": contextual_query.original_query,
+            "retrieval_query": contextual_query.retrieval_query,
+            "signals": list(contextual_query.signals),
+            "context_turns_used": contextual_query.context_turns_used,
+            "referenced_text": contextual_query.referenced_text,
+        }
+        search_question = contextual_query.retrieval_query
         if attachment_text:
-            search_question = f"{question}\n\n拖入聊天框的文件内容：\n{attachment_text[:4000]}"
+            search_question = f"{search_question}\n\n拖入聊天框的文件内容：\n{attachment_text[:4000]}"
         if image_paths:
             image_names = "、".join(path.name for path in image_paths)
             search_question = f"{search_question}\n\n拖入聊天框的截图：{image_names}"
@@ -419,6 +451,8 @@ class Handler(SimpleHTTPRequestHandler):
             if needs_clarification
             else CTX.store.update_memory_from_question(course_id, question)
         )
+        citation_postprocess = postprocess_answer_with_citation_check(answer, combined_result["citations"])
+        answer = citation_postprocess["answer"]
         trace = build_agent_trace(
             course_name=course.get("name", ""),
             question=question,
@@ -429,13 +463,32 @@ class Handler(SimpleHTTPRequestHandler):
             web_status=web_status,
             web_source_count=len(web_sources),
         )
+        trace.insert(
+            2,
+            {
+                "label": "上下文",
+                "status": "ok" if contextual_query.is_follow_up else "skip",
+                "detail": (
+                    "检测到追问信号 "
+                    f"{'、'.join(contextual_query.signals)}，已使用最近 "
+                    f"{contextual_query.context_turns_used} 轮对话改写检索问题"
+                    if contextual_query.is_follow_up
+                    else "当前问题可独立检索，未改写检索问题"
+                ),
+            },
+        )
         CTX.store.add_message(course_id, "assistant", answer, combined_result["citations"], trace=trace)
+        retrieval_trace = dict(result.get("retrieval_trace", {}) or {})
+        retrieval_trace["contextual_query"] = contextual_query_trace
         payload = {
             "answer": answer,
             "citations": combined_result["citations"],
             "memory": memory,
             "mode": mode,
             "trace": trace,
+            "retrieval_trace": retrieval_trace,
+            "citation_check": citation_postprocess["citation_check"],
+            "unsupported_claims": citation_postprocess["unsupported_claims"],
             "llm_status": llm_status,
             "web_search_status": web_status,
         }
@@ -469,8 +522,20 @@ class Handler(SimpleHTTPRequestHandler):
             course_id,
             artifact_type,
             invalidate=CTX.invalidate_courses,
+            ai_config=CTX.config.get("ai", {}),
         )
         return self.send_json(payload)
+
+    def get_course_summary(self, course_id: str):
+        course = CTX.find_course(course_id) or {"name": ""}
+        return self.send_json(
+            generate_course_summary(
+                CTX.kb,
+                course_id,
+                course.get("name", ""),
+                ai_config=CTX.config.get("ai", {}),
+            )
+        )
 
     def upload_course_files(self, course_id: str):
         course = CTX.find_course(course_id)
@@ -491,6 +556,56 @@ class Handler(SimpleHTTPRequestHandler):
             saved.append({"name": path.name, "path": str(path)})
         CTX.invalidate_courses()
         return self.send_json({"ok": True, "saved": saved, "courses": CTX.courses()})
+
+    def get_study_plan(self, course_id: str):
+        course = CTX.find_course(course_id)
+        if not course:
+            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json({"plan": study_plan_payload(CTX.store, course_id, course)})
+
+    def get_course_dashboard(self, course_id: str):
+        course = CTX.find_course(course_id)
+        if not course:
+            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json(
+            {
+                "dashboard": build_course_dashboard(
+                    course=course,
+                    messages=CTX.store.list_messages(course_id),
+                    notes=CTX.store.list_notes(course_id),
+                    study_plan=CTX.store.list_study_plan(course_id),
+                    index_stats=course_index_stats(CTX.kb, course_id),
+                )
+            }
+        )
+
+    def add_study_plan_item(self, course_id: str):
+        if not CTX.find_course(course_id):
+            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
+        body = self.read_body()
+        items = CTX.store.add_study_plan_item(
+            course_id,
+            {
+                "title": body.get("title", "学习项"),
+                "kind": body.get("kind", "read"),
+                "status": body.get("status", "todo"),
+                "estimated_minutes": body.get("estimated_minutes", 25),
+            },
+        )
+        return self.send_json({"ok": True, "plan": {"items": items, "stats": study_plan_stats(items)}})
+
+    def update_study_plan_item(self, course_id: str, item_id: str):
+        if not CTX.find_course(course_id):
+            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
+        try:
+            parsed_item_id = int(item_id)
+        except ValueError:
+            return self.send_error_json("学习项不存在", HTTPStatus.NOT_FOUND)
+        try:
+            items = CTX.store.update_study_plan_item(course_id, parsed_item_id, self.read_body())
+        except KeyError:
+            return self.send_error_json("学习项不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json({"ok": True, "plan": {"items": items, "stats": study_plan_stats(items)}})
 
     def index_chat_uploads(self, course_id: str, uploads: list):
         if not uploads:
@@ -705,6 +820,41 @@ def append_web_fallback(answer: str, web_sources: list) -> str:
         snippet = source.get("quote", "").strip()
         lines.append(f"[W{index}] {source.get('file_name', '网页来源')}：{snippet}")
     return "\n".join(lines)
+
+
+def course_index_stats(kb, course_id: str) -> dict:
+    path_factory = getattr(kb, "_path", None)
+    path = path_factory(course_id) if callable(path_factory) else None
+    if not path:
+        storage_dir = getattr(kb, "storage_dir", None)
+        path = Path(storage_dir) / f"{course_id}.json" if storage_dir else None
+    if not path or not Path(path).exists():
+        return {"indexed_files": 0, "total_chunks": 0}
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"indexed_files": 0, "total_chunks": 0}
+    if isinstance(payload, dict):
+        chunks = payload.get("chunks", [])
+        stats = {
+            "schema_version": payload.get("schema_version"),
+            "tokenizer_version": payload.get("tokenizer_version", ""),
+        }
+    elif isinstance(payload, list):
+        chunks = payload
+        stats = {"schema_version": None, "tokenizer_version": ""}
+    else:
+        chunks = []
+        stats = {"schema_version": None, "tokenizer_version": ""}
+    if not isinstance(chunks, list):
+        chunks = []
+    file_keys = {
+        str(chunk.get("file_id") or chunk.get("file_name") or "")
+        for chunk in chunks
+        if isinstance(chunk, dict) and (chunk.get("file_id") or chunk.get("file_name"))
+    }
+    stats.update({"indexed_files": len(file_keys), "total_chunks": len(chunks)})
+    return stats
 
 
 def main():

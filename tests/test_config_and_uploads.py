@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from local_course_agent.config import normalize_config
+from local_course_agent.config_status import build_config_status
 from local_course_agent.uploads import (
     MAX_UPLOAD_FILE_BYTES,
     cleanup_chat_uploads,
@@ -46,6 +47,59 @@ class ConfigAndUploadsTest(unittest.TestCase):
 
         self.assertTrue(config["web_search"]["enabled"])
         self.assertEqual(config["web_search"]["mcp_url"], "https://search.example/mcp")
+
+    def test_config_status_reports_health_without_leaking_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp) / "data"
+            root = Path(tmp) / "materials"
+            index_dir = data_dir / "indexes"
+            root.mkdir()
+            index_dir.mkdir(parents=True)
+            (index_dir / "course-1.json").write_text(
+                '{"schema_version": 2, "chunks": [{"file_id": "f1", "text": "页表"}]}',
+                encoding="utf-8",
+            )
+
+            status = build_config_status(
+                data_dir,
+                {
+                    "root_folder": str(root),
+                    "ai": {
+                        "base_url": "https://llm.example/v1",
+                        "api_key": "secret-token",
+                        "model": "course-model",
+                    },
+                    "web_search": {
+                        "enabled": True,
+                        "mcp_url": "https://search.example/mcp",
+                        "tool_name": "web_search",
+                    },
+                    "mineru": {"token": "mineru-secret"},
+                },
+                courses=[{"id": "course-1"}],
+            )
+
+        encoded = str(status)
+        self.assertEqual(status["overall"], "ok")
+        self.assertIn("data_dir", status)
+        self.assertNotIn("secret-token", encoded)
+        self.assertNotIn("mineru-secret", encoded)
+        by_key = {item["key"]: item for item in status["capabilities"]}
+        self.assertTrue(by_key["ai"]["enabled"])
+        self.assertTrue(by_key["web_search"]["enabled"])
+        self.assertEqual(by_key["rag_index"]["total_chunks"], 1)
+        self.assertEqual(by_key["vector"]["model"], "fake-hash-embedding-v1")
+
+    def test_config_status_marks_missing_root_and_ai_configuration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            status = build_config_status(Path(tmp) / "data", {}, courses=[])
+
+        by_key = {item["key"]: item for item in status["capabilities"]}
+        self.assertEqual(status["overall"], "warning")
+        self.assertEqual(by_key["material_root"]["status"], "warning")
+        self.assertIn("root_folder", by_key["material_root"]["missing"])
+        self.assertEqual(by_key["ai"]["status"], "warning")
+        self.assertEqual(by_key["ai"]["missing"], ["base_url", "api_key", "model"])
 
     def test_safe_upload_name_removes_path_segments(self):
         self.assertEqual(safe_upload_name("../evil.pdf"), "evil.pdf")

@@ -1,6 +1,8 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from local_course_agent.rag import CourseKnowledgeBase, tokenize
 
@@ -107,6 +109,37 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
             book_hit = next(hit for hit in hits if hit["file_id"] == "book")
             self.assertGreater(len(book_hit["context_text"]), len(book_hit["text"]))
 
+    def test_markdown_headings_become_retrievable_chunk_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text(
+                "os",
+                "memory",
+                "内存.md",
+                "# 虚拟内存\n页表保存虚拟页到物理页框的映射。\n\n# 文件系统\n目录项记录文件名和 inode。",
+            )
+
+            hits = kb.search("os", "虚拟内存 页表", limit=1)
+            answer = kb.answer("os", "虚拟内存中的页表是什么？")
+
+            self.assertEqual(hits[0]["section_title"], "虚拟内存")
+            self.assertEqual(hits[0]["material_type"], "material")
+            self.assertEqual(answer["citations"][0]["section_title"], "虚拟内存")
+            self.assertIn("retrieval_trace", answer)
+            self.assertEqual(answer["retrieval_trace"]["selected"][0]["section_title"], "虚拟内存")
+
+    def test_index_file_records_schema_and_tokenizer_versions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            storage = Path(tmp)
+            kb = CourseKnowledgeBase(storage)
+            kb.index_text("os", "book", "教材.md", "页表用于地址转换。")
+
+            payload = json.loads((storage / "os.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(payload["schema_version"], 2)
+            self.assertEqual(payload["tokenizer_version"], "zh_ngrams_v2")
+            self.assertEqual(payload["chunks"][0]["material_type"], "textbook")
+
     def test_generate_summary_and_quiz_from_course_chunks(self):
         with tempfile.TemporaryDirectory() as tmp:
             kb = CourseKnowledgeBase(Path(tmp))
@@ -187,6 +220,65 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
             hits = kb.search("ds", "递归调用为什么要用后进先出结构？", strategy="hybrid")
 
             self.assertEqual(hits[0]["file_name"], "栈.md")
+            self.assertIn(
+                hits[0]["retrieval_method"],
+                {"hybrid_bm25_semantic_rrf_mmr", "hybrid_lexical_vector_rrf"},
+            )
+
+    def test_hybrid_search_merges_vector_hits_into_main_rag_flow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "lexical", "页表.md", "页表保存虚拟页到物理页框的映射。")
+            kb.index_text("os", "vector", "TLB.md", "TLB 缓存热项，降低访存延迟。")
+
+            class FakeVectorIndex:
+                def search(self, query, limit=5, min_score=None):
+                    self.query = query
+                    self.limit = limit
+                    self.min_score = min_score
+                    return [
+                        {
+                            "id": "vector-text-2",
+                            "file_id": "vector",
+                            "file_name": "TLB.md",
+                            "page": None,
+                            "chunk_index": 2,
+                            "text": "TLB 缓存热项，降低访存延迟。",
+                            "vector_score": 0.91,
+                        }
+                    ]
+
+            fake_vector_index = FakeVectorIndex()
+            with mock.patch(
+                "local_course_agent.rag.build_vector_index_from_chunks",
+                return_value=fake_vector_index,
+            ) as build_vector_index:
+                hits = kb.search("os", "页表如何映射地址？", limit=2, strategy="hybrid")
+
+            build_vector_index.assert_called_once()
+            self.assertEqual(fake_vector_index.query, "页表 映射地址？")
+            self.assertEqual(fake_vector_index.min_score, 0.2)
+            self.assertIn("TLB.md", [hit["file_name"] for hit in hits])
+            vector_hit = next(hit for hit in hits if hit["file_name"] == "TLB.md")
+            self.assertIn("vector", vector_hit["retrieval_sources"])
+            self.assertIn(
+                vector_hit["retrieval_method"],
+                {"vector", "hybrid_lexical_vector_rrf"},
+            )
+            self.assertEqual(vector_hit["vector_score"], 0.91)
+
+    def test_hybrid_search_falls_back_to_lexical_when_vector_index_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "book", "教材.md", "页表保存虚拟页到物理页框的映射。")
+
+            with mock.patch(
+                "local_course_agent.rag.build_vector_index_from_chunks",
+                side_effect=RuntimeError("embedding unavailable"),
+            ):
+                hits = kb.search("os", "页表映射", limit=1, strategy="hybrid")
+
+            self.assertEqual(hits[0]["file_name"], "教材.md")
             self.assertEqual(hits[0]["retrieval_method"], "hybrid_bm25_semantic_rrf_mmr")
 
 

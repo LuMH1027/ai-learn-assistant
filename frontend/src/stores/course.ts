@@ -4,11 +4,18 @@ import { defineStore } from 'pinia'
 import { getJson, postFiles, postJson } from '../services/api'
 import type {
   ConfigResponse,
+  ConfigStatusResponse,
   Course,
+  CourseDashboard,
+  CourseDashboardResponse,
   CoursesResponse,
   IndexJob,
   IndexResult,
   SaveConfigResponse,
+  SaveStudyPlanResponse,
+  StudyPlan,
+  StudyPlanItem,
+  StudyPlanResponse,
   UploadResult,
 } from '../types/api'
 
@@ -30,12 +37,21 @@ export const useCourseStore = defineStore('course', () => {
   const loadRequestId = ref(0)
   const configEpoch = ref(0)
   const configRequestId = ref(0)
+  const configStatus = ref<ConfigStatusResponse | null>(null)
+  const configStatusLoading = ref(false)
+  const configStatusRequestId = ref(0)
   const pendingRequests = ref(0)
   const indexing = ref(false)
   const indexStatus = ref<string | null>(null)
   const indexJobId = ref<string | null>(null)
   const indexRequestId = ref(0)
   const savingRoot = ref(false)
+  const studyPlan = ref<StudyPlan | null>(null)
+  const planLoading = ref(false)
+  const planRequestId = ref(0)
+  const dashboard = ref<CourseDashboard | null>(null)
+  const dashboardLoading = ref(false)
+  const dashboardRequestId = ref(0)
 
   const activeCourse = computed(() =>
     courses.value.find((course) => course.id === activeCourseId.value) ?? null,
@@ -51,6 +67,8 @@ export const useCourseStore = defineStore('course', () => {
     ) {
       activeCourseId.value = null
       contextVersion.value += 1
+      resetStudyPlan()
+      resetDashboard()
     }
   }
 
@@ -78,6 +96,31 @@ export const useCourseStore = defineStore('course', () => {
     })
   }
 
+  function loadConfigStatus() {
+    const requestId = ++configStatusRequestId.value
+    const requestedConfigEpoch = configEpoch.value
+    configStatusLoading.value = true
+    return trackRequest(async () => {
+      try {
+        const result = await getJson<ConfigStatusResponse>('/api/config/status')
+        if (
+          requestId === configStatusRequestId.value &&
+          requestedConfigEpoch === configEpoch.value
+        ) {
+          configStatus.value = result
+        }
+        return result
+      } finally {
+        if (
+          requestId === configStatusRequestId.value &&
+          requestedConfigEpoch === configEpoch.value
+        ) {
+          configStatusLoading.value = false
+        }
+      }
+    })
+  }
+
   function loadCourses() {
     const requestId = ++loadRequestId.value
     const requestedRootVersion = rootVersion.value
@@ -100,6 +143,8 @@ export const useCourseStore = defineStore('course', () => {
     if (nextId === activeCourseId.value) return
 
     resetIndexState()
+    resetStudyPlan()
+    resetDashboard()
     activeCourseId.value = nextId
     contextVersion.value += 1
   }
@@ -116,6 +161,9 @@ export const useCourseStore = defineStore('course', () => {
         rootVersion.value += 1
         configEpoch.value += 1
         resetIndexState()
+        resetStudyPlan()
+        resetDashboard()
+        resetConfigStatus()
         config.value = {
           ...(config.value ?? {}),
           root_folder: result.config.root_folder,
@@ -124,8 +172,9 @@ export const useCourseStore = defineStore('course', () => {
         contextVersion.value += 1
         applyCourses([])
 
-        const [, coursesRefresh] = await Promise.allSettled([
+        const [, , coursesRefresh] = await Promise.allSettled([
           loadConfig(),
+          loadConfigStatus(),
           loadCourses(),
         ])
         if (coursesRefresh.status === 'rejected') {
@@ -193,6 +242,24 @@ export const useCourseStore = defineStore('course', () => {
     indexJobId.value = null
   }
 
+  function resetStudyPlan() {
+    planRequestId.value += 1
+    studyPlan.value = null
+    planLoading.value = false
+  }
+
+  function resetDashboard() {
+    dashboardRequestId.value += 1
+    dashboard.value = null
+    dashboardLoading.value = false
+  }
+
+  function resetConfigStatus() {
+    configStatusRequestId.value += 1
+    configStatus.value = null
+    configStatusLoading.value = false
+  }
+
   function isCurrentIndexRequest(courseId: string, requestedRootVersion: number, requestId: number) {
     return activeCourseId.value === courseId &&
       rootVersion.value === requestedRootVersion &&
@@ -222,6 +289,114 @@ export const useCourseStore = defineStore('course', () => {
     return undefined
   }
 
+  function loadStudyPlan() {
+    const courseId = activeCourseId.value
+    if (courseId === null) {
+      resetStudyPlan()
+      return
+    }
+    const requestId = ++planRequestId.value
+    const requestedRootVersion = rootVersion.value
+    planLoading.value = true
+    return trackRequest(async () => {
+      try {
+        const result = await getJson<StudyPlanResponse>(
+          `/api/courses/${encodeURIComponent(courseId)}/plan`,
+        )
+        if (isCurrentPlanRequest(courseId, requestedRootVersion, requestId)) {
+          studyPlan.value = result.plan
+        }
+        return result.plan
+      } finally {
+        if (isCurrentPlanRequest(courseId, requestedRootVersion, requestId)) {
+          planLoading.value = false
+        }
+      }
+    })
+  }
+
+  function loadDashboard() {
+    const courseId = activeCourseId.value
+    if (courseId === null) {
+      resetDashboard()
+      return
+    }
+    const requestId = ++dashboardRequestId.value
+    const requestedRootVersion = rootVersion.value
+    dashboardLoading.value = true
+    return trackRequest(async () => {
+      try {
+        const result = await getJson<CourseDashboardResponse>(
+          `/api/courses/${encodeURIComponent(courseId)}/dashboard`,
+        )
+        if (isCurrentDashboardRequest(courseId, requestedRootVersion, requestId)) {
+          dashboard.value = result.dashboard
+        }
+        return result.dashboard
+      } finally {
+        if (isCurrentDashboardRequest(courseId, requestedRootVersion, requestId)) {
+          dashboardLoading.value = false
+        }
+      }
+    })
+  }
+
+  function addStudyPlanItem(title: string, kind: StudyPlanItem['kind'] = 'read') {
+    const courseId = activeCourseId.value
+    if (courseId === null || !title.trim()) return
+    const requestedRootVersion = rootVersion.value
+    return trackRequest(async () => {
+      const result = await postJson<SaveStudyPlanResponse>(
+        `/api/courses/${encodeURIComponent(courseId)}/plan`,
+        { title: title.trim(), kind },
+      )
+      if (activeCourseId.value === courseId && rootVersion.value === requestedRootVersion) {
+        studyPlan.value = result.plan
+      }
+      return result.plan
+    })
+  }
+
+  function updateStudyPlanItem(
+    item: StudyPlanItem,
+    changes: Partial<Pick<StudyPlanItem, 'status' | 'title' | 'kind' | 'estimated_minutes'>>,
+  ) {
+    const courseId = activeCourseId.value
+    if (courseId === null) return
+    const requestedRootVersion = rootVersion.value
+    return trackRequest(async () => {
+      const result = await postJson<SaveStudyPlanResponse>(
+        `/api/courses/${encodeURIComponent(courseId)}/plan/${encodeURIComponent(String(item.id))}`,
+        changes,
+      )
+      if (activeCourseId.value === courseId && rootVersion.value === requestedRootVersion) {
+        studyPlan.value = result.plan
+      }
+      return result.plan
+    })
+  }
+
+  function cycleStudyPlanItem(item: StudyPlanItem) {
+    const nextStatus: StudyPlanItem['status'] = item.status === 'todo'
+      ? 'doing'
+      : item.status === 'doing'
+        ? 'done'
+        : 'todo'
+    return updateStudyPlanItem(item, { status: nextStatus })
+  }
+
+  function isCurrentPlanRequest(courseId: string, requestedRootVersion: number, requestId: number) {
+    return activeCourseId.value === courseId &&
+      rootVersion.value === requestedRootVersion &&
+      requestId === planRequestId.value
+  }
+
+  function isCurrentDashboardRequest(courseId: string, requestedRootVersion: number, requestId: number) {
+    return activeCourseId.value === courseId &&
+      rootVersion.value === requestedRootVersion &&
+      requestId === dashboardRequestId.value
+  }
+
   return {
     courses,
     config,
@@ -232,6 +407,9 @@ export const useCourseStore = defineStore('course', () => {
     loadRequestId,
     configEpoch,
     configRequestId,
+    configStatus,
+    configStatusLoading,
+    configStatusRequestId,
     pendingRequests,
     loading,
     indexing,
@@ -239,13 +417,25 @@ export const useCourseStore = defineStore('course', () => {
     indexJobId,
     indexRequestId,
     savingRoot,
+    studyPlan,
+    planLoading,
+    planRequestId,
+    dashboard,
+    dashboardLoading,
+    dashboardRequestId,
     activeCourse,
     applyCourses,
     loadConfig,
+    loadConfigStatus,
     loadCourses,
     saveRoot,
     selectCourse,
     uploadCourseFiles,
     indexActiveCourse,
+    loadStudyPlan,
+    loadDashboard,
+    addStudyPlanItem,
+    updateStudyPlanItem,
+    cycleStudyPlanItem,
   }
 })
