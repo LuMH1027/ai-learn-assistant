@@ -6,6 +6,7 @@ from local_course_agent.web_search import (
     McpWebSearchClient,
     is_underspecified_query,
     should_search_web,
+    source_quality,
 )
 
 
@@ -135,6 +136,32 @@ class WebSearchTest(unittest.TestCase):
 
         self.assertEqual(len(sources[0]["quote"]), 360)
 
+    def test_sources_are_ranked_by_citable_quality(self):
+        client = McpWebSearchClient({"enabled": True, "mcp_url": "https://search.example/mcp"})
+
+        sources = client.normalize_sources({
+            "structuredContent": {
+                "results": [
+                    {
+                        "title": "Blog",
+                        "url": "https://random.example/post",
+                        "content": "short",
+                        "score": 0.99,
+                    },
+                    {
+                        "title": "Official Documentation",
+                        "url": "https://docs.python.org/3/tutorial/",
+                        "content": "Python official tutorial documentation with enough text to cite clearly in a student answer.",
+                        "score": 0.1,
+                    },
+                ]
+            }
+        })
+
+        self.assertEqual(sources[0]["url"], "https://docs.python.org/3/tutorial/")
+        self.assertGreater(sources[0]["source_quality"], sources[1]["source_quality"])
+        self.assertGreater(source_quality("https://mit.edu/course", "Documentation", "x" * 100), 0)
+
     def test_search_parses_citable_title_url_highlight_text_blocks(self):
         client = McpWebSearchClient({"enabled": True, "mcp_url": "https://search.example/mcp"})
 
@@ -154,8 +181,9 @@ class WebSearchTest(unittest.TestCase):
         })
 
         self.assertEqual(len(sources), 2)
-        self.assertEqual(sources[0]["file_name"], "Python 3.14")
-        self.assertIn("Released in October", sources[0]["quote"])
+        by_title = {source["file_name"]: source for source in sources}
+        self.assertIn("Python 3.14", by_title)
+        self.assertIn("Released in October", by_title["Python 3.14"]["quote"])
 
 
 if __name__ == "__main__":
