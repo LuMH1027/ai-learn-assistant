@@ -161,7 +161,17 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
 
             self.assertEqual(lexical_hits, [])
             self.assertEqual(hybrid_hits[0]["file_name"], "教材.md")
-            self.assertEqual(hybrid_hits[0]["retrieval_method"], "hybrid_bm25_rrf_mmr")
+            self.assertEqual(hybrid_hits[0]["retrieval_method"], "hybrid_bm25_semantic_rrf_mmr")
+
+    def test_hybrid_search_uses_local_semantic_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("ds", "stack", "栈.md", "栈保存函数调用现场，遵循 LIFO 访问顺序。")
+
+            hits = kb.search("ds", "递归调用为什么要用后进先出结构？", strategy="hybrid")
+
+            self.assertEqual(hits[0]["file_name"], "栈.md")
+            self.assertEqual(hits[0]["retrieval_method"], "hybrid_bm25_semantic_rrf_mmr")
 
 
 if __name__ == "__main__":

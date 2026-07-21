@@ -171,16 +171,21 @@ class CourseKnowledgeBase:
             key=lambda chunk: _metadata_score(chunk, query_tokens),
             reverse=True,
         )
+        semantic_ranking = sorted(
+            (dict(chunk) for chunk in chunks if _semantic_score(normalized_query, query_tokens, chunk) > 0),
+            key=lambda chunk: _semantic_score(normalized_query, query_tokens, chunk),
+            reverse=True,
+        )
 
         candidates = _reciprocal_rank_fusion(
-            [bm25_ranking, phrase_ranking, metadata_ranking],
+            [bm25_ranking, phrase_ranking, metadata_ranking, semantic_ranking],
             candidate_limit=max(limit * 6, 18),
         )
         selected = _select_diverse(candidates, limit)
         for item in selected:
             item["context_text"] = _neighbor_context(item, chunks)
             item["score"] = round(item["rrf_score"] * 1000, 4)
-            item["retrieval_method"] = "hybrid_bm25_rrf_mmr" if strategy == "hybrid" else "bm25_rrf_mmr"
+            item["retrieval_method"] = "hybrid_bm25_semantic_rrf_mmr" if strategy == "hybrid" else "bm25_rrf_mmr"
             query_set = set(original_query_tokens)
             item["query_coverage"] = round(
                 len(query_set & set(item.get("tokens", []))) / max(len(query_set), 1),
@@ -356,6 +361,40 @@ def _phrase_score(chunk: Dict, phrases: Sequence[str]) -> float:
 def _metadata_score(chunk: Dict, query_tokens: Sequence[str]) -> float:
     filename_tokens = Counter(tokenize(chunk.get("file_name", "")))
     return sum(filename_tokens[token] for token in set(query_tokens))
+
+
+def _semantic_score(query: str, query_tokens: Sequence[str], chunk: Dict) -> float:
+    text = f"{chunk.get('file_name', '')} {chunk.get('text', '')}".lower()
+    aliases = {
+        "后进先出": ("栈", "lifo"),
+        "先进先出": ("队列", "fifo"),
+        "地址变换": ("地址转换", "页表", "tlb"),
+        "虚实地址": ("虚拟地址", "物理地址", "页表"),
+        "缓存页表": ("tlb", "页表"),
+        "递归调用": ("栈", "函数调用"),
+        "广搜": ("队列", "广度优先搜索", "bfs"),
+        "宽搜": ("队列", "广度优先搜索", "bfs"),
+    }
+    score = 0.0
+    for trigger, related_terms in aliases.items():
+        if trigger in query or any(token in query_tokens for token in tokenize(trigger)):
+            score += sum(1.0 for term in related_terms if term.lower() in text)
+    query_features = _semantic_features(query)
+    chunk_features = _semantic_features(text)
+    if query_features and chunk_features:
+        overlap = query_features & chunk_features
+        score += len(overlap) / ((len(query_features) * len(chunk_features)) ** 0.5)
+    return score
+
+
+def _semantic_features(text: str) -> set[str]:
+    features = set()
+    for token in tokenize(text):
+        if len(token) >= 2 and token not in QUERY_STOP_TOKENS:
+            features.add(token)
+    compact = re.sub(r"\s+", "", text.lower())
+    features.update(compact[index : index + 4] for index in range(max(0, len(compact) - 3)))
+    return features
 
 
 def _reciprocal_rank_fusion(rankings: Sequence[Sequence[Dict]], candidate_limit: int, k: int = 60) -> List[Dict]:
