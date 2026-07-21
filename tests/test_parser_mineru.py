@@ -1,8 +1,11 @@
 import unittest
+import tempfile
+import zipfile
+from pathlib import Path
 from unittest import mock
 
 from local_course_agent.mineru_api import MineruAgentClient
-from local_course_agent.parser import discover_mineru_command
+from local_course_agent.parser import discover_mineru_command, extract_text
 
 
 class MineruDiscoveryTest(unittest.TestCase):
@@ -22,6 +25,26 @@ class MineruDiscoveryTest(unittest.TestCase):
         client = MineruAgentClient(token="test-token")
 
         self.assertEqual(client._headers().get("Authorization"), "Bearer test-token")
+
+    def test_extracts_docx_paragraph_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "notes.docx"
+            xml = (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                "<w:body>"
+                "<w:p><w:r><w:t>页表用于地址转换。</w:t></w:r></w:p>"
+                "<w:p><w:r><w:t>TLB 缓存常用页表项。</w:t></w:r></w:p>"
+                "</w:body></w:document>"
+            )
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("word/document.xml", xml)
+
+            pages = extract_text(path)
+
+            self.assertEqual(pages[0]["page"], None)
+            self.assertIn("页表用于地址转换", pages[0]["text"])
+            self.assertIn("TLB 缓存", pages[0]["text"])
 
 
 if __name__ == "__main__":

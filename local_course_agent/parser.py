@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import zipfile
+from xml.etree import ElementTree
 from pathlib import Path
 from typing import Dict, List
 
@@ -31,7 +33,10 @@ def extract_text(path: Path, mineru_config=None) -> List[Dict]:
         text = path.read_text(encoding="utf-8", errors="ignore")
         return [{"page": None, "text": text}]
     if suffix == ".docx":
-        return [{"page": None, "text": f"DOCX 文件已发现：{path.name}。当前轻量版未安装 DOCX 解析依赖，请导出为 PDF 或 TXT 后入库。"}]
+        text = _extract_docx(path)
+        if text:
+            return [{"page": None, "text": text}]
+        return [{"page": None, "text": f"DOCX 解析失败：{path.name}。请确认文件未损坏，或导出为 PDF/TXT 后入库。"}]
     return []
 
 
@@ -104,3 +109,30 @@ def _extract_pdf(path: Path) -> List[Dict]:
     except Exception as exc:
         pages.append({"page": None, "text": f"PDF 解析失败：{path.name}，原因：{exc}"})
     return pages
+
+
+def _extract_docx(path: Path) -> str:
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            document = archive.read("word/document.xml")
+    except (OSError, KeyError, zipfile.BadZipFile):
+        return ""
+    try:
+        root = ElementTree.fromstring(document)
+    except ElementTree.ParseError:
+        return ""
+    paragraphs = []
+    for paragraph in root.findall(".//w:p", namespace):
+        parts = []
+        for node in paragraph.iter():
+            if node.tag == f"{{{namespace['w']}}}t" and node.text:
+                parts.append(node.text)
+            elif node.tag == f"{{{namespace['w']}}}tab":
+                parts.append("\t")
+            elif node.tag == f"{{{namespace['w']}}}br":
+                parts.append("\n")
+        text = "".join(parts).strip()
+        if text:
+            paragraphs.append(text)
+    return "\n".join(paragraphs).strip()
