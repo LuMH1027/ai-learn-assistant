@@ -5,8 +5,10 @@ from pathlib import Path
 from local_course_agent.server import (
     PROJECT_ROOT,
     STATIC_DIR,
+    DATA_DIR,
     frontend_build_error,
     is_frontend_entry,
+    is_safe_material_root,
     parse_course_route,
     resolve_static_path,
     static_cache_control,
@@ -48,6 +50,13 @@ class StaticFrontendTest(unittest.TestCase):
         message = frontend_build_error()
         self.assertIn("前端尚未构建", message)
         self.assertIn("start", message.lower())
+
+    def test_material_root_rejects_sensitive_project_locations(self):
+        self.assertFalse(is_safe_material_root(Path("/")))
+        self.assertFalse(is_safe_material_root(PROJECT_ROOT))
+        self.assertFalse(is_safe_material_root(DATA_DIR))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.assertTrue(is_safe_material_root(Path(temp_dir)))
 
     def test_course_api_routes_are_parsed_centrally(self):
         self.assertEqual(parse_course_route("/api/courses/os-1/messages"), ("os-1", "messages"))

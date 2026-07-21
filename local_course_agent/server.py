@@ -74,6 +74,18 @@ def static_cache_control(request_path: str) -> str | None:
     return None
 
 
+def is_safe_material_root(root: Path) -> bool:
+    resolved = Path(root).expanduser().resolve()
+    blocked_roots = {resolved.anchor, str(DATA_DIR.resolve()), str(PROJECT_ROOT.resolve())}
+    if str(resolved) in blocked_roots:
+        return False
+    try:
+        resolved.relative_to(DATA_DIR.resolve())
+        return False
+    except ValueError:
+        return True
+
+
 def is_frontend_entry(request_path: str) -> bool:
     return urlparse(request_path).path in ("/", "/index.html")
 
@@ -172,6 +184,9 @@ class Handler(SimpleHTTPRequestHandler):
         cache_control = static_cache_control(self.path)
         if cache_control:
             self.send_header("Cache-Control", cache_control)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("X-Frame-Options", "DENY")
         super().end_headers()
 
     def do_GET(self):
@@ -237,6 +252,8 @@ class Handler(SimpleHTTPRequestHandler):
             root = Path(root_folder).expanduser().resolve()
             if not root.exists() or not root.is_dir():
                 return self.send_error_json(f"资料根目录不存在: {root}")
+            if not is_safe_material_root(root):
+                return self.send_error_json("资料根目录不能设置为项目目录、数据目录或系统根目录")
             next_config = dict(current)
             next_config["root_folder"] = str(root)
             write_config(CONFIG_PATH, next_config)
