@@ -4,7 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from local_course_agent.server import save_study_artifact
-from local_course_agent.store import AppStore
+from local_course_agent.rag import CourseKnowledgeBase
+from local_course_agent.store import AppStore, atomic_write_text
 
 
 class FileStoreTest(unittest.TestCase):
@@ -37,6 +38,26 @@ class FileStoreTest(unittest.TestCase):
 
             self.assertEqual(len(messages), 40)
             self.assertEqual({message["content"] for message in messages}, {f"问题 {index}" for index in range(40)})
+
+    def test_state_writes_replace_files_atomically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+
+            atomic_write_text(path, '{"ok": true}')
+            atomic_write_text(path, '{"ok": false}')
+
+            self.assertEqual(path.read_text(encoding="utf-8"), '{"ok": false}')
+            self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
+
+    def test_index_writes_use_valid_replaceable_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+
+            kb.index_text("os", "f1", "教材.md", "页表用于地址转换。")
+            kb.clear_course("os")
+
+            self.assertEqual((Path(tmp) / "os.json").read_text(encoding="utf-8"), "[]")
+            self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
 
     def test_study_artifact_is_saved_inside_course_folder(self):
         with tempfile.TemporaryDirectory() as tmp:

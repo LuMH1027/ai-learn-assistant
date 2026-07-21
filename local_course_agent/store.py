@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime
@@ -108,11 +109,11 @@ class AppStore:
 
     def _write_json(self, path: Path, data) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
 
     def _write_text(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        atomic_write_text(path, text)
 
     def _migrate_legacy_sqlite(self) -> None:
         db_path = self.data_dir / "app.db"
@@ -167,6 +168,14 @@ class AppStore:
 
 def safe_course_id(course_id: str) -> str:
     return "".join(char if char.isalnum() or char in "-_" else "_" for char in course_id) or "course"
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp")
+    temp.write_text(text, encoding="utf-8")
+    os.replace(temp, path)
 
 
 def now_text() -> str:

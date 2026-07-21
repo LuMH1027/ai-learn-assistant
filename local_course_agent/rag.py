@@ -7,6 +7,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
+from local_course_agent.store import atomic_write_text
+
 
 TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+")
 GENERATED_ARTIFACT_RE = re.compile(r"^(?:课程摘要|练习题)-\d{8}-\d{6}\.md$", re.IGNORECASE)
@@ -114,7 +116,7 @@ class CourseKnowledgeBase:
         return len(chunks)
 
     def clear_course(self, course_id: str) -> None:
-        self._path(course_id).write_text("[]", encoding="utf-8")
+        atomic_write_text(self._path(course_id), "[]")
 
     def search(self, course_id: str, query: str, limit: int = 5, strategy: str = "lexical") -> List[Dict]:
         normalized_query = _normalize_query(query)
@@ -266,7 +268,7 @@ class CourseKnowledgeBase:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def _save(self, course_id: str, chunks: List[Dict]) -> None:
-        self._path(course_id).write_text(json.dumps(chunks, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(self._path(course_id), json.dumps(chunks, ensure_ascii=False, indent=2))
 
     def _append_text_chunks(
         self,
