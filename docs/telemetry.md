@@ -1,6 +1,6 @@
 # Telemetry module
 
-`local_course_agent.telemetry` provides a small in-memory telemetry buffer for
+`local_course_agent.ops.telemetry` provides a small in-memory telemetry buffer for
 future RAG and course-processing diagnostics. It is intentionally a pure module:
 no server integration, no background thread, no file writes, and no third-party
 dependency.
@@ -8,7 +8,7 @@ dependency.
 ## Current API
 
 ```python
-from local_course_agent.telemetry import (
+from local_course_agent.ops.telemetry import (
     TelemetryRecorder,
     record_index_result,
     record_llm_result,

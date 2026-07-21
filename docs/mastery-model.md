@@ -1,6 +1,6 @@
 # 知识点掌握度与错题闭环模型
 
-本文档描述 `local_course_agent.mastery` 的纯数据模型。当前切片不接入 `store.py`、`server.py` 或前端，只提供后续持久化和接口开发可复用的 schema 与更新函数。
+本文档描述 `local_course_agent.learning.mastery` 的纯数据模型。当前切片不接入 `store.py`、`server.py` 或前端，只提供后续持久化和接口开发可复用的 schema 与更新函数。
 
 ## 目标
 

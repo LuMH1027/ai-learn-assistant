@@ -1,6 +1,6 @@
 # Course Dashboard
 
-`local_course_agent.dashboard` provides a pure aggregation layer for the course dashboard. It does not read files, call the RAG engine, mutate course state, or depend on the HTTP server.
+`local_course_agent.learning.dashboard` provides a pure aggregation layer for the course dashboard. It does not read files, call the RAG engine, mutate course state, or depend on the HTTP server.
 
 The HTTP server exposes this aggregation through:
 
@@ -26,7 +26,7 @@ The route is read-only. It loads the course tree from `CTX.find_course`, message
 ## Function
 
 ```python
-from local_course_agent.dashboard import build_course_dashboard
+from local_course_agent.learning.dashboard import build_course_dashboard
 
 payload = build_course_dashboard(
     course=course,

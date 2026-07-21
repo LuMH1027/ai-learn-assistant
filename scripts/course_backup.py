@@ -10,7 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from local_course_agent.backup import (  # noqa: E402
+from local_course_agent.ops.backup import (  # noqa: E402
     create_backup,
     list_backup_archive,
     restore_backup,

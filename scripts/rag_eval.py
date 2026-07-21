@@ -10,8 +10,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from local_course_agent.rag import CourseKnowledgeBase  # noqa: E402
-from local_course_agent.rag_eval import (  # noqa: E402
+from local_course_agent.retrieval.rag import CourseKnowledgeBase  # noqa: E402
+from local_course_agent.retrieval.rag_eval import (  # noqa: E402
     load_eval_cases,
     render_markdown_report,
     run_demo_baseline,

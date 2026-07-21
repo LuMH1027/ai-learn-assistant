@@ -106,6 +106,25 @@ python3 -m unittest discover -s tests -v
 
 生产构建输出目录是 `web/dist`，该目录由启动脚本生成，不提交到 Git。
 
+## 后端结构
+
+后端按职责分层，避免新增能力继续堆在 `local_course_agent/` 顶层：
+
+```text
+local_course_agent/
+├─ retrieval/   # RAG 检索、向量融合、引用校验、追问改写、RAG 评测
+├─ learning/    # 课程索引任务、摘要、dashboard、掌握度模型
+├─ ingestion/   # 解析质量评估等资料入库前处理
+├─ ops/         # 备份恢复、配置健康状态、遥测诊断
+├─ server.py    # HTTP API 编排
+├─ llm.py       # LLM 客户端与 Prompt
+├─ parser.py    # 文档解析入口
+├─ scanner.py   # 本地课程目录扫描
+└─ store.py     # 文件型状态存储
+```
+
+旧的 `local_course_agent.rag`、`local_course_agent.summary`、`local_course_agent.backup` 等模块仍作为兼容 alias 保留；新代码优先导入子包路径，例如 `local_course_agent.retrieval.rag`、`local_course_agent.learning.summary`、`local_course_agent.ops.backup`。
+
 ## 资料目录
 
 系统按一级文件夹识别课程：

@@ -6,7 +6,7 @@ It is exposed through a small CLI script and intentionally remains separate from
 
 ## Scope
 
-`local_course_agent.backup` archives only these paths under a data directory:
+`local_course_agent.ops.backup` archives only these paths under a data directory:
 
 - `config.example.json`
 - `course_memory/**`
@@ -19,7 +19,7 @@ Runtime secrets such as `config.json`, SQLite files, uploads, caches, and unrela
 ```python
 from pathlib import Path
 
-from local_course_agent.backup import (
+from local_course_agent.ops.backup import (
     collect_backup_entries,
     create_backup,
     list_backup_archive,

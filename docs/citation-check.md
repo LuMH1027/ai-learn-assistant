@@ -1,6 +1,6 @@
 # Citation Check
 
-`local_course_agent.citation_check` provides a lightweight post-generation check for grounded answers. It is intentionally independent from the current RAG and LLM flow, so it can be merged and tested before wiring it into `server.py`.
+`local_course_agent.retrieval.citation_check` provides a lightweight post-generation check for grounded answers. It is intentionally independent from the current RAG and LLM flow, so it can be merged and tested before wiring it into `server.py`.
 
 ## Goal
 
@@ -15,7 +15,7 @@ It does not perform semantic entailment. A high overlap means the sentence share
 ## API
 
 ```python
-from local_course_agent.citation_check import check_citations
+from local_course_agent.retrieval.citation_check import check_citations
 
 result = check_citations(answer, citations)
 ```
@@ -23,7 +23,7 @@ result = check_citations(answer, citations)
 For endpoint integration, use the post-processing adapter:
 
 ```python
-from local_course_agent.citation_check import postprocess_answer_with_citation_check
+from local_course_agent.retrieval.citation_check import postprocess_answer_with_citation_check
 
 payload = postprocess_answer_with_citation_check(answer, citations, strict=False)
 ```

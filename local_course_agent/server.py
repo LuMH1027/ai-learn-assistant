@@ -11,11 +11,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from local_course_agent.agent_strategy import build_agent_trace
-from local_course_agent.citation_check import postprocess_answer_with_citation_check
 from local_course_agent.config import load_config, write_config
-from local_course_agent.config_status import build_config_status
-from local_course_agent.conversation_context import build_contextual_retrieval_query
-from local_course_agent.course_service import (
+from local_course_agent.learning.dashboard import build_course_dashboard
+from local_course_agent.learning.service import (
     build_course_index,
     CourseIndexJobs,
     create_study_artifact as create_study_artifact_payload,
@@ -26,10 +24,12 @@ from local_course_agent.course_service import (
     study_plan_payload,
     study_plan_stats,
 )
-from local_course_agent.dashboard import build_course_dashboard
 from local_course_agent.llm import build_grounded_prompt, create_llm_client
+from local_course_agent.ops.config_status import build_config_status
 from local_course_agent.parser import extract_text
-from local_course_agent.rag import CourseKnowledgeBase
+from local_course_agent.retrieval.citation_check import postprocess_answer_with_citation_check
+from local_course_agent.retrieval.conversation_context import build_contextual_retrieval_query
+from local_course_agent.retrieval.rag import CourseKnowledgeBase
 from local_course_agent.scanner import CourseCatalogCache, is_image_file, stable_id
 from local_course_agent.store import AppStore
 from local_course_agent.uploads import MAX_TOTAL_UPLOAD_BYTES, save_chat_upload, save_course_upload
