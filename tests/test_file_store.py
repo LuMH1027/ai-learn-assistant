@@ -39,6 +39,28 @@ class FileStoreTest(unittest.TestCase):
             self.assertEqual(len(messages), 40)
             self.assertEqual({message["content"] for message in messages}, {f"问题 {index}" for index in range(40)})
 
+    def test_memory_tracks_repeated_focus_topics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+
+            store.update_memory_from_question("course-1", "解释页表的作用")
+            memory = store.update_memory_from_question("course-1", "解释页表的作用")
+
+            self.assertIn("关注 2 次", memory)
+            self.assertIn("页表", memory)
+
+    def test_memory_migrates_legacy_recent_focus_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+            memory_path = Path(tmp) / "course_memory" / "course-1" / "memory.md"
+            memory_path.parent.mkdir(parents=True)
+            memory_path.write_text("- 最近关注：什么是进程调度？", encoding="utf-8")
+
+            memory = store.update_memory_from_question("course-1", "解释进程调度")
+
+            self.assertIn("关注", memory)
+            self.assertIn("进程调度", memory)
+
     def test_state_writes_replace_files_atomically(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state.json"
