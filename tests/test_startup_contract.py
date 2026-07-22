@@ -14,6 +14,7 @@ class StartupContractTest(unittest.TestCase):
         self.assertIn(".course-agent-deps-ready", script)
         self.assertIn("npm run build --prefix frontend", script)
         self.assertLess(script.index("npm run build"), script.index(".venv/bin/python run.py"))
+        self.assertIn("COURSE_AGENT_PORT", script)
         self.assertIn("20.19", script)
         self.assertIn("22.12", script)
         self.assertIn("sys.version_info >= (3, 9)", script)
@@ -26,6 +27,7 @@ class StartupContractTest(unittest.TestCase):
         self.assertIn("npm run build --prefix frontend", script)
         self.assertIn("if errorlevel 1 exit /b 1", script.lower())
         self.assertLess(script.index("npm run build"), script.index("run.py"))
+        self.assertIn("COURSE_AGENT_PORT", script)
         self.assertIn("20.19", script)
         self.assertIn("22.12", script)
         self.assertIn("sys.version_info >= (3, 9)", script)
@@ -53,6 +55,8 @@ class StartupContractTest(unittest.TestCase):
             "install-deps.sh",
             "npm run dev --prefix frontend",
             "web/dist",
+            "server.host",
+            "COURSE_AGENT_PORT",
         ):
             self.assertIn(text, readme)
 

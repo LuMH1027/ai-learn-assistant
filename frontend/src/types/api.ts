@@ -248,6 +248,11 @@ export interface CourseDashboard {
 }
 
 export interface ConfigResponse {
+  server?: {
+    host: string
+    port: number
+    url: string
+  }
   root_folder: string
   ai_provider: string
   ai_configured: boolean
@@ -278,7 +283,23 @@ export interface ConfigStatusResponse {
   data_dir: string
   root_folder: string
   overall: 'ok' | 'warning' | 'error'
+  setup_required?: boolean
+  setup_steps?: ConfigSetupStep[]
+  degradation_notices?: ConfigDegradationNotice[]
   capabilities: ConfigCapabilityStatus[]
+}
+
+export interface ConfigSetupStep {
+  key: string
+  label: string
+  status: 'done' | 'todo' | 'optional'
+  detail: string
+}
+
+export interface ConfigDegradationNotice {
+  key: string
+  label: string
+  detail: string
 }
 
 export interface CoursesResponse {

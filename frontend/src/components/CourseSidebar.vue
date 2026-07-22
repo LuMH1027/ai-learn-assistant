@@ -46,6 +46,8 @@ const healthItems = computed(() => {
     .map((key) => items.find((item) => item.key === key))
     .filter((item): item is ConfigCapabilityStatus => item !== undefined)
 })
+const setupSteps = computed(() => course.configStatus?.setup_steps ?? [])
+const degradationNotices = computed(() => course.configStatus?.degradation_notices ?? [])
 
 watch(() => course.config?.root_folder, (value) => {
   rootFolder.value = value ?? ''
@@ -170,6 +172,12 @@ function overallHealthLabel(status: 'ok' | 'warning' | 'error' | undefined) {
   if (status === 'ok') return '正常'
   if (status === 'error') return '异常'
   return '需关注'
+}
+
+function setupStepStatusLabel(status: 'done' | 'todo' | 'optional') {
+  if (status === 'done') return '完成'
+  if (status === 'optional') return '可选'
+  return '待处理'
 }
 
 function recordMasteryAnswer(item: MasteryDashboardItem, correct: boolean) {
@@ -385,6 +393,28 @@ function onDrop(event: DragEvent) {
           </span>
         </div>
         <span v-else>{{ course.configStatusLoading ? '正在检查配置…' : '尚未检查配置' }}</span>
+        <div v-if="course.configStatus?.setup_required && setupSteps.length > 0" class="setup-guide" aria-label="首次启动清单">
+          <strong>首次启动清单</strong>
+          <span
+            v-for="step in setupSteps"
+            :key="step.key"
+            class="setup-step"
+            :data-status="step.status"
+            :title="step.detail"
+          >
+            {{ setupStepStatusLabel(step.status) }} · {{ step.label }}
+          </span>
+        </div>
+        <div v-if="degradationNotices.length > 0" class="degradation-list" aria-label="降级提示">
+          <strong>降级提示</strong>
+          <span
+            v-for="notice in degradationNotices"
+            :key="notice.key"
+            :title="notice.detail"
+          >
+            {{ notice.label }}
+          </span>
+        </div>
       </div>
       <label for="root-folder">资料根目录</label>
       <input id="root-folder" v-model="rootFolder" />
@@ -422,6 +452,35 @@ button { min-height: 44px; }
 }
 .dashboard-line {
   overflow-wrap: anywhere;
+}
+.setup-guide,
+.degradation-list {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border-top: 1px solid rgba(185, 191, 188, 0.55);
+  padding-top: 5px;
+}
+.setup-guide strong,
+.degradation-list strong {
+  color: var(--text);
+  font-size: 10px;
+}
+.setup-step,
+.degradation-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.setup-step[data-status="done"] {
+  color: var(--accent);
+}
+.setup-step[data-status="todo"] {
+  color: var(--danger);
+}
+.setup-step[data-status="optional"] {
+  color: var(--muted);
 }
 .plan-list {
   display: grid;

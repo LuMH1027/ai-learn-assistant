@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from http.server import ThreadingHTTPServer
 
+from local_course_agent.config import resolve_server_settings
 from local_course_agent.api.chat import CLARIFICATION_ANSWER, emit_stream_text
 from local_course_agent.api.context import (
     CONFIG_PATH,
@@ -32,9 +33,9 @@ CTX = AppContext()
 
 def main():
     STATIC_DIR.mkdir(exist_ok=True)
-    port = 8000
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"Local Course Agent running at http://127.0.0.1:{port}")
+    host, port = resolve_server_settings(CTX.config)
+    server = ThreadingHTTPServer((host, port), Handler)
+    print(f"Local Course Agent running at http://{host}:{port}")
     server.serve_forever()
 
 

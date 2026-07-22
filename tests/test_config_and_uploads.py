@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from unittest import mock
 
-from local_course_agent.config import normalize_config, resolve_siliconflow_api_key
+from local_course_agent.config import normalize_config, resolve_server_settings, resolve_siliconflow_api_key
 from local_course_agent.ops.config_status import build_config_status
 from local_course_agent.ops.config_status.collectors import (
     ai_generation_status,
@@ -77,6 +77,8 @@ class ConfigAndUploadsTest(unittest.TestCase):
         )
 
         self.assertEqual(config["root_folder"], "D:/Study")
+        self.assertEqual(config["server"]["host"], "127.0.0.1")
+        self.assertEqual(config["server"]["port"], 8000)
         self.assertEqual(config["ai"]["provider"], "openai_compatible")
         self.assertEqual(config["ai"]["base_url"], "https://api.siliconflow.cn/v1")
         self.assertEqual(config["ai"]["model"], "Qwen/Qwen3.5-35B-A3B")
@@ -100,6 +102,12 @@ class ConfigAndUploadsTest(unittest.TestCase):
 
         self.assertTrue(config["web_search"]["enabled"])
         self.assertEqual(config["web_search"]["mcp_url"], "https://search.example/mcp")
+
+    def test_server_settings_resolve_from_config_and_env(self):
+        config = normalize_config({"server": {"host": "0.0.0.0", "port": 8010}})
+        self.assertEqual(resolve_server_settings(config), ("0.0.0.0", 8010))
+        with mock.patch.dict(os.environ, {"COURSE_AGENT_HOST": "127.0.0.1", "COURSE_AGENT_PORT": "8020"}):
+            self.assertEqual(resolve_server_settings(config), ("127.0.0.1", 8020))
 
     def test_config_status_reports_health_without_leaking_secrets(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -134,6 +142,9 @@ class ConfigAndUploadsTest(unittest.TestCase):
 
         encoded = str(status)
         self.assertEqual(status["overall"], "ok")
+        self.assertFalse(status["setup_required"])
+        self.assertIn("setup_steps", status)
+        self.assertIn("degradation_notices", status)
         self.assertIn("data_dir", status)
         self.assertNotIn("secret-token", encoded)
         self.assertNotIn("mineru-secret", encoded)
@@ -152,6 +163,10 @@ class ConfigAndUploadsTest(unittest.TestCase):
 
         by_key = {item["key"]: item for item in status["capabilities"]}
         self.assertEqual(status["overall"], "warning")
+        self.assertTrue(status["setup_required"])
+        self.assertIn("设置资料根目录", [item["label"] for item in status["setup_steps"]])
+        self.assertIn("大模型未启用", [item["label"] for item in status["degradation_notices"]])
+        self.assertIn("联网搜索未启用", [item["label"] for item in status["degradation_notices"]])
         self.assertEqual(by_key["material_root"]["status"], "warning")
         self.assertIn("root_folder", by_key["material_root"]["missing"])
         self.assertEqual(by_key["ai"]["status"], "warning")

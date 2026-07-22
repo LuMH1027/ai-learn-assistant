@@ -30,5 +30,6 @@ echo Building Vue frontend...
 call npm run build --prefix frontend
 if errorlevel 1 exit /b 1
 
-echo Starting Local Course Agent at http://127.0.0.1:8000
+echo Starting Local Course Agent...
+echo Host/port come from data/config.json server.host/server.port, or COURSE_AGENT_HOST/COURSE_AGENT_PORT overrides.
 .venv\Scripts\python.exe run.py

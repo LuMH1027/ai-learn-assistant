@@ -20,7 +20,7 @@
 - 本地证据不足或问题具有时效性时，可按需调用 Web Search MCP，并显示可点击网页来源。
 - 对话从请求接收、课程检索、联网到模型生成全程流式反馈，模型文本按 token 增量显示。
 - 支持课程资料上传和聊天临时附件。
-- 可选接入 OpenAI-compatible 模型与 MinerU；未配置时使用本地轻量能力。
+- 可选接入 OpenAI-compatible 模型、embedding、rerank、Web Search MCP 与 MinerU；未配置时会在配置健康区显示降级提示，并使用本地轻量能力。
 
 ## 环境要求
 
@@ -77,6 +77,19 @@ chmod +x start.sh
 
 ```text
 http://127.0.0.1:8000
+```
+
+监听地址可在 `data/config.json` 的 `server.host` / `server.port` 中配置，也可用环境变量临时覆盖：
+
+```bash
+COURSE_AGENT_PORT=8010 ./start.sh
+```
+
+Windows：
+
+```bat
+set COURSE_AGENT_PORT=8010
+start.bat
 ```
 
 如果绕过脚本直接执行 Python 但尚未构建前端，服务会提示先运行启动脚本。
@@ -143,7 +156,7 @@ StudyMaterials/
    └─ limit.pdf
 ```
 
-支持 `.pdf`、`.txt`、`.md`、`.markdown`、`.docx`、`.png`、`.jpg`、`.jpeg`、`.webp`、`.gif` 和 `.bmp`。Markdown 会在预览区渲染标题、列表、表格、引用和代码块；DOCX 当前仅识别文件，建议转换为 PDF 后入库。
+支持 `.pdf`、`.txt`、`.md`、`.markdown`、`.docx`、`.png`、`.jpg`、`.jpeg`、`.webp`、`.gif` 和 `.bmp`。PDF、图片、文本和 Markdown 会在右侧预览区打开；Markdown 会渲染标题、列表、表格、引用和代码块。DOCX 支持基础文本抽取用于入库，复杂版式、批注、页眉页脚、扫描件和图片文字仍建议转换为 PDF，或配合 MinerU 等更高质量解析工具。
 
 ## 配置
 
@@ -162,6 +175,7 @@ copy data\config.example.json data\config.json
 主要字段：
 
 - `root_folder`：课程资料根目录。
+- `server.host/server.port`：本地服务监听地址；默认 `127.0.0.1:8000`，也可用 `COURSE_AGENT_HOST` / `COURSE_AGENT_PORT` 临时覆盖。
 - `ai.base_url/api_key/model`：OpenAI-compatible 模型配置；默认使用 SiliconFlow `Qwen/Qwen3.5-35B-A3B`，`api_key` 可写 `$SILICONFLOW_API_KEY`。
 - `ai.embedding_model/embedding_dimensions`：可选的 OpenAI-compatible embedding 配置；留空时使用本地确定性 embedding fallback。
 - `ai.embedding_base_url/embedding_api_key`：可选的 embedding 专用 endpoint 和 key；默认接 SiliconFlow `Qwen/Qwen3-VL-Embedding-8B`，key 留空时读取 `SILICONFLOW_API_KEY`。
@@ -174,6 +188,10 @@ copy data\config.example.json data\config.json
 
 ```json
 {
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
   "root_folder": "D:/StudyMaterials",
   "ai": {
     "provider": "openai_compatible",
@@ -222,6 +240,8 @@ copy data\config.example.json data\config.json
 
 课程摘要使用已入库的代表性课程片段构造专用 Prompt，再调用 `ai` 中配置的 OpenAI-compatible 模型生成分层 Markdown 摘要。摘要要求只基于课程片段输出，并保留来源引用；如果未配置模型或模型调用失败，系统会自动使用本地抽取式摘要兜底。
 
+首次启动时，侧栏底部的“配置健康”会显示启动清单：设置资料根目录、构建课程知识库、可选配置大模型和真实 embedding。AI、真实 embedding、rerank、Web Search MCP 或 MinerU 未配置时，系统会明确显示对应降级提示。
+
 不要提交真实 `data/config.json`。`.gitignore` 只允许提交 `data/config.example.json`。
 
 ## 使用流程
@@ -249,7 +269,7 @@ data/
    └─ <course_id>.vector.json
 ```
 
-生成的摘要与练习题保存在对应课程的 `AI生成/` 文件夹。
+生成的摘要与练习题保存在对应课程的 `AI生成/` 文件夹。该目录中的文件可在文件树中预览，但构建知识库时会被排除，避免模型生成内容再次成为后续回答的课程证据。
 
 检索索引会记录 schema/tokenizer 版本、章节标题、资料类型和来源路径，并在同目录保存持久向量索引；回答接口会返回检索 trace，便于核对命中片段、匹配词、分数和证据充分性。检索实现见 [`docs/rag-retrieval-strategy.md`](docs/rag-retrieval-strategy.md)，向量检索见 [`docs/vector-retrieval.md`](docs/vector-retrieval.md)，答案级评测见 [`docs/rag-eval.md`](docs/rag-eval.md)。
 

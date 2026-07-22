@@ -14,6 +14,10 @@ SILICONFLOW_API_KEY_ENV = "SILICONFLOW_API_KEY"
 
 
 DEFAULT_CONFIG = {
+    "server": {
+        "host": "127.0.0.1",
+        "port": 8000,
+    },
     "root_folder": "",
     "ai": {
         "provider": "openai_compatible",
@@ -59,11 +63,14 @@ DEFAULT_CONFIG = {
 
 def normalize_config(raw: Dict) -> Dict:
     config = {
+        "server": dict(DEFAULT_CONFIG["server"]),
         "root_folder": raw.get("root_folder", DEFAULT_CONFIG["root_folder"]),
         "ai": dict(DEFAULT_CONFIG["ai"]),
         "web_search": dict(DEFAULT_CONFIG["web_search"]),
         "mineru": dict(DEFAULT_CONFIG["mineru"]),
     }
+    if isinstance(raw.get("server"), dict):
+        config["server"].update(raw["server"])
     if isinstance(raw.get("ai"), dict):
         config["ai"].update(raw["ai"])
     if isinstance(raw.get("web_search"), dict):
@@ -97,3 +104,16 @@ def resolve_siliconflow_api_key(*values: object) -> str:
         if text:
             return text
     return os.getenv(SILICONFLOW_API_KEY_ENV, "").strip()
+
+
+def resolve_server_settings(config: Dict | None = None) -> tuple[str, int]:
+    server_config = normalize_config(config or {}).get("server", {})
+    host = os.getenv("COURSE_AGENT_HOST", str(server_config.get("host") or "127.0.0.1")).strip()
+    raw_port = os.getenv("COURSE_AGENT_PORT", str(server_config.get("port") or 8000)).strip()
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise ValueError(f"Invalid server port: {raw_port}") from exc
+    if not (1 <= port <= 65535):
+        raise ValueError(f"Invalid server port: {raw_port}")
+    return host or "127.0.0.1", port

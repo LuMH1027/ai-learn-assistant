@@ -16,5 +16,6 @@ node -e "const [a,b]=process.versions.node.split('.').map(Number);if(!((a===20&&
 echo "Building Vue frontend..."
 npm run build --prefix frontend
 
-echo "Starting Local Course Agent at http://127.0.0.1:8000"
+echo "Starting Local Course Agent..."
+echo "Host/port come from data/config.json server.host/server.port, or COURSE_AGENT_HOST/COURSE_AGENT_PORT overrides."
 exec .venv/bin/python run.py

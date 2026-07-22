@@ -1,4 +1,8 @@
 {
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
   "root_folder": "D:/StudyMaterials",
   "ai": {
     "provider": "openai_compatible",

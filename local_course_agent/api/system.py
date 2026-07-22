@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from local_course_agent.api.context import is_safe_material_root
 from local_course_agent.api.course import ApiError
-from local_course_agent.config import write_config
+from local_course_agent.config import resolve_server_settings, write_config
 from local_course_agent.llm.config import create_llm_client
 from local_course_agent.ops.config_status import build_config_status
 from local_course_agent.web_search import create_web_search_client
@@ -17,7 +17,13 @@ def build_public_config_payload(config: Mapping[str, Any]) -> dict:
     ai_client = create_llm_client(config.get("ai", {}))
     mineru_config = config.get("mineru", {})
     web_client = create_web_search_client(config.get("web_search", {}))
+    host, port = resolve_server_settings(dict(config or {}))
     return {
+        "server": {
+            "host": host,
+            "port": port,
+            "url": f"http://{host}:{port}",
+        },
         "root_folder": config.get("root_folder", ""),
         "ai_provider": config.get("ai", {}).get("provider", "openai_compatible"),
         "ai_configured": ai_client.enabled(),
