@@ -1,6 +1,6 @@
 # RAG 评测集与回归报告
 
-本评测框架用于本地验证课程 RAG 检索质量，不接入服务端接口，也不改变线上问答链路。它直接读取 `data/indexes/<course_id>.json`，对一组样例问题执行检索问答，并统计引用命中率和检索质量分布。
+本评测框架用于本地验证课程 RAG 检索与最终回答质量，不接入服务端接口，也不改变线上问答链路。它直接读取 `data/indexes/<course_id>.json`，对一组样例问题执行检索问答，并统计引用命中率、检索质量、答案关键术语覆盖、禁用词命中和引用支撑情况。
 
 ## 用例格式
 
@@ -29,6 +29,10 @@
 - `expected_files`：期望出现在引用中的资料文件名，支持写完整路径或 basename。
 - `min_quality`：最低检索质量，取值为 `none`、`partial`、`sufficient`，默认 `partial`。
 - `tags`：可选标签，用于后续按知识点或资料类型分组。
+- `expected_terms`：可选，最终回答必须覆盖的关键术语。
+- `min_answer_term_rate`：可选，`expected_terms` 的最低覆盖率。
+- `forbidden_terms`：可选，最终回答中不应出现的术语，用于捕捉明显幻觉或越界概念。
+- `max_unsupported_claims`：可选，允许的未被引用支撑断言数量。设置为 `0` 时会要求答案中的断言都能被引用片段支撑。
 
 ## 运行方式
 
@@ -61,6 +65,10 @@ python3 scripts/rag_eval.py --cases path/to/rag-cases.json --format json --outpu
 - `first_citation_hit_rate`：第一条引用就是期望文件的比例。
 - `sufficient_rate`：检索质量达到 `sufficient` 的比例。
 - `average_top_score`：第一条引用的平均检索分数。
+- `average_answer_term_rate`：答案关键术语平均覆盖率。
+- `answer_term_pass_rate`：满足答案术语覆盖要求的用例比例。
+- `citation_support_pass_rate`：满足 `max_unsupported_claims` 的用例比例。
+- `forbidden_term_pass_rate`：没有命中禁用词的用例比例。
 - `quality_counts`：`none`、`partial`、`sufficient` 分布。
 
-每条用例会列出返回文件、缺失的期望文件、检索质量和 top score。第一阶段只评测“是否检索到正确证据”，暂不评价 LLM 生成文本质量。
+每条用例会列出返回文件、缺失的期望文件、检索质量、top score、缺失答案术语、禁用词命中和未支撑断言数量。未设置答案级约束的旧用例仍按原有检索指标通过；新增字段后会进入最终答案质量判断。

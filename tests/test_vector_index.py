@@ -2,13 +2,16 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from local_course_agent.retrieval.vector_index import (
     FakeEmbeddingModel,
+    OpenAICompatibleEmbeddingModel,
     VectorIndex,
     VectorSearchResult,
     build_vector_index_from_chunks,
     cosine_similarity,
+    create_embedding_model,
     hybrid_merge_lexical_vector,
 )
 
@@ -126,6 +129,33 @@ class VectorIndexTest(unittest.TestCase):
         self.assertEqual(index.documents[0].id, "file-a-2-4")
         self.assertEqual(index.documents[0].metadata["id"], "file-a-2-4")
 
+    def test_build_vector_index_from_chunks_batches_embedding_calls(self):
+        class BatchModel:
+            model_id = "batch"
+            dimensions = 2
+
+            def __init__(self):
+                self.calls = []
+
+            def embed(self, text):
+                raise AssertionError("build should use embed_many")
+
+            def embed_many(self, texts):
+                items = list(texts)
+                self.calls.append(items)
+                return [[1.0, 0.0] for _ in items]
+
+        model = BatchModel()
+        chunks = [
+            {"id": "a", "text": "alpha"},
+            {"id": "b", "text": "beta"},
+        ]
+
+        index = build_vector_index_from_chunks(chunks, model)
+
+        self.assertEqual(model.calls, [["alpha", "beta"]])
+        self.assertEqual([document.id for document in index.documents], ["a", "b"])
+
     def test_hybrid_merge_keeps_vector_only_and_lexical_only_hits(self):
         lexical_hits = [
             {"id": "lex", "file_id": "f1", "chunk_index": 1, "text": "BM25 命中", "score": 51.0},
@@ -204,6 +234,56 @@ class VectorIndexTest(unittest.TestCase):
 
     def test_hybrid_merge_returns_empty_for_non_positive_limit(self):
         self.assertEqual(hybrid_merge_lexical_vector([{"id": "a"}], [{"id": "b"}], limit=0), [])
+
+    def test_create_embedding_model_uses_openai_compatible_when_configured(self):
+        model = create_embedding_model(
+            {
+                "base_url": "https://llm.example/v1",
+                "api_key": "secret",
+                "embedding_model": "text-embedding-demo",
+                "embedding_dimensions": 3,
+            }
+        )
+
+        self.assertIsInstance(model, OpenAICompatibleEmbeddingModel)
+        self.assertEqual(model.model_id, "openai-compatible:text-embedding-demo")
+        self.assertEqual(model.dimensions, 3)
+
+    def test_openai_compatible_embedding_model_calls_embeddings_endpoint(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self):
+                return json.dumps(
+                    {
+                        "data": [
+                            {"index": 0, "embedding": [3, 0, 0]},
+                            {"index": 1, "embedding": [0, 4, 0]},
+                        ]
+                    }
+                ).encode("utf-8")
+
+        model = OpenAICompatibleEmbeddingModel(
+            base_url="https://llm.example/v1",
+            api_key="secret",
+            model="embedding-model",
+            dimensions=3,
+        )
+
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()) as urlopen:
+            vectors = model.embed_many(["alpha", "beta"])
+
+        request = urlopen.call_args.args[0]
+        body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(request.full_url, "https://llm.example/v1/embeddings")
+        self.assertEqual(request.headers["Authorization"], "Bearer secret")
+        self.assertEqual(body["model"], "embedding-model")
+        self.assertEqual(body["input"], ["alpha", "beta"])
+        self.assertEqual(vectors, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
 
 
 if __name__ == "__main__":

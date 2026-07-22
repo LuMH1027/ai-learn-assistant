@@ -7,7 +7,7 @@ from typing import Dict, Iterable, List, Mapping, Optional
 from local_course_agent.config import normalize_config
 from local_course_agent.llm import create_llm_client
 from local_course_agent.ops.backup import collect_backup_entries
-from local_course_agent.retrieval.vector_index import FakeEmbeddingModel
+from local_course_agent.retrieval.vector_index import create_embedding_model
 from local_course_agent.web_search import create_web_search_client
 
 
@@ -29,7 +29,7 @@ def build_config_status(
         _web_search_status(normalized.get("web_search", {})),
         _mineru_status(normalized.get("mineru", {})),
         _rag_index_status(index_dir, courses),
-        _vector_status(index_dir),
+        _vector_status(index_dir, normalized.get("ai", {})),
         _telemetry_status(),
         _backup_status(data_path),
     ]
@@ -164,12 +164,17 @@ def _rag_index_status(index_dir: Path, courses: Optional[Iterable[Mapping]]) -> 
     )
 
 
-def _vector_status(index_dir: Path) -> Dict:
-    model = FakeEmbeddingModel()
+def _vector_status(index_dir: Path, ai_config: Mapping) -> Dict:
+    model = create_embedding_model(ai_config)
     vector_files = sorted(index_dir.glob("*.vector.json")) if index_dir.exists() else []
-    detail = "本地向量能力可用，可用于混合检索；当前未检测到持久化向量索引。"
+    real_provider = str(model.model_id).startswith("openai-compatible:")
+    detail = (
+        "已配置真实 embedding provider，可用于持久向量索引和混合检索。"
+        if real_provider
+        else "使用本地确定性 embedding，可离线运行；配置 ai.embedding_model 后可切换真实 embedding。"
+    )
     if vector_files:
-        detail = f"检测到 {len(vector_files)} 个持久化向量索引。"
+        detail = f"{detail} 检测到 {len(vector_files)} 个持久化向量索引。"
     return _capability(
         "vector",
         "向量检索",

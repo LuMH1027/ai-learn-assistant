@@ -5,13 +5,26 @@ import json
 import math
 import os
 import re
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence
 
 
 SCHEMA_VERSION = 1
 DEFAULT_DIMENSIONS = 64
+
+
+class EmbeddingModel(Protocol):
+    model_id: str
+    dimensions: int
+
+    def embed(self, text: str) -> List[float]:
+        ...
+
+    def embed_many(self, texts: Iterable[str]) -> List[List[float]]:
+        ...
 
 
 @dataclass
@@ -53,8 +66,81 @@ class FakeEmbeddingModel:
         return [self.embed(text) for text in texts]
 
 
+class OpenAICompatibleEmbeddingModel:
+    """OpenAI-compatible `/embeddings` client for production vector retrieval."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model: str,
+        dimensions: int | None = None,
+        timeout: float = 30.0,
+    ):
+        if not base_url or not api_key or not model:
+            raise ValueError("base_url, api_key, and model are required")
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.model = model
+        self.model_id = f"openai-compatible:{model}"
+        self.dimensions = int(dimensions or 0)
+        self.timeout = float(timeout)
+
+    def embed(self, text: str) -> List[float]:
+        return self.embed_many([text])[0]
+
+    def embed_many(self, texts: Iterable[str]) -> List[List[float]]:
+        items = [str(text) for text in texts]
+        if not items:
+            return []
+        payload = json.dumps({"model": self.model, "input": items}).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.base_url}/embeddings",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"embedding request failed: {exc}") from exc
+        parsed = json.loads(raw)
+        data = sorted(parsed.get("data", []), key=lambda item: int(item.get("index", 0)))
+        vectors = [[float(value) for value in item.get("embedding", [])] for item in data]
+        if len(vectors) != len(items):
+            raise RuntimeError("embedding response count mismatch")
+        if not vectors or not vectors[0]:
+            raise RuntimeError("embedding response is empty")
+        dimensions = len(vectors[0])
+        if self.dimensions and dimensions != self.dimensions:
+            raise RuntimeError(f"embedding dimension mismatch: expected {self.dimensions}, got {dimensions}")
+        self.dimensions = dimensions
+        return [_unit_vector(vector) for vector in vectors]
+
+
+def create_embedding_model(config: Mapping[str, Any] | None = None) -> EmbeddingModel:
+    config = dict(config or {})
+    embedding_model = str(config.get("embedding_model") or "").strip()
+    api_key = str(config.get("embedding_api_key") or config.get("api_key") or "").strip()
+    base_url = str(config.get("embedding_base_url") or config.get("base_url") or "").strip()
+    if embedding_model and api_key and base_url:
+        return OpenAICompatibleEmbeddingModel(
+            base_url=base_url,
+            api_key=api_key,
+            model=embedding_model,
+            dimensions=_optional_int(config.get("embedding_dimensions")),
+            timeout=float(config.get("embedding_timeout") or config.get("timeout") or 30),
+        )
+    return FakeEmbeddingModel(dimensions=int(config.get("fake_embedding_dimensions") or DEFAULT_DIMENSIONS))
+
+
 class VectorIndex:
-    def __init__(self, embedding_model: Optional[FakeEmbeddingModel] = None):
+    def __init__(self, embedding_model: Optional[EmbeddingModel] = None):
         self.embedding_model = embedding_model or FakeEmbeddingModel()
         self.documents: List[VectorDocument] = []
 
@@ -115,12 +201,14 @@ class VectorIndex:
         _atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
 
     @classmethod
-    def load(cls, path: Path, embedding_model: Optional[FakeEmbeddingModel] = None) -> "VectorIndex":
+    def load(cls, path: Path, embedding_model: Optional[EmbeddingModel] = None) -> "VectorIndex":
         path = Path(path)
         payload = json.loads(path.read_text(encoding="utf-8"))
         model_info = payload.get("embedding_model") or {}
         dimensions = int(model_info.get("dimensions") or DEFAULT_DIMENSIONS)
         model = embedding_model or FakeEmbeddingModel(dimensions=dimensions)
+        if getattr(model, "dimensions", 0) == 0:
+            model.dimensions = dimensions
         index = cls(model)
 
         for raw in payload.get("documents", []):
@@ -139,8 +227,9 @@ class VectorIndex:
             )
 
 
-def build_vector_index_from_chunks(chunks: Sequence[Mapping[str, Any]], embedding_model: Optional[FakeEmbeddingModel] = None) -> VectorIndex:
+def build_vector_index_from_chunks(chunks: Sequence[Mapping[str, Any]], embedding_model: Optional[EmbeddingModel] = None) -> VectorIndex:
     index = VectorIndex(embedding_model)
+    prepared = []
     for position, chunk in enumerate(chunks):
         text = _chunk_text(chunk)
         if not text.strip():
@@ -152,7 +241,12 @@ def build_vector_index_from_chunks(chunks: Sequence[Mapping[str, Any]], embeddin
             if key not in {"tokens", "context_text"}
         }
         metadata["id"] = document_id
-        index.add(document_id, text, metadata)
+        prepared.append((document_id, text, metadata))
+    vectors = index.embedding_model.embed_many(text for _, text, _ in prepared)
+    if len(vectors) != len(prepared):
+        raise RuntimeError("embedding vector count mismatch")
+    for (document_id, text, metadata), vector in zip(prepared, vectors):
+        index.add(document_id, text, metadata, vector=vector)
     return index
 
 
@@ -311,6 +405,12 @@ def _unit_vector(vector: Sequence[float]) -> List[float]:
     if norm == 0.0:
         return [0.0 for _ in vector]
     return [value / norm for value in vector]
+
+
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    return int(value)
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

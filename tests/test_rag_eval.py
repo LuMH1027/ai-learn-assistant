@@ -83,6 +83,63 @@ class RagEvalTest(unittest.TestCase):
             self.assertEqual(result["missing_expected_files"], ["不存在.md"])
             self.assertEqual(report["summary"]["pass_rate"], 0.0)
 
+    def test_eval_can_require_final_answer_terms_and_forbid_hallucinated_terms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "book", "教材.md", "页表保存虚拟页到物理页框的映射，用于地址转换。")
+            cases = load_eval_cases(
+                _write_cases(
+                    tmp,
+                    [
+                        {
+                            "id": "answer-quality",
+                            "course_id": "os",
+                            "question": "页表如何完成地址转换？",
+                            "expected_files": ["教材.md"],
+                            "expected_terms": ["虚拟页", "物理页框", "地址转换"],
+                            "min_answer_term_rate": 0.67,
+                            "forbidden_terms": ["量子纠缠"],
+                        }
+                    ],
+                )
+            )
+
+            report = run_rag_eval(kb, cases)
+            result = report["cases"][0]
+
+            self.assertTrue(result["passed"])
+            self.assertGreaterEqual(result["answer_term_rate"], 0.67)
+            self.assertEqual(result["forbidden_term_hits"], [])
+            self.assertEqual(report["summary"]["answer_term_pass_rate"], 1.0)
+            self.assertEqual(report["summary"]["forbidden_term_pass_rate"], 1.0)
+
+    def test_eval_can_fail_when_final_answer_has_unsupported_claims(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "book", "教材.md", "页表保存虚拟页到物理页框的映射，用于地址转换。")
+            cases = load_eval_cases(
+                _write_cases(
+                    tmp,
+                    [
+                        {
+                            "id": "strict-citation-support",
+                            "course_id": "os",
+                            "question": "页表如何完成地址转换？",
+                            "expected_files": ["教材.md"],
+                            "max_unsupported_claims": 0,
+                        }
+                    ],
+                )
+            )
+
+            report = run_rag_eval(kb, cases)
+            result = report["cases"][0]
+
+            self.assertFalse(result["passed"])
+            self.assertFalse(result["citation_support_ok"])
+            self.assertGreater(result["unsupported_claim_count"], 0)
+            self.assertEqual(report["summary"]["citation_support_pass_rate"], 0.0)
+
     def test_markdown_report_contains_case_details(self):
         report = {
             "summary": {
@@ -93,6 +150,10 @@ class RagEvalTest(unittest.TestCase):
                 "first_citation_hit_rate": 1.0,
                 "sufficient_rate": 1.0,
                 "average_top_score": 42,
+                "average_answer_term_rate": 1.0,
+                "answer_term_pass_rate": 1.0,
+                "citation_support_pass_rate": 1.0,
+                "forbidden_term_pass_rate": 1.0,
                 "quality_counts": {"none": 0, "partial": 0, "sufficient": 1},
                 "quality_distribution": {"none": 0.0, "partial": 0.0, "sufficient": 1.0},
             },

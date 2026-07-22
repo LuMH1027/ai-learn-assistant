@@ -261,7 +261,7 @@ class ServerLlmRoutingTest(unittest.TestCase):
         handler = Handler.__new__(Handler)
         deltas = []
 
-        with mock.patch("local_course_agent.server.create_llm_client", return_value=client):
+        with mock.patch("local_course_agent.api.chat.create_llm_client", return_value=client):
             answer, status = handler.synthesize_answer_stream(
                 "解释页表",
                 {"answer": "本地回退", "citations": []},
@@ -276,7 +276,7 @@ class ServerLlmRoutingTest(unittest.TestCase):
     def test_web_search_is_skipped_when_local_evidence_is_sufficient(self):
         handler = Handler.__new__(Handler)
 
-        with mock.patch("local_course_agent.server.create_web_search_client") as factory:
+        with mock.patch("local_course_agent.api.chat.create_web_search_client") as factory:
             sources, status = handler.retrieve_web_sources(
                 "解释页表",
                 {"retrieval_quality": "sufficient", "citations": [{}]},
@@ -291,7 +291,7 @@ class ServerLlmRoutingTest(unittest.TestCase):
         client = FakeWebClient([source])
         handler = Handler.__new__(Handler)
 
-        with mock.patch("local_course_agent.server.create_web_search_client", return_value=client):
+        with mock.patch("local_course_agent.api.chat.create_web_search_client", return_value=client):
             sources, status = handler.retrieve_web_sources(
                 "解释量子纠缠",
                 {"retrieval_quality": "none", "citations": []},
@@ -309,7 +309,7 @@ class ServerLlmRoutingTest(unittest.TestCase):
         client = FakeClient("我是课程学习助手。")
         handler = Handler.__new__(Handler)
 
-        with mock.patch("local_course_agent.server.create_llm_client", return_value=client):
+        with mock.patch("local_course_agent.api.chat.create_llm_client", return_value=client):
             answer, status = handler.synthesize_answer(
                 "你是谁",
                 {"answer": "本地回退", "citations": []},
@@ -325,7 +325,7 @@ class ServerLlmRoutingTest(unittest.TestCase):
         client = FakeClient(None)
         handler = Handler.__new__(Handler)
 
-        with mock.patch("local_course_agent.server.create_llm_client", return_value=client):
+        with mock.patch("local_course_agent.api.chat.create_llm_client", return_value=client):
             answer, status = handler.synthesize_answer(
                 "解释页表",
                 {"answer": "本地回退", "citations": []},
@@ -339,7 +339,7 @@ class ServerLlmRoutingTest(unittest.TestCase):
         client = FakeClient(None, enabled=False)
         handler = Handler.__new__(Handler)
 
-        with mock.patch("local_course_agent.server.create_llm_client", return_value=client):
+        with mock.patch("local_course_agent.api.chat.create_llm_client", return_value=client):
             answer, status = handler.synthesize_answer(
                 "解释页表",
                 {"answer": "本地回退", "citations": []},

@@ -4,7 +4,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from local_course_agent.server import save_study_artifact
+from local_course_agent.learning.service import save_study_artifact
 from local_course_agent.retrieval.rag import CourseKnowledgeBase
 from local_course_agent.store import AppStore, atomic_write_text
 

@@ -4,48 +4,52 @@ import json
 import mimetypes
 import cgi
 import re
-import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from local_course_agent.agent_strategy import build_agent_trace
+from local_course_agent.api.chat import (
+    CLARIFICATION_ANSWER,
+    ChatFlow,
+    ChatFlowError,
+    emit_stream_text,
+    index_chat_uploads as run_index_chat_uploads,
+    retrieve_web_sources as run_retrieve_web_sources,
+    synthesize_answer as run_synthesize_answer,
+    synthesize_answer_stream as run_synthesize_answer_stream,
+)
+from local_course_agent.api.course import (
+    ApiError,
+    add_study_plan_item as run_add_study_plan_item,
+    course_index_stats,
+    create_study_artifact as run_create_study_artifact,
+    get_course_dashboard as run_get_course_dashboard,
+    get_course_summary as run_get_course_summary,
+    get_study_plan as run_get_study_plan,
+    index_course as run_index_course,
+    start_index_job as run_start_index_job,
+    update_study_plan_item as run_update_study_plan_item,
+    upload_course_files as run_upload_course_files,
+)
 from local_course_agent.config import load_config, write_config
-from local_course_agent.learning.dashboard import build_course_dashboard
 from local_course_agent.learning.service import (
-    build_course_index,
     CourseIndexJobs,
-    create_study_artifact as create_study_artifact_payload,
-    generate_course_summary,
-    iter_files,
-    save_study_artifact,
     should_index_course_file,
-    study_plan_payload,
-    study_plan_stats,
 )
-from local_course_agent.llm import build_grounded_prompt, create_llm_client
+from local_course_agent.llm import create_llm_client
 from local_course_agent.ops.config_status import build_config_status
-from local_course_agent.parser import extract_text
-from local_course_agent.retrieval.citation_check import postprocess_answer_with_citation_check
-from local_course_agent.retrieval.conversation_context import build_contextual_retrieval_query
 from local_course_agent.retrieval.rag import CourseKnowledgeBase
-from local_course_agent.scanner import CourseCatalogCache, is_image_file, stable_id
+from local_course_agent.scanner import CourseCatalogCache
 from local_course_agent.store import AppStore
-from local_course_agent.uploads import MAX_TOTAL_UPLOAD_BYTES, save_chat_upload, save_course_upload
-from local_course_agent.web_search import (
-    WebSearchError,
-    create_web_search_client,
-    is_underspecified_query,
-    should_search_web,
-)
+from local_course_agent.uploads import MAX_TOTAL_UPLOAD_BYTES
+from local_course_agent.web_search import create_web_search_client
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 STATIC_DIR = PROJECT_ROOT / "web" / "dist"
 CONFIG_PATH = DATA_DIR / "config.json"
-CLARIFICATION_ANSWER = "你的问题信息不足，请补充完整题目、知识点名称，或说明输入的编号对应哪一道题。为避免误导，本次没有联网搜索，也没有调用模型猜测。"
 
 
 class ClientDisconnected(Exception):
@@ -106,14 +110,6 @@ def parse_course_route(request_path: str) -> tuple[str, str] | None:
     return course_id, action
 
 
-def emit_stream_text(text: str, emit, paced=False, delay=0.016) -> None:
-    units = re.findall(r"[\u3400-\u9fff]|[A-Za-z0-9_]+|\s+|[^\s]", text) if paced else [text]
-    for unit in units:
-        emit({"type": "delta", "delta": unit})
-        if paced and delay:
-            time.sleep(delay)
-
-
 def read_json(path: Path, default):
     if not path.exists():
         return default
@@ -135,7 +131,11 @@ class AppContext:
 
     @property
     def config(self):
-        return load_config(CONFIG_PATH)
+        config = load_config(CONFIG_PATH)
+        configure = getattr(self.kb, "configure_embeddings", None)
+        if callable(configure):
+            configure(config.get("ai", {}))
+        return config
 
     def root(self) -> Path | None:
         root = self.config.get("root_folder", "")
@@ -316,27 +316,17 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_error_json("未知接口", HTTPStatus.NOT_FOUND)
 
     def index_course(self, course_id: str):
-        course = CTX.find_course(course_id)
-        if not course:
-            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        payload = build_course_index(CTX.kb, course, course_id, mineru_config=CTX.config.get("mineru", {}))
-        return self.send_json(payload)
+        return self.send_service_json(lambda: run_index_course(CTX, course_id))
 
     def start_index_job(self, course_id: str):
-        course = CTX.find_course(course_id)
-        if not course:
-            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        job = CTX.index_jobs.start(course_id, course, mineru_config=CTX.config.get("mineru", {}))
-        return self.send_json(job, HTTPStatus.ACCEPTED)
+        return self.send_service_json(lambda: run_start_index_job(CTX, course_id), HTTPStatus.ACCEPTED)
 
     def chat(self, course_id: str, stream=False):
         try:
             body, uploads = self.read_maybe_multipart()
         except ValueError as exc:
             return self.send_error_json(str(exc), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
-        question = body.get("question", "").strip()
-        mode = body.get("mode", "answer")
-        if not question and not uploads:
+        if not str(body.get("question", "")).strip() and not uploads:
             return self.send_error_json("问题不能为空")
         if stream:
             emit = lambda event: self.send_stream_event(event, stream)
@@ -351,147 +341,23 @@ class Handler(SimpleHTTPRequestHandler):
                     "detail": "已收到问题，正在准备…",
                 }
             )
-        course = CTX.find_course(course_id) or {"name": ""}
-        if uploads:
-            emit({"type": "status", "stage": "attachments", "detail": "正在读取附件…"})
         try:
-            attachment_text, image_paths = self.index_chat_uploads(course_id, uploads)
-        except ValueError as exc:
+            payload = ChatFlow(
+                context=CTX,
+                data_dir=DATA_DIR,
+                emit=emit,
+                stream_format=stream,
+                index_uploads=self.index_chat_uploads,
+                retrieve_web=self.retrieve_web_sources,
+                synthesize=self.synthesize_answer,
+                synthesize_stream=self.synthesize_answer_stream,
+            ).run(course_id, body, uploads)
+        except ChatFlowError as exc:
             if stream:
                 emit({"type": "error", "error": str(exc)})
                 self.end_stream()
                 return None
             return self.send_error_json(str(exc))
-        if (attachment_text or image_paths) and not question:
-            question = "请阅读并总结我拖入的文件。"
-        previous_messages = CTX.store.list_messages(course_id)
-        contextual_query = build_contextual_retrieval_query(question, previous_messages)
-        contextual_query_trace = {
-            "used": contextual_query.is_follow_up,
-            "original_query": contextual_query.original_query,
-            "retrieval_query": contextual_query.retrieval_query,
-            "signals": list(contextual_query.signals),
-            "context_turns_used": contextual_query.context_turns_used,
-            "referenced_text": contextual_query.referenced_text,
-        }
-        search_question = contextual_query.retrieval_query
-        if attachment_text:
-            search_question = f"{search_question}\n\n拖入聊天框的文件内容：\n{attachment_text[:4000]}"
-        if image_paths:
-            image_names = "、".join(path.name for path in image_paths)
-            search_question = f"{search_question}\n\n拖入聊天框的截图：{image_names}"
-        CTX.store.add_message(course_id, "user", question)
-        emit({"type": "status", "stage": "retrieval", "detail": "正在检索课程资料…"})
-        result = CTX.kb.answer(course_id, search_question)
-        config = CTX.config
-        needs_clarification = not uploads and is_underspecified_query(question)
-        if needs_clarification:
-            emit({"type": "status", "stage": "clarification", "detail": "问题信息不足，正在请求补充…"})
-            web_sources, web_status = [], "clarification"
-        else:
-            emit({"type": "status", "stage": "web", "detail": "正在判断是否需要联网…"})
-            web_sources, web_status = self.retrieve_web_sources(
-                question,
-                result,
-                config.get("web_search", {}),
-                allow_web=not uploads,
-            )
-        local_sources = [
-            {**source, "source_type": "local", "reference_label": f"L{index}"}
-            for index, source in enumerate(
-                [] if needs_clarification else result["citations"],
-                start=1,
-            )
-        ]
-        labeled_web_sources = [
-            {**source, "reference_label": f"W{index}"}
-            for index, source in enumerate(web_sources, start=1)
-        ]
-        combined_result = dict(result)
-        combined_result["citations"] = [*local_sources, *labeled_web_sources]
-        if web_sources:
-            combined_result["answer"] = append_web_fallback(result["answer"], labeled_web_sources)
-        emit({"type": "status", "stage": "generation", "detail": "正在生成回答…"})
-        if stream:
-            emit_delta = lambda delta: emit_stream_text(
-                delta,
-                emit,
-                paced=stream == "ndjson",
-            )
-            if needs_clarification:
-                answer = adapt_answer_by_mode(mode, CLARIFICATION_ANSWER)
-                emit_delta(answer)
-                llm_status = "skipped"
-            else:
-                prefix = answer_mode_prefix(mode)
-                if prefix:
-                    emit_delta(prefix)
-                generated_answer, llm_status = self.synthesize_answer_stream(
-                    search_question,
-                    combined_result,
-                    emit_delta=emit_delta,
-                    image_paths=image_paths,
-                    ai_config=config.get("ai", {}),
-                )
-                answer = prefix + generated_answer
-        else:
-            if needs_clarification:
-                answer = adapt_answer_by_mode(mode, CLARIFICATION_ANSWER)
-                llm_status = "skipped"
-            else:
-                answer, llm_status = self.synthesize_answer(
-                    search_question,
-                    combined_result,
-                    image_paths=image_paths,
-                    ai_config=config.get("ai", {}),
-                )
-                answer = adapt_answer_by_mode(mode, answer)
-        memory = (
-            CTX.store.get_memory(course_id)
-            if needs_clarification
-            else CTX.store.update_memory_from_question(course_id, question)
-        )
-        citation_postprocess = postprocess_answer_with_citation_check(answer, combined_result["citations"])
-        answer = citation_postprocess["answer"]
-        trace = build_agent_trace(
-            course_name=course.get("name", ""),
-            question=question,
-            has_attachments=bool(uploads),
-            citation_count=len(local_sources),
-            memory_updated=not needs_clarification,
-            llm_status=llm_status,
-            web_status=web_status,
-            web_source_count=len(web_sources),
-        )
-        trace.insert(
-            2,
-            {
-                "label": "上下文",
-                "status": "ok" if contextual_query.is_follow_up else "skip",
-                "detail": (
-                    "检测到追问信号 "
-                    f"{'、'.join(contextual_query.signals)}，已使用最近 "
-                    f"{contextual_query.context_turns_used} 轮对话改写检索问题"
-                    if contextual_query.is_follow_up
-                    else "当前问题可独立检索，未改写检索问题"
-                ),
-            },
-        )
-        CTX.store.add_message(course_id, "assistant", answer, combined_result["citations"], trace=trace)
-        retrieval_trace = dict(result.get("retrieval_trace", {}) or {})
-        retrieval_trace["contextual_query"] = contextual_query_trace
-        payload = {
-            "answer": answer,
-            "citations": combined_result["citations"],
-            "memory": memory,
-            "mode": mode,
-            "trace": trace,
-            "retrieval_trace": retrieval_trace,
-            "citation_check": citation_postprocess["citation_check"],
-            "unsupported_claims": citation_postprocess["unsupported_claims"],
-            "llm_status": llm_status,
-            "web_search_status": web_status,
-        }
         if stream:
             emit({"type": "done", "result": payload})
             self.end_stream()
@@ -499,171 +365,45 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json(payload)
 
     def retrieve_web_sources(self, question: str, result: dict, web_config=None, allow_web=True):
-        if not allow_web or not should_search_web(question, result):
-            return [], "skipped"
-        client = create_web_search_client(web_config or {})
-        if not client.enabled():
-            return [], "disabled"
-        try:
-            sources = client.search(question)
-        except WebSearchError:
-            return [], "failed"
-        return sources, "used" if sources else "empty"
+        return run_retrieve_web_sources(question, result, web_config, allow_web)
 
     def create_study_artifact(self, course_id: str, artifact_type: str):
-        course = CTX.find_course(course_id)
-        if not course:
-            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        payload = create_study_artifact_payload(
-            CTX.kb,
-            CTX.store,
-            CTX.courses,
-            course,
-            course_id,
-            artifact_type,
-            invalidate=CTX.invalidate_courses,
-            ai_config=CTX.config.get("ai", {}),
-        )
-        return self.send_json(payload)
+        return self.send_service_json(lambda: run_create_study_artifact(CTX, course_id, artifact_type))
 
     def get_course_summary(self, course_id: str):
-        course = CTX.find_course(course_id) or {"name": ""}
-        return self.send_json(
-            generate_course_summary(
-                CTX.kb,
-                course_id,
-                course.get("name", ""),
-                ai_config=CTX.config.get("ai", {}),
-            )
-        )
+        return self.send_service_json(lambda: run_get_course_summary(CTX, course_id))
 
     def upload_course_files(self, course_id: str):
-        course = CTX.find_course(course_id)
-        if not course:
-            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
         try:
             _, uploads = self.read_maybe_multipart()
         except ValueError as exc:
             return self.send_error_json(str(exc), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
-        if not uploads:
-            return self.send_error_json("没有收到文件")
-        saved = []
-        for upload in uploads:
-            try:
-                path = save_course_upload(Path(course["path"]), upload["filename"], upload["content"])
-            except ValueError as exc:
-                return self.send_error_json(str(exc))
-            saved.append({"name": path.name, "path": str(path)})
-        CTX.invalidate_courses()
-        return self.send_json({"ok": True, "saved": saved, "courses": CTX.courses()})
+        return self.send_service_json(lambda: run_upload_course_files(CTX, course_id, uploads))
 
     def get_study_plan(self, course_id: str):
-        course = CTX.find_course(course_id)
-        if not course:
-            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        return self.send_json({"plan": study_plan_payload(CTX.store, course_id, course)})
+        return self.send_service_json(lambda: run_get_study_plan(CTX, course_id))
 
     def get_course_dashboard(self, course_id: str):
-        course = CTX.find_course(course_id)
-        if not course:
-            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        return self.send_json(
-            {
-                "dashboard": build_course_dashboard(
-                    course=course,
-                    messages=CTX.store.list_messages(course_id),
-                    notes=CTX.store.list_notes(course_id),
-                    study_plan=CTX.store.list_study_plan(course_id),
-                    index_stats=course_index_stats(CTX.kb, course_id),
-                )
-            }
-        )
+        return self.send_service_json(lambda: run_get_course_dashboard(CTX, course_id))
 
     def add_study_plan_item(self, course_id: str):
-        if not CTX.find_course(course_id):
-            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
         body = self.read_body()
-        items = CTX.store.add_study_plan_item(
-            course_id,
-            {
-                "title": body.get("title", "学习项"),
-                "kind": body.get("kind", "read"),
-                "status": body.get("status", "todo"),
-                "estimated_minutes": body.get("estimated_minutes", 25),
-            },
-        )
-        return self.send_json({"ok": True, "plan": {"items": items, "stats": study_plan_stats(items)}})
+        return self.send_service_json(lambda: run_add_study_plan_item(CTX, course_id, body))
 
     def update_study_plan_item(self, course_id: str, item_id: str):
-        if not CTX.find_course(course_id):
-            return self.send_error_json("课程不存在", HTTPStatus.NOT_FOUND)
-        try:
-            parsed_item_id = int(item_id)
-        except ValueError:
-            return self.send_error_json("学习项不存在", HTTPStatus.NOT_FOUND)
-        try:
-            items = CTX.store.update_study_plan_item(course_id, parsed_item_id, self.read_body())
-        except KeyError:
-            return self.send_error_json("学习项不存在", HTTPStatus.NOT_FOUND)
-        return self.send_json({"ok": True, "plan": {"items": items, "stats": study_plan_stats(items)}})
+        body = self.read_body()
+        return self.send_service_json(lambda: run_update_study_plan_item(CTX, course_id, item_id, body))
 
     def index_chat_uploads(self, course_id: str, uploads: list):
-        if not uploads:
-            return "", []
-        config = CTX.config
-        extracted_parts = []
-        image_paths = []
-        for upload in uploads:
-            try:
-                path = save_chat_upload(DATA_DIR, course_id, upload["filename"], upload["content"])
-            except ValueError as exc:
-                raise ValueError(str(exc)) from exc
-            if is_image_file(path):
-                image_paths.append(path)
-                extracted_parts.append(f"截图 {path.name} 已保存为聊天附件。")
-                continue
-            file_id = f"chat-{stable_id(str(path))}"
-            page_texts = extract_text(path, mineru_config=config.get("mineru", {}))
-            for page in page_texts:
-                text = page.get("text", "")
-                if not text.strip():
-                    continue
-                CTX.kb.index_text(
-                    course_id=course_id,
-                    file_id=file_id,
-                    file_name=f"聊天附件/{path.name}",
-                    text=text,
-                    page=page.get("page"),
-                )
-                extracted_parts.append(f"文件 {path.name}：\n{text}")
-        return "\n\n".join(extracted_parts), image_paths
+        return run_index_chat_uploads(CTX, DATA_DIR, course_id, uploads)
 
     def synthesize_answer(self, question: str, result: dict, image_paths=None, ai_config=None):
-        ai_config = ai_config if ai_config is not None else CTX.config.get("ai", {})
-        image_paths = image_paths or []
-        client = create_llm_client(ai_config)
-        llm_configured = client.enabled()
-        if image_paths:
-            image_prompt = (
-                "学生上传了课程截图或图片。请先理解图片内容，再结合课程资料回答。\n"
-                "如果图片中文字看不清，直接说明看不清，不要编造。\n\n"
-                f"学生问题：\n{question}\n\n"
-                f"课程检索结果：\n{result.get('answer', '')}"
-            )
-            generated = client.generate_with_images(image_prompt, image_paths)
-            if generated:
-                return generated, "used"
-            fallback = result["answer"]
-            return (
-                f"{fallback}\n\n"
-                "已收到截图附件，但当前配置的大模型未成功读取图片内容。"
-                "请确认 `data/config.json` 中配置的是支持视觉输入的 Kimi 模型，或把截图中的文字复制到聊天框。"
-            ), "fallback" if llm_configured else "disabled"
-        prompt = build_grounded_prompt(question, result["citations"], memory="")
-        generated = client.generate(prompt)
-        if generated:
-            return generated, "used"
-        return result["answer"], "fallback" if llm_configured else "disabled"
+        return run_synthesize_answer(
+            question,
+            result,
+            image_paths=image_paths,
+            ai_config=ai_config if ai_config is not None else CTX.config.get("ai", {}),
+        )
 
     def synthesize_answer_stream(
         self,
@@ -673,43 +413,13 @@ class Handler(SimpleHTTPRequestHandler):
         image_paths=None,
         ai_config=None,
     ):
-        ai_config = ai_config if ai_config is not None else CTX.config.get("ai", {})
-        image_paths = image_paths or []
-        client = create_llm_client(ai_config)
-        llm_configured = client.enabled()
-        prompt = build_grounded_prompt(question, result["citations"], memory="")
-        if image_paths:
-            image_prompt = (
-                "学生上传了课程截图或图片。请先理解图片内容，再结合课程资料回答。\n"
-                "如果图片中文字看不清，直接说明看不清，不要编造。\n\n"
-                f"学生问题：\n{question}\n\n"
-                f"课程检索结果：\n{result.get('answer', '')}"
-            )
-            chunks = client.stream_with_images(image_prompt, image_paths)
-            fallback_generate = lambda: client.generate_with_images(image_prompt, image_paths)
-        else:
-            chunks = client.stream(prompt)
-            fallback_generate = lambda: client.generate(prompt)
-
-        generated_parts = []
-        for chunk in chunks or []:
-            generated_parts.append(chunk)
-            emit_delta(chunk)
-        if generated_parts:
-            return "".join(generated_parts), "used"
-
-        generated = fallback_generate()
-        if generated:
-            emit_delta(generated)
-            return generated, "used"
-        fallback = result["answer"]
-        if image_paths:
-            fallback += (
-                "\n\n已收到截图附件，但当前配置的大模型未成功读取图片内容。"
-                "请确认模型支持视觉输入，或把截图中的文字复制到聊天框。"
-            )
-        emit_delta(fallback)
-        return fallback, "fallback" if llm_configured else "disabled"
+        return run_synthesize_answer_stream(
+            question,
+            result,
+            emit_delta=emit_delta,
+            image_paths=image_paths,
+            ai_config=ai_config if ai_config is not None else CTX.config.get("ai", {}),
+        )
 
     def send_preview(self, file_id: str):
         path = CTX.find_file(file_id)
@@ -753,6 +463,13 @@ class Handler(SimpleHTTPRequestHandler):
                 else:
                     fields[key] = item.value
         return fields, uploads
+
+    def send_service_json(self, action, status=HTTPStatus.OK):
+        try:
+            payload = action()
+        except ApiError as exc:
+            return self.send_error_json(exc.message, exc.status)
+        return self.send_json(payload, status)
 
     def send_json(self, payload, status=HTTPStatus.OK):
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -799,62 +516,6 @@ class Handler(SimpleHTTPRequestHandler):
 
     def send_error_json(self, message, status=HTTPStatus.BAD_REQUEST):
         return self.send_json({"ok": False, "error": message}, status)
-
-
-def adapt_answer_by_mode(mode: str, answer: str) -> str:
-    return answer_mode_prefix(mode) + answer
-
-
-def answer_mode_prefix(mode: str) -> str:
-    prefixes = {
-        "socratic": "启发式提示：先不要急着看完整答案，可以根据资料中的关键词自己复述一遍。\n\n",
-        "homework": "作业提示模式：以下只给思路和资料依据，不直接替你完成作业。\n\n",
-        "review": "复习模式：建议把下面内容整理成概念、易错点和自测题。\n\n",
-    }
-    return prefixes.get(mode, "")
-
-
-def append_web_fallback(answer: str, web_sources: list) -> str:
-    lines = [answer, "", "网页搜索补充："]
-    for index, source in enumerate(web_sources, start=1):
-        snippet = source.get("quote", "").strip()
-        lines.append(f"[W{index}] {source.get('file_name', '网页来源')}：{snippet}")
-    return "\n".join(lines)
-
-
-def course_index_stats(kb, course_id: str) -> dict:
-    path_factory = getattr(kb, "_path", None)
-    path = path_factory(course_id) if callable(path_factory) else None
-    if not path:
-        storage_dir = getattr(kb, "storage_dir", None)
-        path = Path(storage_dir) / f"{course_id}.json" if storage_dir else None
-    if not path or not Path(path).exists():
-        return {"indexed_files": 0, "total_chunks": 0}
-    try:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"indexed_files": 0, "total_chunks": 0}
-    if isinstance(payload, dict):
-        chunks = payload.get("chunks", [])
-        stats = {
-            "schema_version": payload.get("schema_version"),
-            "tokenizer_version": payload.get("tokenizer_version", ""),
-        }
-    elif isinstance(payload, list):
-        chunks = payload
-        stats = {"schema_version": None, "tokenizer_version": ""}
-    else:
-        chunks = []
-        stats = {"schema_version": None, "tokenizer_version": ""}
-    if not isinstance(chunks, list):
-        chunks = []
-    file_keys = {
-        str(chunk.get("file_id") or chunk.get("file_name") or "")
-        for chunk in chunks
-        if isinstance(chunk, dict) and (chunk.get("file_id") or chunk.get("file_name"))
-    }
-    stats.update({"indexed_files": len(file_keys), "total_chunks": len(chunks)})
-    return stats
 
 
 def main():

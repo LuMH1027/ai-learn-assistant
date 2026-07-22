@@ -249,6 +249,7 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
                     ]
 
             fake_vector_index = FakeVectorIndex()
+            kb._vector_path("os").unlink()
             with mock.patch(
                 "local_course_agent.retrieval.rag.build_vector_index_from_chunks",
                 return_value=fake_vector_index,
@@ -271,6 +272,7 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             kb = CourseKnowledgeBase(Path(tmp))
             kb.index_text("os", "book", "教材.md", "页表保存虚拟页到物理页框的映射。")
+            kb._vector_path("os").unlink()
 
             with mock.patch(
                 "local_course_agent.retrieval.rag.build_vector_index_from_chunks",
@@ -280,6 +282,18 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
 
             self.assertEqual(hits[0]["file_name"], "教材.md")
             self.assertEqual(hits[0]["retrieval_method"], "hybrid_bm25_semantic_rrf_mmr")
+
+    def test_indexing_persists_vector_index_for_hybrid_search(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = CourseKnowledgeBase(Path(tmp))
+            kb.index_text("os", "book", "教材.md", "页表用于地址转换。")
+
+            payload = json.loads(kb._vector_path("os").read_text(encoding="utf-8"))
+            hits = kb.search("os", "页表地址转换", strategy="hybrid")
+
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertEqual(payload["documents"][0]["metadata"]["file_name"], "教材.md")
+            self.assertTrue(hits)
 
 
 if __name__ == "__main__":

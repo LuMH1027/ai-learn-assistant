@@ -12,6 +12,11 @@ DEFAULT_CONFIG = {
         "base_url": "",
         "api_key": "",
         "model": "",
+        "embedding_model": "",
+        "embedding_dimensions": "",
+        "embedding_base_url": "",
+        "embedding_api_key": "",
+        "embedding_timeout": 30,
     },
     "web_search": {
         "enabled": False,

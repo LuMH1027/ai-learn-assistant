@@ -15,7 +15,7 @@
 - 支持答疑、启发、作业提示和复习模式。
 - 一键生成 LLM 课程摘要与本地练习题，并保存回课程目录；模型不可用时摘要会回退为本地抽取式摘要。
 - 回答附带来源文件、原文片段和 PDF 页码。
-- 检索采用标题感知切块、BM25、多路 RRF 融合、本地 rerank、MMR 去重和相邻上下文扩展。
+- 检索采用标题感知切块、BM25、持久向量索引、多路 RRF 融合、本地 rerank、MMR 去重和相邻上下文扩展；配置 `ai.embedding_model` 后可使用 OpenAI-compatible embedding。
 - 回答优先使用课程资料；未检索到依据时，可由已配置模型明确标注后使用通用知识补充。
 - 本地证据不足或问题具有时效性时，可按需调用 Web Search MCP，并显示可点击网页来源。
 - 对话从请求接收、课程检索、联网到模型生成全程流式反馈，模型文本按 token 增量显示。
@@ -162,6 +162,7 @@ copy data\config.example.json data\config.json
 
 - `root_folder`：课程资料根目录。
 - `ai.base_url/api_key/model`：OpenAI-compatible 模型配置。
+- `ai.embedding_model/embedding_dimensions`：可选的 OpenAI-compatible embedding 配置；留空时使用本地确定性 embedding fallback。
 - `web_search`：MCP Web Search 配置；`enabled` 开启后才会向外部服务发送学生问题。
 - `mineru.token`：MinerU API token。
 
@@ -174,7 +175,9 @@ copy data\config.example.json data\config.json
     "provider": "openai_compatible",
     "base_url": "https://api.siliconflow.cn/v1",
     "api_key": "",
-    "model": "Pro/moonshotai/Kimi-K2.6"
+    "model": "Pro/moonshotai/Kimi-K2.6",
+    "embedding_model": "",
+    "embedding_dimensions": ""
   },
   "web_search": {
     "enabled": false,
@@ -231,6 +234,6 @@ data/
 
 生成的摘要与练习题保存在对应课程的 `AI生成/` 文件夹。
 
-检索索引会记录 schema/tokenizer 版本、章节标题、资料类型和来源路径；回答接口会返回检索 trace，便于核对命中片段、匹配词、分数和证据充分性。检索实现、研究依据与后续向量检索路线见 [`docs/rag-retrieval-strategy.md`](docs/rag-retrieval-strategy.md)。
+检索索引会记录 schema/tokenizer 版本、章节标题、资料类型和来源路径，并在同目录保存持久向量索引；回答接口会返回检索 trace，便于核对命中片段、匹配词、分数和证据充分性。检索实现见 [`docs/rag-retrieval-strategy.md`](docs/rag-retrieval-strategy.md)，向量检索见 [`docs/vector-retrieval.md`](docs/vector-retrieval.md)，答案级评测见 [`docs/rag-eval.md`](docs/rag-eval.md)。
 
 项目开发中遇到的 UI、异步状态、RAG、联网、流式传输、跨平台依赖和配置安全问题，以及对应解决过程，见 [`docs/开发问题与解决记录.md`](docs/开发问题与解决记录.md)。

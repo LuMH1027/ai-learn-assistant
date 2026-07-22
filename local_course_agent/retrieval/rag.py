@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence
 
 from local_course_agent.store import atomic_write_text
-from local_course_agent.retrieval.vector_index import build_vector_index_from_chunks, hybrid_merge_lexical_vector
+from local_course_agent.retrieval.vector_index import (
+    VectorIndex,
+    build_vector_index_from_chunks,
+    create_embedding_model,
+    hybrid_merge_lexical_vector,
+)
 
 
 TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+")
@@ -89,9 +94,13 @@ class CourseKnowledgeBase:
     on a fresh Windows machine before optional vector-search upgrades.
     """
 
-    def __init__(self, storage_dir: Path):
+    def __init__(self, storage_dir: Path, embedding_model=None):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.embedding_model = embedding_model or create_embedding_model({})
+
+    def configure_embeddings(self, ai_config: dict | None = None) -> None:
+        self.embedding_model = create_embedding_model(ai_config or {})
 
     def index_text(self, course_id: str, file_id: str, file_name: str, text: str, page=None) -> int:
         chunks = self._material_chunks(course_id)
@@ -206,7 +215,13 @@ class CourseKnowledgeBase:
             )
         candidates.sort(key=lambda item: (item.get("local_rerank_score", 0), item.get("rrf_score", 0)), reverse=True)
         selected = (
-            _select_hybrid_vector_hits(chunks, candidates, normalized_query, limit)
+            _select_hybrid_vector_hits(
+                chunks,
+                candidates,
+                normalized_query,
+                limit,
+                vector_index=self._load_or_build_vector_index(course_id, chunks),
+            )
             if strategy == "hybrid"
             else _select_diverse(candidates, limit)
         )
@@ -297,6 +312,9 @@ class CourseKnowledgeBase:
     def _path(self, course_id: str) -> Path:
         return self.storage_dir / f"{course_id}.json"
 
+    def _vector_path(self, course_id: str) -> Path:
+        return self.storage_dir / f"{course_id}.vector.json"
+
     def _load(self, course_id: str) -> List[Dict]:
         path = self._path(course_id)
         if not path.exists():
@@ -313,6 +331,7 @@ class CourseKnowledgeBase:
             "chunks": chunks,
         }
         atomic_write_text(self._path(course_id), json.dumps(payload, ensure_ascii=False, indent=2))
+        self._save_vector_index(course_id, chunks)
 
     def _append_text_chunks(
         self,
@@ -353,6 +372,34 @@ class CourseKnowledgeBase:
             for chunk in self._load(course_id)
             if not GENERATED_ARTIFACT_RE.fullmatch(chunk.get("file_name", ""))
         ]
+
+    def _save_vector_index(self, course_id: str, chunks: Sequence[Dict]) -> None:
+        try:
+            vector_index = build_vector_index_from_chunks(chunks, self.embedding_model)
+            vector_index.save(self._vector_path(course_id))
+        except Exception:
+            # Lexical indexes remain authoritative; embedding failures should
+            # degrade retrieval, not break course indexing.
+            return
+
+    def _load_or_build_vector_index(self, course_id: str, chunks: Sequence[Dict]) -> VectorIndex | None:
+        path = self._vector_path(course_id)
+        if path.exists():
+            try:
+                index = VectorIndex.load(path, embedding_model=self.embedding_model)
+                if len(index.documents) == len([chunk for chunk in chunks if chunk.get("text")]):
+                    return index
+            except Exception:
+                pass
+        try:
+            vector_index = build_vector_index_from_chunks(chunks, self.embedding_model)
+        except Exception:
+            return None
+        try:
+            vector_index.save(path)
+        except Exception:
+            pass
+        return vector_index
 
 
 def _summarize_evidence(query: str, hits: Iterable[Dict]) -> str:
@@ -524,10 +571,11 @@ def _select_hybrid_vector_hits(
     lexical_candidates: Sequence[Dict],
     query: str,
     limit: int,
+    vector_index: VectorIndex | None = None,
 ) -> List[Dict]:
     lexical_selected = _select_diverse(lexical_candidates, max(limit * 2, limit))
     try:
-        vector_index = build_vector_index_from_chunks(chunks)
+        vector_index = vector_index or build_vector_index_from_chunks(chunks)
         vector_hits = vector_index.search(
             query,
             limit=max(limit * 4, 12),

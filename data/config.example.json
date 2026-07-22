@@ -4,7 +4,9 @@
     "provider": "openai_compatible",
     "base_url": "https://api.siliconflow.cn/v1",
     "api_key": "sk-请填写自己的硅基流动Key",
-    "model": "Pro/moonshotai/Kimi-K2.6"
+    "model": "Pro/moonshotai/Kimi-K2.6",
+    "embedding_model": "",
+    "embedding_dimensions": ""
   },
   "web_search": {
     "enabled": false,
