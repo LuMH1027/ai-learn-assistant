@@ -1,9 +1,20 @@
 # Telemetry module
 
-`local_course_agent.ops.telemetry` provides a small in-memory telemetry buffer for
-RAG and course-processing diagnostics. The recorder itself is intentionally pure:
-no background thread, no file writes, and no third-party dependency. Runtime
-callers decide whether to return, persist, or aggregate the compact payload.
+`local_course_agent.ops.telemetry` is the compatibility entry point for a small
+in-memory telemetry buffer used by RAG and course-processing diagnostics. The
+recorder itself is intentionally pure: no background thread, no file writes, and
+no third-party dependency. Runtime callers decide whether to return, persist, or
+aggregate the compact payload.
+
+The implementation is split by responsibility:
+
+- `ops/telemetry_core.py`: dataclasses, `TelemetryRecorder`, span lifecycle, and
+  serialization.
+- `ops/telemetry_utils.py`: stage/name normalization, payload coercion, and
+  numeric summary helpers.
+- `ops/telemetry_recorders.py`: domain-level `record_index_result`,
+  `record_retrieval_result`, and `record_llm_result` helpers.
+- `ops/telemetry.py`: stable re-export facade for existing imports.
 
 The chat API now creates a request-local recorder through
 `local_course_agent.api.telemetry`. Chat responses include a compact

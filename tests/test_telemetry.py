@@ -1,6 +1,8 @@
 import json
 import unittest
 
+from local_course_agent.ops.telemetry_core import TelemetryRecorder as CoreTelemetryRecorder
+from local_course_agent.ops.telemetry_recorders import record_llm_result as record_llm_result_from_recorders
 from local_course_agent.ops.telemetry import (
     TelemetryRecorder,
     record_index_result,
@@ -21,6 +23,10 @@ class FakeClock:
 
 
 class TelemetryRecorderTest(unittest.TestCase):
+    def test_legacy_telemetry_module_reexports_split_modules(self):
+        self.assertIs(TelemetryRecorder, CoreTelemetryRecorder)
+        self.assertIs(record_llm_result, record_llm_result_from_recorders)
+
     def test_span_records_duration_and_stage_summary(self):
         clock = FakeClock()
         telemetry = TelemetryRecorder(clock=clock)
