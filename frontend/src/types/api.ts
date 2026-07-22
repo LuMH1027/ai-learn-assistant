@@ -136,6 +136,30 @@ export interface MasteryState {
   updated_at: string
 }
 
+export interface MasteryKnowledgePointInput {
+  id?: string
+  point_id?: string
+  title: string
+  aliases?: string[]
+  source_refs?: Array<Record<string, string>>
+}
+
+export interface MasteryAnswerResultInput {
+  point_id: string
+  correct: boolean
+  question?: string
+  user_answer?: string
+  expected_answer?: string
+  difficulty?: 'easy' | 'normal' | 'hard' | string
+  confidence?: number
+  source_ref?: Record<string, string>
+}
+
+export interface MasteryUpdateRequest {
+  knowledge_point?: MasteryKnowledgePointInput
+  answer_result?: MasteryAnswerResultInput
+}
+
 export interface MasteryDashboardItem {
   id: string
   type: 'weak_point' | 'mastery_review'

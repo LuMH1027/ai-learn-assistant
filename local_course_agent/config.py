@@ -17,6 +17,9 @@ DEFAULT_CONFIG = {
         "embedding_base_url": "",
         "embedding_api_key": "",
         "embedding_timeout": 30,
+        "embedding_batch_size": 32,
+        "embedding_max_retries": 2,
+        "embedding_retry_delay": 1.0,
     },
     "web_search": {
         "enabled": False,

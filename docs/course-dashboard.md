@@ -92,7 +92,7 @@ and applies the response only when the selected course and root version still ma
 - average mastery score
 - next learning item
 - top review items
-- weakest mastery points
+- a compact mastery block with due review count, open mistake count, weakest mastery points, and per-point correct/wrong actions
 - latest activity
 
-The sidebar triggers `loadDashboard()` when the active course changes and also provides a manual refresh button. It does not reimplement aggregation client-side; it only displays the backend payload.
+The sidebar triggers `loadDashboard()` when the active course changes and also provides a manual refresh button. It does not reimplement aggregation client-side; it only displays the backend payload. Mastery correct/wrong actions call the existing `course.updateMastery()` store action, which posts to `POST /api/courses/:id/mastery`, then refreshes the dashboard so the summary stays authoritative.

@@ -75,6 +75,22 @@ function mockDesktop() {
 }
 
 function mockApi() {
+  api.postJson.mockImplementation((path: string) => {
+    if (path.endsWith('/mastery')) {
+      return Promise.resolve({
+        ok: true,
+        mastery: {
+          schema_version: 1,
+          knowledge_points: [],
+          mastery: {},
+          mistakes: [],
+          created_at: '2026-07-22 10:00:00',
+          updated_at: '2026-07-22 10:00:00',
+        },
+      })
+    }
+    throw new Error(`Unexpected POST ${path}`)
+  })
   api.getJson.mockImplementation((path: string) => {
     if (path === '/api/config') {
       return Promise.resolve({
@@ -320,9 +336,29 @@ describe('course workspace components', () => {
     expect(dashboard.text()).toContain('33%')
     expect(dashboard.text()).toContain('2/3')
     expect(dashboard.text()).toContain('12')
+    expect(dashboard.text()).toContain('掌握度')
+    expect(dashboard.text()).toContain('1 待复习 · 1 未订正')
     expect(dashboard.text()).toContain('下一步：订正页表练习')
     expect(dashboard.text()).toContain('薄弱点：页表地址转换 35')
     expect(dashboard.text()).toContain('最近：笔记 · TLB 易错点')
+  })
+
+  it('records a mastery answer from the sidebar and refreshes the dashboard', async () => {
+    const { wrapper } = await mountWorkspace()
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="记录页表地址转换回答正确"]').trigger('click')
+    await flushPromises()
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/mastery', {
+      answer_result: {
+        point_id: 'kp-page-table',
+        correct: true,
+      },
+    })
+    const dashboardLoads = api.getJson.mock.calls
+      .filter(([path]) => String(path).endsWith('/dashboard'))
+    expect(dashboardLoads.length).toBeGreaterThanOrEqual(2)
   })
 
   it('renders config health status in the sidebar', async () => {

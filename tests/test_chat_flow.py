@@ -4,6 +4,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from local_course_agent.api.chat import ChatFlow
+from local_course_agent.api.chat_steps import (
+    build_attachment_context,
+    build_retrieval_context,
+    build_source_context,
+)
 
 
 class FakeStore:
@@ -56,6 +61,65 @@ class FakeKnowledgeBase:
 
 
 class ChatFlowTelemetryTest(unittest.TestCase):
+    def test_step_contexts_structure_retrieval_and_sources(self):
+        attachment = build_attachment_context("", "附件内容" * 1000, [Path("/tmp/screen.png")])
+        retrieval = build_retrieval_context(attachment.question, [], attachment)
+        result = {
+            "answer": "本地回答",
+            "citations": [
+                {
+                    "file_name": "内存管理.md",
+                    "quote": "TLB 能缓存页表项。",
+                }
+            ],
+            "retrieval_trace": {"candidates": []},
+        }
+        web_sources = [{"source_type": "web", "file_name": "Web", "quote": "web quote"}]
+
+        sources = build_source_context(result, web_sources, needs_clarification=False)
+
+        self.assertEqual(attachment.question, "请阅读并总结我拖入的文件。")
+        self.assertIn("拖入聊天框的文件内容", retrieval.search_question)
+        self.assertIn("拖入聊天框的截图：screen.png", retrieval.search_question)
+        self.assertIn("附件内容", retrieval.search_question)
+        self.assertLessEqual(retrieval.search_question.count("附件内容"), 1000)
+        self.assertEqual(sources.local_sources[0]["reference_label"], "L1")
+        self.assertEqual(sources.local_sources[0]["source_type"], "local")
+        self.assertEqual(sources.web_sources[0]["reference_label"], "W1")
+        self.assertEqual(
+            [source["reference_label"] for source in sources.citations],
+            ["L1", "W1"],
+        )
+        self.assertIn("网页搜索补充", sources.combined_result["answer"])
+
+    def test_run_with_only_attachment_uses_default_question_and_keeps_payload_shape(self):
+        store = FakeStore()
+        context = SimpleNamespace(
+            config={"ai": {}, "web_search": {}},
+            find_course=lambda _course_id: {"name": "操作系统"},
+            kb=FakeKnowledgeBase(),
+            store=store,
+        )
+        flow = ChatFlow(
+            context=context,
+            data_dir=Path("/tmp"),
+            emit=lambda _event: None,
+            index_uploads=lambda _course_id, _uploads: ("TLB 附件内容", []),
+            retrieve_web=lambda _question, _result, _config, allow_web=True: ([], "skipped"),
+            synthesize=lambda question, _result, image_paths=None, ai_config=None: (
+                f"已总结：{question.splitlines()[0]} [L1]",
+                "used",
+            ),
+        )
+
+        payload = flow.run("course-1", {"question": "", "mode": "answer"}, [{"filename": "notes.md"}])
+
+        self.assertEqual(store.messages[0]["content"], "请阅读并总结我拖入的文件。")
+        self.assertEqual(payload["mode"], "answer")
+        self.assertEqual(payload["web_search_status"], "skipped")
+        self.assertIn("telemetry", payload)
+        self.assertEqual(payload["citations"][0]["reference_label"], "L1")
+
     def test_run_returns_compact_telemetry_without_leaking_config_secrets(self):
         store = FakeStore()
         context = SimpleNamespace(

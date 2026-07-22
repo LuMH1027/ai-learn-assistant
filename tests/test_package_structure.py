@@ -7,6 +7,7 @@ class PackageStructureTest(unittest.TestCase):
     def test_feature_modules_live_in_domain_packages(self):
         expected_modules = [
             "local_course_agent.api.chat",
+            "local_course_agent.api.chat_steps",
             "local_course_agent.api.course",
             "local_course_agent.api.router",
             "local_course_agent.api.telemetry",
@@ -16,6 +17,7 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.vector_index",
             "local_course_agent.retrieval.citation_check",
             "local_course_agent.retrieval.conversation_context",
+            "local_course_agent.retrieval.embeddings",
             "local_course_agent.retrieval.rag_eval",
             "local_course_agent.learning.service",
             "local_course_agent.learning.summary",

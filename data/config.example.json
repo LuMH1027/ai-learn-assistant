@@ -6,7 +6,13 @@
     "api_key": "sk-请填写自己的硅基流动Key",
     "model": "Pro/moonshotai/Kimi-K2.6",
     "embedding_model": "",
-    "embedding_dimensions": ""
+    "embedding_dimensions": "",
+    "embedding_base_url": "",
+    "embedding_api_key": "",
+    "embedding_timeout": 30,
+    "embedding_batch_size": 32,
+    "embedding_max_retries": 2,
+    "embedding_retry_delay": 1.0
   },
   "web_search": {
     "enabled": false,

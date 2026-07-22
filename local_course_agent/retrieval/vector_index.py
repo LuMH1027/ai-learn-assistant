@@ -1,30 +1,27 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
-import re
-import urllib.error
-import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Protocol, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
+
+from local_course_agent.retrieval.embeddings import (
+    DEFAULT_DIMENSIONS,
+    EmbeddingModel,
+    EmbeddingRequestError,
+    FakeEmbeddingModel,
+    OpenAICompatibleEmbeddingModel,
+    VectorIndexCompatibilityError,
+    create_embedding_model,
+    default_model_for_saved_index,
+    embedding_model_metadata,
+    validate_saved_model_compatibility,
+)
 
 
 SCHEMA_VERSION = 1
-DEFAULT_DIMENSIONS = 64
-
-
-class EmbeddingModel(Protocol):
-    model_id: str
-    dimensions: int
-
-    def embed(self, text: str) -> List[float]:
-        ...
-
-    def embed_many(self, texts: Iterable[str]) -> List[List[float]]:
-        ...
 
 
 @dataclass
@@ -41,102 +38,6 @@ class VectorSearchResult:
     text: str
     metadata: Dict
     score: float
-
-
-class FakeEmbeddingModel:
-    """Deterministic hash-based embedding used until a real model is wired in."""
-
-    model_id = "fake-hash-embedding-v1"
-
-    def __init__(self, dimensions: int = DEFAULT_DIMENSIONS):
-        if dimensions <= 0:
-            raise ValueError("dimensions must be positive")
-        self.dimensions = dimensions
-
-    def embed(self, text: str) -> List[float]:
-        vector = [0.0] * self.dimensions
-        for token in _tokens(text):
-            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
-            bucket = int.from_bytes(digest[:4], "big") % self.dimensions
-            sign = 1.0 if digest[4] % 2 == 0 else -1.0
-            vector[bucket] += sign
-        return _unit_vector(vector)
-
-    def embed_many(self, texts: Iterable[str]) -> List[List[float]]:
-        return [self.embed(text) for text in texts]
-
-
-class OpenAICompatibleEmbeddingModel:
-    """OpenAI-compatible `/embeddings` client for production vector retrieval."""
-
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        api_key: str,
-        model: str,
-        dimensions: int | None = None,
-        timeout: float = 30.0,
-    ):
-        if not base_url or not api_key or not model:
-            raise ValueError("base_url, api_key, and model are required")
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
-        self.model = model
-        self.model_id = f"openai-compatible:{model}"
-        self.dimensions = int(dimensions or 0)
-        self.timeout = float(timeout)
-
-    def embed(self, text: str) -> List[float]:
-        return self.embed_many([text])[0]
-
-    def embed_many(self, texts: Iterable[str]) -> List[List[float]]:
-        items = [str(text) for text in texts]
-        if not items:
-            return []
-        payload = json.dumps({"model": self.model, "input": items}).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self.base_url}/embeddings",
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                raw = response.read().decode("utf-8")
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"embedding request failed: {exc}") from exc
-        parsed = json.loads(raw)
-        data = sorted(parsed.get("data", []), key=lambda item: int(item.get("index", 0)))
-        vectors = [[float(value) for value in item.get("embedding", [])] for item in data]
-        if len(vectors) != len(items):
-            raise RuntimeError("embedding response count mismatch")
-        if not vectors or not vectors[0]:
-            raise RuntimeError("embedding response is empty")
-        dimensions = len(vectors[0])
-        if self.dimensions and dimensions != self.dimensions:
-            raise RuntimeError(f"embedding dimension mismatch: expected {self.dimensions}, got {dimensions}")
-        self.dimensions = dimensions
-        return [_unit_vector(vector) for vector in vectors]
-
-
-def create_embedding_model(config: Mapping[str, Any] | None = None) -> EmbeddingModel:
-    config = dict(config or {})
-    embedding_model = str(config.get("embedding_model") or "").strip()
-    api_key = str(config.get("embedding_api_key") or config.get("api_key") or "").strip()
-    base_url = str(config.get("embedding_base_url") or config.get("base_url") or "").strip()
-    if embedding_model and api_key and base_url:
-        return OpenAICompatibleEmbeddingModel(
-            base_url=base_url,
-            api_key=api_key,
-            model=embedding_model,
-            dimensions=_optional_int(config.get("embedding_dimensions")),
-            timeout=float(config.get("embedding_timeout") or config.get("timeout") or 30),
-        )
-    return FakeEmbeddingModel(dimensions=int(config.get("fake_embedding_dimensions") or DEFAULT_DIMENSIONS))
 
 
 class VectorIndex:
@@ -169,6 +70,7 @@ class VectorIndex:
         if limit <= 0 or not self.documents:
             return []
         query_vector = self.embedding_model.embed(query)
+        self._validate_dimensions(query_vector)
         scored = []
         for order, document in enumerate(self.documents):
             score = cosine_similarity(query_vector, document.vector)
@@ -192,10 +94,7 @@ class VectorIndex:
         path = Path(path)
         payload = {
             "schema_version": SCHEMA_VERSION,
-            "embedding_model": {
-                "type": self.embedding_model.model_id,
-                "dimensions": self.embedding_model.dimensions,
-            },
+            "embedding_model": embedding_model_metadata(self.embedding_model),
             "documents": [asdict(document) for document in self.documents],
         }
         _atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
@@ -205,18 +104,27 @@ class VectorIndex:
         path = Path(path)
         payload = json.loads(path.read_text(encoding="utf-8"))
         model_info = payload.get("embedding_model") or {}
-        dimensions = int(model_info.get("dimensions") or DEFAULT_DIMENSIONS)
-        model = embedding_model or FakeEmbeddingModel(dimensions=dimensions)
+        raw_dimensions = model_info.get("dimensions")
+        dimensions = int(raw_dimensions) if raw_dimensions not in (None, "") else DEFAULT_DIMENSIONS
+        model = embedding_model or default_model_for_saved_index(model_info, dimensions)
+        validate_saved_model_compatibility(model_info, model, dimensions)
         if getattr(model, "dimensions", 0) == 0:
             model.dimensions = dimensions
         index = cls(model)
 
         for raw in payload.get("documents", []):
+            document_id = str(raw["id"])
+            vector = [float(value) for value in raw.get("vector", [])]
+            if len(vector) != dimensions:
+                raise VectorIndexCompatibilityError(
+                    f"stored vector dimension mismatch for document {document_id}: "
+                    f"index metadata says {dimensions}, vector has {len(vector)}; rebuild vector index"
+                )
             index.add(
-                document_id=str(raw["id"]),
+                document_id=document_id,
                 text=str(raw.get("text", "")),
                 metadata=dict(raw.get("metadata") or {}),
-                vector=[float(value) for value in raw.get("vector", [])],
+                vector=vector,
             )
         return index
 
@@ -390,27 +298,6 @@ def _merged_retrieval_method(hit: Mapping[str, Any]) -> str:
     if "vector" in sources:
         return "vector"
     return str(hit.get("retrieval_method") or "lexical")
-
-
-def _tokens(text: str) -> List[str]:
-    normalized = text.lower()
-    tokens = re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]", normalized)
-    cjk_chars = [token for token in tokens if len(token) == 1 and "\u4e00" <= token <= "\u9fff"]
-    cjk_bigrams = [a + b for a, b in zip(cjk_chars, cjk_chars[1:])]
-    return tokens + cjk_bigrams
-
-
-def _unit_vector(vector: Sequence[float]) -> List[float]:
-    norm = math.sqrt(sum(value * value for value in vector))
-    if norm == 0.0:
-        return [0.0 for _ in vector]
-    return [value / norm for value in vector]
-
-
-def _optional_int(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    return int(value)
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

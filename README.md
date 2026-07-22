@@ -163,6 +163,8 @@ copy data\config.example.json data\config.json
 - `root_folder`：课程资料根目录。
 - `ai.base_url/api_key/model`：OpenAI-compatible 模型配置。
 - `ai.embedding_model/embedding_dimensions`：可选的 OpenAI-compatible embedding 配置；留空时使用本地确定性 embedding fallback。
+- `ai.embedding_base_url/embedding_api_key`：可选的 embedding 专用 endpoint 和 key；留空时复用 `ai.base_url/api_key`。
+- `ai.embedding_batch_size/embedding_max_retries/embedding_retry_delay`：embedding 批大小、失败重试次数和重试间隔，用于提升外部 provider 的稳定性。
 - `web_search`：MCP Web Search 配置；`enabled` 开启后才会向外部服务发送学生问题。
 - `mineru.token`：MinerU API token。
 
@@ -177,7 +179,13 @@ copy data\config.example.json data\config.json
     "api_key": "",
     "model": "Pro/moonshotai/Kimi-K2.6",
     "embedding_model": "",
-    "embedding_dimensions": ""
+    "embedding_dimensions": "",
+    "embedding_base_url": "",
+    "embedding_api_key": "",
+    "embedding_timeout": 30,
+    "embedding_batch_size": 32,
+    "embedding_max_retries": 2,
+    "embedding_retry_delay": 1.0
   },
   "web_search": {
     "enabled": false,

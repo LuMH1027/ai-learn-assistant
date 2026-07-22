@@ -1,13 +1,16 @@
 import json
+import urllib.error
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from local_course_agent.retrieval.vector_index import (
+    EmbeddingRequestError,
     FakeEmbeddingModel,
     OpenAICompatibleEmbeddingModel,
     VectorIndex,
+    VectorIndexCompatibilityError,
     VectorSearchResult,
     build_vector_index_from_chunks,
     cosine_similarity,
@@ -66,9 +69,67 @@ class VectorIndexTest(unittest.TestCase):
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["schema_version"], 1)
             self.assertEqual(payload["embedding_model"]["dimensions"], 24)
+            self.assertIn("fingerprint", payload["embedding_model"])
             self.assertEqual(loaded.documents[0].id, "memory")
             self.assertEqual(loaded.documents[0].metadata["course_id"], "os")
             self.assertEqual(loaded.search("页表地址转换", limit=1)[0].id, "memory")
+
+    def test_load_rejects_dimension_mismatch_so_caller_can_rebuild(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "vectors.json"
+            index = VectorIndex(FakeEmbeddingModel(dimensions=24))
+            index.add("memory", "页表用于地址转换。")
+            index.save(path)
+
+            with self.assertRaisesRegex(VectorIndexCompatibilityError, "dimension mismatch"):
+                VectorIndex.load(path, embedding_model=FakeEmbeddingModel(dimensions=16))
+
+    def test_save_openai_embedding_metadata_excludes_api_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "vectors.json"
+            model = OpenAICompatibleEmbeddingModel(
+                base_url="https://llm.example/v1",
+                api_key="sk-supersecret12345",
+                model="embedding-model",
+                dimensions=3,
+            )
+            index = VectorIndex(model)
+            index.add("doc", "text", vector=[1.0, 0.0, 0.0])
+
+            index.save(path)
+
+            payload_text = path.read_text(encoding="utf-8")
+            payload = json.loads(payload_text)
+            self.assertEqual(payload["embedding_model"]["type"], "openai-compatible:embedding-model")
+            self.assertEqual(payload["embedding_model"]["base_url"], "https://llm.example/v1")
+            self.assertIn("fingerprint", payload["embedding_model"])
+            self.assertNotIn("sk-supersecret12345", payload_text)
+            self.assertNotIn("api_key", payload_text)
+
+            loaded = VectorIndex.load(path, embedding_model=model)
+            self.assertEqual(loaded.documents[0].id, "doc")
+
+    def test_load_rejects_openai_base_url_fingerprint_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "vectors.json"
+            original = OpenAICompatibleEmbeddingModel(
+                base_url="https://llm.example/v1",
+                api_key="secret",
+                model="embedding-model",
+                dimensions=3,
+            )
+            index = VectorIndex(original)
+            index.add("doc", "text", vector=[1.0, 0.0, 0.0])
+            index.save(path)
+            changed = OpenAICompatibleEmbeddingModel(
+                base_url="https://other.example/v1",
+                api_key="secret",
+                model="embedding-model",
+                dimensions=3,
+            )
+
+            with self.assertRaisesRegex(VectorIndexCompatibilityError, "fingerprint mismatch"):
+                VectorIndex.load(path, embedding_model=changed)
 
     def test_add_replaces_document_with_same_id(self):
         index = VectorIndex(FakeEmbeddingModel(dimensions=16))
@@ -248,6 +309,39 @@ class VectorIndexTest(unittest.TestCase):
         self.assertIsInstance(model, OpenAICompatibleEmbeddingModel)
         self.assertEqual(model.model_id, "openai-compatible:text-embedding-demo")
         self.assertEqual(model.dimensions, 3)
+        self.assertEqual(model.batch_size, 32)
+
+    def test_create_embedding_model_passes_embedding_reliability_config(self):
+        model = create_embedding_model(
+            {
+                "base_url": "https://llm.example/v1",
+                "api_key": "secret",
+                "embedding_model": "text-embedding-demo",
+                "embedding_batch_size": 8,
+                "embedding_max_retries": 4,
+                "embedding_retry_delay": 0.25,
+            }
+        )
+
+        self.assertIsInstance(model, OpenAICompatibleEmbeddingModel)
+        self.assertEqual(model.batch_size, 8)
+        self.assertEqual(model.max_retries, 4)
+        self.assertEqual(model.retry_delay, 0.25)
+
+    def test_create_embedding_model_preserves_zero_retry_config(self):
+        model = create_embedding_model(
+            {
+                "base_url": "https://llm.example/v1",
+                "api_key": "secret",
+                "embedding_model": "text-embedding-demo",
+                "embedding_max_retries": 0,
+                "embedding_retry_delay": 0,
+            }
+        )
+
+        self.assertIsInstance(model, OpenAICompatibleEmbeddingModel)
+        self.assertEqual(model.max_retries, 0)
+        self.assertEqual(model.retry_delay, 0.0)
 
     def test_openai_compatible_embedding_model_calls_embeddings_endpoint(self):
         class FakeResponse:
@@ -284,6 +378,128 @@ class VectorIndexTest(unittest.TestCase):
         self.assertEqual(body["model"], "embedding-model")
         self.assertEqual(body["input"], ["alpha", "beta"])
         self.assertEqual(vectors, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+
+    def test_openai_compatible_embedding_model_batches_requests(self):
+        class FakeResponse:
+            def __init__(self, values):
+                self.values = values
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self):
+                return json.dumps(
+                    {
+                        "data": [
+                            {"index": index, "embedding": value}
+                            for index, value in enumerate(self.values)
+                        ]
+                    }
+                ).encode("utf-8")
+
+        model = OpenAICompatibleEmbeddingModel(
+            base_url="https://llm.example/v1",
+            api_key="secret",
+            model="embedding-model",
+            dimensions=2,
+            batch_size=2,
+        )
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=[
+                FakeResponse([[1, 0], [0, 1]]),
+                FakeResponse([[2, 0]]),
+            ],
+        ) as urlopen:
+            vectors = model.embed_many(["alpha", "beta", "gamma"])
+
+        self.assertEqual(urlopen.call_count, 2)
+        first_body = json.loads(urlopen.call_args_list[0].args[0].data.decode("utf-8"))
+        second_body = json.loads(urlopen.call_args_list[1].args[0].data.decode("utf-8"))
+        self.assertEqual(first_body["input"], ["alpha", "beta"])
+        self.assertEqual(second_body["input"], ["gamma"])
+        self.assertEqual(vectors, [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0]])
+
+    def test_openai_compatible_embedding_model_retries_network_errors(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self):
+                return json.dumps({"data": [{"index": 0, "embedding": [3, 0]}]}).encode("utf-8")
+
+        model = OpenAICompatibleEmbeddingModel(
+            base_url="https://llm.example/v1",
+            api_key="secret",
+            model="embedding-model",
+            dimensions=2,
+            max_retries=1,
+            retry_delay=0,
+        )
+
+        with mock.patch(
+            "urllib.request.urlopen",
+            side_effect=[urllib.error.URLError("temporary outage"), FakeResponse()],
+        ) as urlopen:
+            vectors = model.embed_many(["alpha"])
+
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(vectors, [[1.0, 0.0]])
+
+    def test_openai_compatible_embedding_model_reports_http_error_without_key(self):
+        model = OpenAICompatibleEmbeddingModel(
+            base_url="https://llm.example/v1",
+            api_key="sk-supersecret12345",
+            model="embedding-model",
+            dimensions=2,
+            max_retries=0,
+        )
+        error = urllib.error.HTTPError(
+            "https://llm.example/v1/embeddings",
+            401,
+            "Unauthorized",
+            {},
+            mock.Mock(read=lambda: b'{"error":"bad key sk-supersecret12345"}'),
+        )
+
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(EmbeddingRequestError) as raised:
+                model.embed_many(["alpha"])
+
+        message = str(raised.exception)
+        self.assertIn("HTTP error", message)
+        self.assertIn("401 Unauthorized", message)
+        self.assertNotIn("sk-supersecret12345", message)
+
+    def test_openai_compatible_embedding_model_reports_json_errors(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self):
+                return b"{bad json"
+
+        model = OpenAICompatibleEmbeddingModel(
+            base_url="https://llm.example/v1",
+            api_key="secret",
+            model="embedding-model",
+            dimensions=2,
+            max_retries=0,
+        )
+
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse()):
+            with self.assertRaisesRegex(EmbeddingRequestError, "JSON decode failed"):
+                model.embed_many(["alpha"])
 
 
 if __name__ == "__main__":

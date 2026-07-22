@@ -10,6 +10,7 @@ import type {
   IndexJob,
   IndexResult,
   MasteryState,
+  MasteryUpdateRequest,
   SaveMasteryResponse,
   SaveConfigResponse,
   SaveStudyPlanResponse,
@@ -759,20 +760,17 @@ describe('course store', () => {
     store.selectCourse('a')
 
     await store.loadMastery()
-    await store.updateMastery({
+    const request: MasteryUpdateRequest = {
       answer_result: {
         point_id: 'kp-page-table',
         correct: true,
       },
-    })
+    }
+
+    await store.updateMastery(request)
 
     expect(api.getJson).toHaveBeenCalledWith('/api/courses/a/mastery')
-    expect(api.postJson).toHaveBeenCalledWith('/api/courses/a/mastery', {
-      answer_result: {
-        point_id: 'kp-page-table',
-        correct: true,
-      },
-    })
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/a/mastery', request)
     expect(store.mastery?.mastery['kp-page-table']?.score).toBe(65)
     expect(store.masteryLoading).toBe(false)
   })

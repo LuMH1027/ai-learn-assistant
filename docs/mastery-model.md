@@ -189,7 +189,24 @@ next_state = apply_answer_result(
 }
 ```
 
-前端课程概览使用该字段展示平均掌握分与薄弱点。
+前端课程概览使用该字段展示平均掌握分。`CourseSidebar.vue` 还渲染轻量“掌握度”区块，直接展示：
+
+- `due_review_count` / `due_reviews`：待复习知识点数量与队列。
+- `open_mistake_count`：仍未订正的错题数量。
+- `weakest_points`：当前最薄弱知识点。
+
+掌握度区块中的“对 / 错”按钮会调用既有 `POST /api/courses/<course_id>/mastery`，仅提交：
+
+```json
+{
+  "answer_result": {
+    "point_id": "kp-address",
+    "correct": true
+  }
+}
+```
+
+请求成功后前端刷新 dashboard，让待复习数、未订正数和薄弱点回到后端汇总结果。
 
 `difficulty` 支持：
 

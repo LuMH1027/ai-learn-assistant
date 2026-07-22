@@ -3,8 +3,9 @@ import { computed, ref, watch } from 'vue'
 
 import { useCourseStore } from '../stores/course'
 import { usePreviewStore } from '../stores/preview'
-import type { ConfigCapabilityStatus, FileLeafNode, StudyPlanItem } from '../types/api'
+import type { ConfigCapabilityStatus, FileLeafNode, MasteryDashboardItem, StudyPlanItem } from '../types/api'
 import FileTree from './FileTree.vue'
+import MasteryPanel from './MasteryPanel.vue'
 
 defineProps<{ sidebarOpen: boolean }>()
 
@@ -18,13 +19,13 @@ const rootFolder = ref('')
 const coursePicker = ref<HTMLInputElement | null>(null)
 const error = ref<string | null>(null)
 const newPlanTitle = ref('')
+const masteryActionId = ref<string | null>(null)
 
 const visiblePlanItems = computed(() => course.studyPlan?.items.slice(0, 5) ?? [])
 const nextPlanItem = computed(() =>
   course.studyPlan?.items.find((item) => item.id === course.studyPlan?.stats.next_item_id) ?? null,
 )
 const dashboardReviewItems = computed(() => course.dashboard?.review_queue.slice(0, 2) ?? [])
-const masteryWeakItems = computed(() => course.dashboard?.mastery?.weakest_points.slice(0, 2) ?? [])
 const latestDashboardActivity = computed(() => course.dashboard?.recent_activity[0] ?? null)
 const healthItems = computed(() => {
   const preferred = ['ai', 'rag_index', 'vector', 'material_root', 'data_dir', 'telemetry', 'backup']
@@ -100,6 +101,22 @@ function overallHealthLabel(status: 'ok' | 'warning' | 'error' | undefined) {
   if (status === 'ok') return '正常'
   if (status === 'error') return '异常'
   return '需关注'
+}
+
+function recordMasteryAnswer(item: MasteryDashboardItem, correct: boolean) {
+  if (masteryActionId.value !== null) return
+  masteryActionId.value = item.id
+  void run(async () => {
+    await course.updateMastery({
+      answer_result: {
+        point_id: item.id,
+        correct,
+      },
+    })
+    await course.loadDashboard()
+  }).finally(() => {
+    masteryActionId.value = null
+  })
 }
 
 function onDrop(event: DragEvent) {
@@ -188,9 +205,11 @@ function onDrop(event: DragEvent) {
         <p v-if="dashboardReviewItems.length > 0" class="dashboard-line">
           待复习：{{ dashboardReviewItems.map((item) => item.title).join('、') }}
         </p>
-        <p v-if="masteryWeakItems.length > 0" class="dashboard-line">
-          薄弱点：{{ masteryWeakItems.map((item) => `${item.title} ${item.score}`).join('、') }}
-        </p>
+        <MasteryPanel
+          :mastery="course.dashboard.mastery ?? null"
+          :busy="masteryActionId !== null"
+          @record="recordMasteryAnswer"
+        />
         <p v-if="latestDashboardActivity" class="dashboard-line">
           最近：{{ activityLabel(latestDashboardActivity.type) }} · {{ latestDashboardActivity.title }}
         </p>

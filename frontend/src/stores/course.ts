@@ -13,6 +13,7 @@ import type {
   IndexResult,
   MasteryResponse,
   MasteryState,
+  MasteryUpdateRequest,
   SaveConfigResponse,
   SaveMasteryResponse,
   SaveStudyPlanResponse,
@@ -436,7 +437,7 @@ export const useCourseStore = defineStore('course', () => {
     return updateStudyPlanItem(item, { status: nextStatus })
   }
 
-  function updateMastery(body: unknown) {
+  function updateMastery(body: MasteryUpdateRequest) {
     const courseId = activeCourseId.value
     if (courseId === null) return
     const requestedRootVersion = rootVersion.value
