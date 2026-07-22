@@ -17,6 +17,8 @@ from local_course_agent.api.course import (
     update_study_plan_item as run_update_study_plan_item,
     upload_course_files as run_upload_course_files,
 )
+from local_course_agent.api.course.mastery import resolve_mastery_mistake as run_resolve_mastery_mistake
+from local_course_agent.api.course.study_plan import delete_study_plan_item as run_delete_study_plan_item
 from local_course_agent.api.router import (
     dispatch_course_action,
     match_get_course_action,
@@ -54,8 +56,10 @@ class ServerRoutesMixin:
         "delete_note": "delete_course_note",
         "clear_memory": "clear_course_memory",
         "plan": "add_study_plan_item",
+        "delete_plan_item": "delete_study_plan_item",
         "plan_item": "update_study_plan_item",
         "mastery": "update_mastery",
+        "resolve_mastery_mistake": "resolve_mastery_mistake",
     }
 
     def do_GET(self):
@@ -182,9 +186,15 @@ class ServerRoutesMixin:
         body = self.read_body()
         return self.send_service_json(lambda: run_update_study_plan_item(self.ctx, course_id, item_id, body))
 
+    def delete_study_plan_item(self, course_id: str, item_id: str):
+        return self.send_service_json(lambda: run_delete_study_plan_item(self.ctx, course_id, item_id))
+
     def update_mastery(self, course_id: str):
         body = self.read_body()
         return self.send_service_json(lambda: run_update_mastery(self.ctx, course_id, body))
+
+    def resolve_mastery_mistake(self, course_id: str, mistake_id: str):
+        return self.send_service_json(lambda: run_resolve_mastery_mistake(self.ctx, course_id, mistake_id))
 
     def send_preview(self, file_id: str):
         return send_file_preview(self, self.ctx, file_id)

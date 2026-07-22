@@ -53,3 +53,16 @@ class StudyPlanStoreMixin:
                 raise KeyError(f"study plan item not found: {item_id}")
             self._write_json(self._study_plan_path(course_id), updated)
             return updated
+
+    def delete_study_plan_item(self, course_id: str, item_id: int) -> List[Dict]:
+        with self._lock_for(course_id):
+            items = self.list_study_plan(course_id)
+            updated = [
+                item
+                for item in items
+                if int(item.get("id", 0)) != int(item_id)
+            ]
+            if len(updated) == len(items):
+                raise KeyError(f"study plan item not found: {item_id}")
+            self._write_json(self._study_plan_path(course_id), updated)
+            return updated

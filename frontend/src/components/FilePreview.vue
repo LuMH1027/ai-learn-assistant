@@ -1,21 +1,47 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
-import { renderMarkdown } from '../services/markdown'
+import { buildTextSearchParts, renderMarkdown } from '../services/markdown'
 import { usePreviewStore, type PreviewTab } from '../stores/preview'
 
 const preview = usePreviewStore()
+const filePanel = ref<HTMLElement | null>(null)
 const extension = computed(() => preview.activeFile?.extension.toLowerCase() ?? '')
 const isPdf = computed(() => extension.value === '.pdf')
 const isImage = computed(() => ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].includes(extension.value))
 const isMarkdown = computed(() => ['.md', '.markdown'].includes(extension.value))
-const markdownHtml = computed(() => renderMarkdown(preview.content ?? ''))
+const markdownHtml = computed(() => renderMarkdown(
+  preview.content ?? '',
+  preview.searchTerm
+    ? { query: preview.searchTerm, activeIndex: preview.activeSearchIndex }
+    : undefined,
+))
+const textSearchParts = computed(() => buildTextSearchParts(preview.content ?? '', preview.searchTerm))
+const activeSearchKey = computed(() => [
+  preview.activeFile?.id ?? '',
+  preview.searchTerm,
+  preview.activeSearchIndex,
+  preview.searchMatchCount,
+].join('\u0000'))
 
 const tabs: Array<{ id: PreviewTab, label: string }> = [
   { id: 'file', label: '当前文件' },
   { id: 'sources', label: '引用来源' },
   { id: 'info', label: '信息' },
 ]
+
+function setSearchQuery(event: Event) {
+  preview.setSearchQuery((event.target as HTMLInputElement).value)
+}
+
+watch(activeSearchKey, async () => {
+  if (preview.searchMatchCount === 0) return
+  await nextTick()
+  const activeMatch = filePanel.value?.querySelector('.preview-search-hit.active')
+  if (activeMatch instanceof HTMLElement && typeof activeMatch.scrollIntoView === 'function') {
+    activeMatch.scrollIntoView({ block: 'center', inline: 'nearest' })
+  }
+}, { flush: 'post' })
 </script>
 
 <template>
@@ -42,16 +68,50 @@ const tabs: Array<{ id: PreviewTab, label: string }> = [
       </button>
     </div>
 
-    <section v-show="preview.tab === 'file'" id="preview-panel-file" role="tabpanel" aria-labelledby="preview-tab-file">
+    <section
+      v-show="preview.tab === 'file'"
+      id="preview-panel-file"
+      ref="filePanel"
+      role="tabpanel"
+      aria-labelledby="preview-tab-file"
+    >
       <p v-if="preview.error" role="alert">{{ preview.error }}</p>
       <p v-else-if="!preview.activeFile">选择左侧资料，或点击回答中的引用。</p>
-      <div v-else-if="isPdf">
-        <iframe :src="preview.url ?? undefined" :title="preview.activeFile.name" />
-        <a :href="preview.url ?? undefined" target="_blank" rel="noopener">在新窗口打开 PDF</a>
-      </div>
-      <img v-else-if="isImage" :src="preview.url ?? undefined" :alt="preview.activeFile.name" />
-      <div v-else-if="isMarkdown" class="markdown-preview" v-html="markdownHtml" />
-      <pre v-else>{{ preview.content }}</pre>
+      <template v-else>
+        <form
+          v-if="preview.supportsSearch"
+          class="preview-search"
+          role="search"
+          aria-label="当前文件搜索"
+          @submit.prevent="preview.nextSearchMatch"
+        >
+          <input
+            type="search"
+            :value="preview.searchQuery"
+            placeholder="搜索当前文件"
+            aria-label="搜索当前文件"
+            @input="setSearchQuery"
+          >
+          <output aria-live="polite">{{ preview.currentSearchMatch }}/{{ preview.searchMatchCount }}</output>
+          <button type="button" :disabled="preview.searchMatchCount === 0" @click="preview.previousSearchMatch">上一个</button>
+          <button type="submit" :disabled="preview.searchMatchCount === 0">下一个</button>
+        </form>
+        <div v-if="isPdf">
+          <iframe :src="preview.url ?? undefined" :title="preview.activeFile.name" />
+          <a :href="preview.url ?? undefined" target="_blank" rel="noopener">在新窗口打开 PDF</a>
+        </div>
+        <img v-else-if="isImage" :src="preview.url ?? undefined" :alt="preview.activeFile.name" />
+        <div v-else-if="isMarkdown" class="markdown-preview" v-html="markdownHtml" />
+        <pre v-else class="text-preview"><template
+          v-for="(part, index) in textSearchParts"
+          :key="`${index}-${part.matchIndex ?? 'text'}`"
+        ><mark
+          v-if="part.matchIndex !== null"
+          class="preview-search-hit"
+          :class="{ active: part.matchIndex === preview.activeSearchIndex }"
+          :data-search-index="part.matchIndex"
+        >{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></pre>
+      </template>
     </section>
 
     <section v-show="preview.tab === 'sources'" id="preview-panel-sources" role="tabpanel" aria-labelledby="preview-tab-sources">
@@ -80,6 +140,7 @@ const tabs: Array<{ id: PreviewTab, label: string }> = [
 iframe { width: 100%; min-height: 70dvh; border: 0; }
 img { max-width: 100%; height: auto; }
 button { min-height: 44px; }
+.preview-search button { min-height: 34px; }
 .markdown-preview { color: var(--text); font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; }
 .markdown-preview :deep(h1),
 .markdown-preview :deep(h2),

@@ -11,6 +11,7 @@ import type {
   IndexResult,
   MasteryState,
   MasteryUpdateRequest,
+  ResolveMasteryMistakeResponse,
   SaveMasteryResponse,
   SaveConfigResponse,
   SaveStudyPlanResponse,
@@ -242,7 +243,19 @@ function masteryState(score = 35): MasteryState {
         updated_at: '2026-07-21 10:00:00',
       },
     },
-    mistakes: [],
+    mistakes: [{
+      id: 'mistake-1',
+      point_id: 'kp-page-table',
+      question: '解释页表地址转换。',
+      user_answer: '直接访问物理地址。',
+      expected_answer: '页号查页表得到页框号，再拼接偏移。',
+      source_ref: {},
+      status: 'open',
+      review_count: 0,
+      created_at: '2026-07-21 10:00:00',
+      updated_at: '2026-07-21 10:00:00',
+      resolved_at: '',
+    }],
     created_at: '2026-07-21 10:00:00',
     updated_at: '2026-07-21 10:00:00',
   }
@@ -775,6 +788,26 @@ describe('course store', () => {
     expect(store.masteryLoading).toBe(false)
   })
 
+  it('resolves an open mastery mistake for the active course', async () => {
+    const resolvedState = masteryState(65)
+    resolvedState.mistakes[0].status = 'resolved'
+    resolvedState.mistakes[0].review_count = 1
+    resolvedState.mistakes[0].resolved_at = '2026-07-22 10:00:00'
+    api.postJson.mockResolvedValue({
+      ok: true,
+      mastery: resolvedState,
+    } satisfies ResolveMasteryMistakeResponse)
+    const store = useCourseStore()
+    store.courses = [course('a')]
+    store.selectCourse('a')
+
+    await store.resolveMasteryMistake('mistake-1')
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/a/mastery/mistakes/mistake-1/resolve')
+    expect(store.mastery?.mistakes[0].status).toBe('resolved')
+    expect(store.mastery?.mistakes[0].review_count).toBe(1)
+  })
+
   it('drops a stale study plan response after switching courses', async () => {
     const oldPlan = deferred<{ plan: StudyPlan }>()
     api.getJson.mockReturnValue(oldPlan.promise)
@@ -840,5 +873,55 @@ describe('course store', () => {
 
     expect(api.postJson).toHaveBeenCalledWith('/api/courses/a/plan/1', { status: 'doing' })
     expect(store.studyPlan?.stats.progress_percent).toBe(100)
+  })
+
+  it('updates study plan content fields', async () => {
+    const updated = studyPlan(0)
+    updated.items[0] = {
+      ...updated.items[0],
+      title: '订正页表练习',
+      kind: 'practice',
+      estimated_minutes: 45,
+    }
+    api.postJson.mockResolvedValue({
+      ok: true,
+      plan: updated,
+    } satisfies SaveStudyPlanResponse)
+    const store = useCourseStore()
+    store.courses = [course('a')]
+    store.selectCourse('a')
+    store.studyPlan = studyPlan(0)
+
+    await store.updateStudyPlanItem(store.studyPlan.items[0], {
+      title: '订正页表练习',
+      kind: 'practice',
+      estimated_minutes: 45,
+    })
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/a/plan/1', {
+      title: '订正页表练习',
+      kind: 'practice',
+      estimated_minutes: 45,
+    })
+    expect(store.studyPlan?.items[0]?.title).toBe('订正页表练习')
+  })
+
+  it('deletes a study plan item and applies returned plan', async () => {
+    const updated = studyPlan(100)
+    updated.items = []
+    updated.stats.total = 0
+    api.postJson.mockResolvedValue({
+      ok: true,
+      plan: updated,
+    } satisfies SaveStudyPlanResponse)
+    const store = useCourseStore()
+    store.courses = [course('a')]
+    store.selectCourse('a')
+    store.studyPlan = studyPlan(0)
+
+    await store.deleteStudyPlanItem(store.studyPlan.items[0])
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/a/plan/1/delete')
+    expect(store.studyPlan?.items).toEqual([])
   })
 })

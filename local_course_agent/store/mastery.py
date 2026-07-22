@@ -6,6 +6,7 @@ from local_course_agent.learning.mastery import (
     apply_answer_result,
     create_mastery_state,
     normalize_state,
+    resolve_mistake,
     upsert_knowledge_point,
 )
 
@@ -33,3 +34,21 @@ class MasteryStoreMixin:
             next_state = apply_answer_result(state, point_id, correct=correct, **kwargs)
             self._write_json(self._mastery_path(course_id), next_state)
             return next_state
+
+    def resolve_mastery_mistake(self, course_id: str, mistake_id: str) -> Dict | None:
+        with self._lock_for(course_id):
+            state = self.get_mastery_state(course_id)
+            next_mistakes = []
+            resolved = None
+            for mistake in state["mistakes"]:
+                if mistake["id"] == str(mistake_id):
+                    resolved = resolve_mistake(mistake)
+                    next_mistakes.append(resolved)
+                else:
+                    next_mistakes.append(mistake)
+            if resolved is None:
+                return None
+            state["mistakes"] = next_mistakes
+            state["updated_at"] = resolved["updated_at"]
+            self._write_json(self._mastery_path(course_id), state)
+            return state

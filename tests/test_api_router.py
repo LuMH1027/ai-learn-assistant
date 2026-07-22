@@ -11,6 +11,7 @@ from local_course_agent.api.router import (
     match_post_course_action,
     parse_course_route,
 )
+from local_course_agent.api.course.errors import ApiError
 from local_course_agent.api.server.routes import ServerRoutesMixin
 from local_course_agent.store import AppStore
 
@@ -28,6 +29,10 @@ class ApiRouterTest(unittest.TestCase):
         self.assertEqual(
             parse_course_route("/api/courses/os-1/notes/7/delete"),
             ("os-1", "notes/7/delete"),
+        )
+        self.assertEqual(
+            parse_course_route("/api/courses/os-1/plan/7/delete"),
+            ("os-1", "plan/7/delete"),
         )
         self.assertIsNone(parse_course_route("/api/config"))
         self.assertIsNone(parse_course_route("/api/courses/os-1"))
@@ -79,6 +84,23 @@ class ApiRouterTest(unittest.TestCase):
         self.assertEqual(match.endpoint, "plan_item")
         self.assertEqual(match.params, {"item_id": "item-42"})
 
+    def test_post_mastery_mistake_resolve_route_extracts_mistake_id(self):
+        match = match_post_course_action("/api/courses/os-1/mastery/mistakes/mistake-42/resolve")
+
+        self.assertIsNotNone(match)
+        self.assertEqual(match.course_id, "os-1")
+        self.assertEqual(match.endpoint, "resolve_mastery_mistake")
+        self.assertEqual(match.params, {"mistake_id": "mistake-42"})
+
+    def test_post_plan_item_delete_route_extracts_item_id(self):
+        match = match_post_course_action("/api/courses/os-1/plan/42/delete")
+
+        self.assertIsNotNone(match)
+        self.assertEqual(match.course_id, "os-1")
+        self.assertEqual(match.action, "plan/42/delete")
+        self.assertEqual(match.endpoint, "delete_plan_item")
+        self.assertEqual(match.params, {"item_id": "42"})
+
     def test_dispatch_course_action_invokes_mapped_handler_with_params(self):
         class Target:
             def update_item(self, course_id, item_id):
@@ -128,6 +150,45 @@ class ApiRouterTest(unittest.TestCase):
             self.assertEqual(update["payload"]["note"]["content"], "新内容")
             self.assertEqual(delete["payload"]["notes"], [])
             self.assertEqual(clear["payload"], {"ok": True, "messages": [], "memory": ""})
+            self.assertEqual(missing["status"], HTTPStatus.NOT_FOUND)
+
+    def test_mastery_mistake_handler_marks_mistake_resolved(self):
+        class Target(ServerRoutesMixin):
+            def __init__(self, store):
+                self.ctx = SimpleNamespace(
+                    find_course=lambda course_id: {"id": course_id, "name": course_id},
+                    store=store,
+                )
+
+            def send_json(self, payload, status=HTTPStatus.OK):
+                return {"status": status, "payload": payload}
+
+            def send_error_json(self, message, status=HTTPStatus.BAD_REQUEST):
+                return {"status": status, "payload": {"ok": False, "error": message}}
+
+            def send_service_json(self, action, status=HTTPStatus.OK):
+                try:
+                    return self.send_json(action(), status)
+                except ApiError as exc:
+                    return self.send_error_json(exc.message, exc.status)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+            store.upsert_mastery_knowledge_point("course-1", {"id": "kp-page-table", "title": "页表地址转换"})
+            state = store.apply_mastery_answer_result(
+                "course-1",
+                "kp-page-table",
+                correct=False,
+                question="解释页表地址转换。",
+            )
+            mistake_id = state["mistakes"][0]["id"]
+
+            resolved = Target(store).resolve_mastery_mistake("course-1", mistake_id)
+            missing = Target(store).resolve_mastery_mistake("course-1", "missing")
+
+            self.assertEqual(resolved["status"], HTTPStatus.OK)
+            self.assertTrue(resolved["payload"]["ok"])
+            self.assertEqual(resolved["payload"]["mastery"]["mistakes"][0]["status"], "resolved")
             self.assertEqual(missing["status"], HTTPStatus.NOT_FOUND)
 
 

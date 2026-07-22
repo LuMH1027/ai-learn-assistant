@@ -89,6 +89,8 @@ export interface StudyPlan {
   stats: StudyPlanStats
 }
 
+export type StudyPlanItemChanges = Partial<Pick<StudyPlanItem, 'status' | 'title' | 'kind' | 'estimated_minutes'>>
+
 export interface KnowledgePoint {
   id: string
   title: string
@@ -307,6 +309,8 @@ export interface SaveMasteryResponse {
   ok: boolean
   mastery: MasteryState
 }
+
+export type ResolveMasteryMistakeResponse = SaveMasteryResponse
 
 export interface SaveStudyPlanResponse {
   ok: boolean

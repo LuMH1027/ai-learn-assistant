@@ -1,16 +1,28 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
-import type { DashboardMastery, MasteryDashboardItem } from '../types/api'
+import type {
+  DashboardMastery,
+  MasteryDashboardItem,
+  MasteryKnowledgePointInput,
+  MasteryState,
+  MistakeRecord,
+} from '../types/api'
 
 const props = defineProps<{
   mastery: DashboardMastery | null
+  state: MasteryState | null
   busy: boolean
 }>()
 
 const emit = defineEmits<{
   record: [item: MasteryDashboardItem, correct: boolean]
+  addPoint: [point: MasteryKnowledgePointInput]
+  resolveMistake: [mistake: MistakeRecord]
 }>()
+
+const title = ref('')
+const aliases = ref('')
 
 const weakItems = computed(() => props.mastery?.weakest_points.slice(0, 2) ?? [])
 const actionItems = computed(() => {
@@ -21,6 +33,14 @@ const actionItems = computed(() => {
   }
   return [...byId.values()].slice(0, 3)
 })
+const pointsById = computed(() => {
+  const points = new Map<string, string>()
+  for (const point of props.state?.knowledge_points ?? []) points.set(point.id, point.title)
+  return points
+})
+const openMistakes = computed(() =>
+  (props.state?.mistakes ?? []).filter((mistake) => mistake.status === 'open').slice(0, 4),
+)
 
 function masteryLevelLabel(level: string) {
   if (level === 'weak') return '薄弱'
@@ -28,6 +48,22 @@ function masteryLevelLabel(level: string) {
   if (level === 'familiar') return '熟悉'
   if (level === 'mastered') return '已掌握'
   return level
+}
+
+function pointTitle(pointId: string) {
+  return pointsById.value.get(pointId) ?? pointId
+}
+
+function submitPoint() {
+  const normalizedTitle = title.value.trim()
+  if (!normalizedTitle || props.busy) return
+  const aliasList = aliases.value
+    .split(/[,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  emit('addPoint', { title: normalizedTitle, aliases: aliasList })
+  title.value = ''
+  aliases.value = ''
 }
 </script>
 
@@ -37,6 +73,13 @@ function masteryLevelLabel(level: string) {
       <strong>掌握度</strong>
       <span>{{ mastery.due_review_count }} 待复习 · {{ mastery.open_mistake_count }} 未订正</span>
     </div>
+
+    <form class="mastery-form" aria-label="新增知识点" @submit.prevent="submitPoint">
+      <input v-model="title" aria-label="知识点名称" placeholder="新增知识点" :disabled="busy" />
+      <input v-model="aliases" aria-label="知识点别名" placeholder="别名，可选" :disabled="busy" />
+      <button type="submit" aria-label="添加知识点" :disabled="busy || !title.trim()">＋</button>
+    </form>
+
     <p v-if="weakItems.length > 0" class="mastery-line">
       薄弱点：{{ weakItems.map((item) => `${item.title} ${item.score}`).join('、') }}
     </p>
@@ -70,6 +113,28 @@ function masteryLevelLabel(level: string) {
       </div>
     </div>
     <p v-else class="mastery-line">暂无待复习知识点</p>
+
+    <div v-if="openMistakes.length > 0" class="mistake-list" aria-label="未订正错题">
+      <div
+        v-for="mistake in openMistakes"
+        :key="mistake.id"
+        class="mistake-item"
+      >
+        <span class="mastery-copy">
+          <strong>{{ mistake.question }}</strong>
+          <span>{{ pointTitle(mistake.point_id) }}</span>
+          <span v-if="mistake.expected_answer">答案：{{ mistake.expected_answer }}</span>
+          <span v-if="mistake.user_answer">作答：{{ mistake.user_answer }}</span>
+        </span>
+        <button
+          type="button"
+          class="mistake-resolve"
+          :aria-label="`标记${mistake.question}已订正`"
+          :disabled="busy"
+          @click="emit('resolveMistake', mistake)"
+        >订正</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -77,7 +142,7 @@ function masteryLevelLabel(level: string) {
 .mastery-panel {
   display: grid;
   min-width: 0;
-  gap: 0.375rem;
+  gap: 0.45rem;
   border-top: 1px solid var(--line);
   padding-top: 0.45rem;
 }
@@ -104,16 +169,44 @@ function masteryLevelLabel(level: string) {
   color: var(--muted);
   font-size: 0.75rem;
 }
-.mastery-list {
+.mastery-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 2rem;
+  gap: 0.25rem;
+}
+.mastery-form input {
+  min-width: 0;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.75rem;
+}
+.mastery-form button {
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  line-height: 1;
+}
+.mastery-list,
+.mistake-list {
   display: grid;
   gap: 0.25rem;
 }
-.mastery-item {
+.mastery-item,
+.mistake-item {
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.375rem;
+}
+.mistake-item {
+  align-items: start;
+  border-top: 1px solid var(--line);
+  padding-top: 0.35rem;
 }
 .mastery-copy {
   display: grid;
@@ -138,18 +231,23 @@ function masteryLevelLabel(level: string) {
   grid-template-columns: repeat(2, 1.75rem);
   gap: 0.2rem;
 }
-.mastery-action {
-  width: 1.75rem;
-  min-width: 1.75rem;
+.mastery-action,
+.mistake-resolve {
   min-height: 1.75rem;
-  padding: 0;
+  padding: 0 0.45rem;
   border-color: var(--line);
   background: var(--surface);
   color: var(--accent);
   font-size: 0.75rem;
   line-height: 1;
 }
-.mastery-action:hover:not(:disabled) {
+.mastery-action {
+  width: 1.75rem;
+  min-width: 1.75rem;
+  padding: 0;
+}
+.mastery-action:hover:not(:disabled),
+.mistake-resolve:hover:not(:disabled) {
   background: var(--accent-soft);
 }
 .mastery-action.danger {

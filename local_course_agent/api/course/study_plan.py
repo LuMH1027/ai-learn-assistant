@@ -37,3 +37,16 @@ def update_study_plan_item(context, course_id: str, item_id: str, body: dict) ->
     except KeyError as exc:
         raise ApiError("学习项不存在", HTTPStatus.NOT_FOUND) from exc
     return {"ok": True, "plan": {"items": items, "stats": study_plan_stats(items)}}
+
+
+def delete_study_plan_item(context, course_id: str, item_id: str) -> dict:
+    course_or_error(context, course_id)
+    try:
+        parsed_item_id = int(item_id)
+    except ValueError:
+        raise ApiError("学习项不存在", HTTPStatus.NOT_FOUND)
+    try:
+        items = context.store.delete_study_plan_item(course_id, parsed_item_id)
+    except KeyError as exc:
+        raise ApiError("学习项不存在", HTTPStatus.NOT_FOUND) from exc
+    return {"ok": True, "plan": {"items": items, "stats": study_plan_stats(items)}}

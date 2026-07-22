@@ -6,7 +6,7 @@ import App from '../App.vue'
 import { useChatStore } from '../stores/chat'
 import { useCourseStore } from '../stores/course'
 import { useLayoutStore } from '../stores/layout'
-import type { ChatStreamEvent, Citation, Course, FileLeafNode, Message } from '../types/api'
+import type { ChatStreamEvent, Citation, Course, FileLeafNode, Message, StudyPlanItem } from '../types/api'
 
 const jsdom = (globalThis as typeof globalThis & {
   jsdom: { window: Window }
@@ -84,6 +84,84 @@ function deferred<T>() {
   return { promise, reject, resolve }
 }
 
+function planItem(id: number, title: string, status: StudyPlanItem['status'] = 'todo'): StudyPlanItem {
+  return {
+    id,
+    title,
+    kind: id % 3 === 0 ? 'practice' : id % 2 === 0 ? 'review' : 'read',
+    status,
+    estimated_minutes: 20 + id * 5,
+    source_file_id: `f${id}`,
+    source_file_name: `第 ${id} 讲.md`,
+    created_at: '2026-07-21 10:00:00',
+    updated_at: '2026-07-21 10:00:00',
+    completed_at: status === 'done' ? '2026-07-21 10:30:00' : '',
+  }
+}
+
+function planPayload(items = [1, 2, 3, 4, 5, 6].map((id) => planItem(id, `学习项 ${id}`))) {
+  const completed = items.filter((item) => item.status === 'done').length
+  const doing = items.filter((item) => item.status === 'doing').length
+  return {
+    items,
+    stats: {
+      total: items.length,
+      completed,
+      doing,
+      remaining_minutes: items
+        .filter((item) => item.status !== 'done')
+        .reduce((total, item) => total + item.estimated_minutes, 0),
+      progress_percent: items.length === 0 ? 0 : Math.round((completed / items.length) * 100),
+      next_item_id: items.find((item) => item.status !== 'done')?.id ?? null,
+    },
+  }
+}
+
+function masteryPayload(status: 'open' | 'resolved' = 'open') {
+  return {
+    schema_version: 1,
+    knowledge_points: [{
+      id: 'kp-page-table',
+      title: '页表地址转换',
+      aliases: [],
+      source_refs: [],
+      created_at: '2026-07-21 10:00:00',
+      updated_at: '2026-07-21 10:00:00',
+    }],
+    mastery: {
+      'kp-page-table': {
+        point_id: 'kp-page-table',
+        score: 35,
+        level: 'weak',
+        attempts: 2,
+        correct_count: 1,
+        wrong_count: 1,
+        streak: 0,
+        last_result: 'wrong',
+        last_answered_at: '2026-07-21 10:00:00',
+        next_review_at: '2026-07-22 10:00:00',
+        review_interval_days: 1,
+        updated_at: '2026-07-21 10:00:00',
+      },
+    },
+    mistakes: [{
+      id: 'mistake-1',
+      point_id: 'kp-page-table',
+      question: '解释页表地址转换。',
+      user_answer: '直接访问物理地址。',
+      expected_answer: '页号查页表得到页框号，再拼接偏移。',
+      source_ref: {},
+      status,
+      review_count: status === 'resolved' ? 1 : 0,
+      created_at: '2026-07-21 10:00:00',
+      updated_at: status === 'resolved' ? '2026-07-22 10:00:00' : '2026-07-21 10:00:00',
+      resolved_at: status === 'resolved' ? '2026-07-22 10:00:00' : '',
+    }],
+    created_at: '2026-07-21 10:00:00',
+    updated_at: status === 'resolved' ? '2026-07-22 10:00:00' : '2026-07-21 10:00:00',
+  }
+}
+
 function mockApi() {
   api.postJson.mockImplementation((path: string) => {
     if (path.endsWith('/memory/clear')) {
@@ -107,17 +185,41 @@ function mockApi() {
     if (path.endsWith('/notes/1/delete')) {
       return Promise.resolve({ ok: true, notes: [] })
     }
+    if (path.endsWith('/mastery/mistakes/mistake-1/resolve')) {
+      return Promise.resolve({
+        ok: true,
+        mastery: masteryPayload('resolved'),
+      })
+    }
     if (path.endsWith('/mastery')) {
       return Promise.resolve({
         ok: true,
-        mastery: {
-          schema_version: 1,
-          knowledge_points: [],
-          mastery: {},
-          mistakes: [],
-          created_at: '2026-07-22 10:00:00',
-          updated_at: '2026-07-22 10:00:00',
-        },
+        mastery: masteryPayload(),
+      })
+    }
+    if (path.endsWith('/plan/1')) {
+      return Promise.resolve({
+        ok: true,
+        plan: planPayload([
+          { ...planItem(1, '更新后的学习项', 'todo'), kind: 'practice', estimated_minutes: 45 },
+          ...[2, 3, 4, 5, 6].map((id) => planItem(id, `学习项 ${id}`)),
+        ]),
+      })
+    }
+    if (path.endsWith('/plan/2')) {
+      return Promise.resolve({
+        ok: true,
+        plan: planPayload([
+          planItem(1, '学习项 1'),
+          planItem(2, '学习项 2', 'done'),
+          ...[3, 4, 5, 6].map((id) => planItem(id, `学习项 ${id}`)),
+        ]),
+      })
+    }
+    if (path.endsWith('/plan/3/delete')) {
+      return Promise.resolve({
+        ok: true,
+        plan: planPayload([1, 2, 4, 5, 6].map((id) => planItem(id, `学习项 ${id}`))),
       })
     }
     throw new Error(`Unexpected POST ${path}`)
@@ -294,19 +396,14 @@ function mockApi() {
         }],
       })
     }
+    if (path.endsWith('/mastery')) {
+      return Promise.resolve({
+        mastery: masteryPayload(),
+      })
+    }
     if (path.endsWith('/plan')) {
       return Promise.resolve({
-        plan: {
-          items: [],
-          stats: {
-            total: 0,
-            completed: 0,
-            doing: 0,
-            remaining_minutes: 0,
-            progress_percent: 0,
-            next_item_id: null,
-          },
-        },
+        plan: planPayload(),
       })
     }
     throw new Error(`Unexpected GET ${path}`)
@@ -371,6 +468,8 @@ describe('course workspace components', () => {
     expect(dashboard.text()).toContain('1 待复习 · 1 未订正')
     expect(dashboard.text()).toContain('下一步：订正页表练习')
     expect(dashboard.text()).toContain('薄弱点：页表地址转换 35')
+    expect(dashboard.text()).toContain('解释页表地址转换。')
+    expect(dashboard.text()).toContain('答案：页号查页表得到页框号，再拼接偏移。')
     expect(dashboard.text()).toContain('最近：笔记 · TLB 易错点')
   })
 
@@ -392,6 +491,36 @@ describe('course workspace components', () => {
     expect(dashboardLoads.length).toBeGreaterThanOrEqual(2)
   })
 
+  it('adds a mastery point from the sidebar form', async () => {
+    const { wrapper } = await mountWorkspace()
+    await flushPromises()
+
+    await wrapper.get('input[aria-label="知识点名称"]').setValue('TLB 命中率')
+    await wrapper.get('input[aria-label="知识点别名"]').setValue('快表, 地址转换缓存')
+    await wrapper.get('form[aria-label="新增知识点"]').trigger('submit')
+    await flushPromises()
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/mastery', {
+      knowledge_point: {
+        title: 'TLB 命中率',
+        aliases: ['快表', '地址转换缓存'],
+      },
+    })
+  })
+
+  it('resolves an open mastery mistake from the sidebar', async () => {
+    const { wrapper } = await mountWorkspace()
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="标记解释页表地址转换。已订正"]').trigger('click')
+    await flushPromises()
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/mastery/mistakes/mistake-1/resolve')
+    const dashboardLoads = api.getJson.mock.calls
+      .filter(([path]) => String(path).endsWith('/dashboard'))
+    expect(dashboardLoads.length).toBeGreaterThanOrEqual(2)
+  })
+
   it('renders config health status in the sidebar', async () => {
     const { wrapper } = await mountWorkspace()
     await flushPromises()
@@ -403,6 +532,40 @@ describe('course workspace components', () => {
     expect(health.text()).toContain('向量检索：正常')
     expect(health.text()).toContain('遥测诊断：正常')
     expect(health.text()).toContain('备份恢复：正常')
+  })
+
+  it('shows the full study plan and manages item edit, status and delete', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const { wrapper } = await mountWorkspace()
+    await flushPromises()
+
+    const plan = wrapper.get('section[aria-labelledby="study-plan-title"]')
+    expect(plan.text()).toContain('学习项 1')
+    expect(plan.text()).toContain('学习项 6')
+
+    await wrapper.get('button[aria-label="编辑学习项：学习项 1"]').trigger('click')
+    await wrapper.get('input[aria-label="编辑学习项标题：学习项 1"]').setValue('更新后的学习项')
+    await wrapper.get('select[aria-label="编辑学习项类型：学习项 1"]').setValue('practice')
+    await wrapper.get('input[aria-label="编辑预计分钟：学习项 1"]').setValue('45')
+    await wrapper.findAll('button').find((button) => button.text() === '保存')!.trigger('click')
+    await flushPromises()
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/plan/1', {
+      title: '更新后的学习项',
+      kind: 'practice',
+      estimated_minutes: 45,
+    })
+    expect(plan.text()).toContain('更新后的学习项')
+
+    await wrapper.get('button[aria-label="切换学习项状态：学习项 2"]').trigger('click')
+    await flushPromises()
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/plan/2', { status: 'doing' })
+
+    await wrapper.get('button[aria-label="删除学习项：学习项 3"]').trigger('click')
+    await flushPromises()
+    expect(window.confirm).toHaveBeenCalledWith('删除学习项「学习项 3」？')
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/plan/3/delete')
+    expect(plan.text()).not.toContain('学习项 3')
   })
 
   it('changes and resets a divider with keyboard and double click', async () => {
@@ -626,13 +789,14 @@ describe('course workspace components', () => {
     const { wrapper } = await mountWorkspace()
     await wrapper.get('button[aria-label="打开课程笔记"]').trigger('click')
     await flushPromises()
+    const drawer = wrapper.get('aside[aria-labelledby="notes-title"]')
 
-    const edit = wrapper.findAll('button').find((button) => button.text() === '编辑')
+    const edit = drawer.findAll('button').find((button) => button.text() === '编辑')
     expect(edit).toBeTruthy()
     await edit!.trigger('click')
     await wrapper.get('input[aria-label="编辑笔记标题"]').setValue('更新重点')
     await wrapper.get('textarea[aria-label="编辑笔记内容"]').setValue('复习 TLB 与页表')
-    await wrapper.findAll('button').find((button) => button.text() === '保存修改')!.trigger('click')
+    await drawer.findAll('button').find((button) => button.text() === '保存修改')!.trigger('click')
     await flushPromises()
 
     expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/notes/1', {
@@ -641,7 +805,7 @@ describe('course workspace components', () => {
     })
     expect(wrapper.get('section[aria-label="已保存笔记"]').text()).toContain('更新重点')
 
-    await wrapper.findAll('button').find((button) => button.text() === '删除')!.trigger('click')
+    await drawer.findAll('button').find((button) => button.text() === '删除')!.trigger('click')
     await flushPromises()
 
     expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/notes/1/delete')

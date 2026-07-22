@@ -148,6 +148,7 @@ next_state = apply_answer_result(
 - `get_mastery_state(course_id)`：读取并规范化 `mastery.json`，缺失时返回空状态。
 - `upsert_mastery_knowledge_point(course_id, point)`：新增或合并知识点，同时确保存在 mastery record。
 - `apply_mastery_answer_result(course_id, point_id, correct, **kwargs)`：写入一次答题结果，更新掌握分并在答错时记录错题。
+- `resolve_mastery_mistake(course_id, mistake_id)`：按错题 ID 标记已订正，更新错题状态、订正次数和课程 mastery 更新时间；错题不存在时返回 `None`。
 
 ### API
 
@@ -155,6 +156,7 @@ next_state = apply_answer_result(
 
 - `GET /api/courses/<course_id>/mastery` 返回 `{ "mastery": MasteryState }`。
 - `POST /api/courses/<course_id>/mastery` 接受 `knowledge_point` 和/或 `answer_result`，返回 `{ "ok": true, "mastery": MasteryState }`。
+- `POST /api/courses/<course_id>/mastery/mistakes/<mistake_id>/resolve` 标记错题已订正，返回 `{ "ok": true, "mastery": MasteryState }`；找不到错题返回 404。
 
 示例：
 
@@ -198,11 +200,23 @@ next_state = apply_answer_result(
 }
 ```
 
-前端课程概览使用该字段展示平均掌握分。`CourseSidebar.vue` 还渲染轻量“掌握度”区块，直接展示：
+前端课程概览使用该字段展示平均掌握分。`CourseSidebar.vue` 还渲染轻量“掌握度”区块，并在切换课程时同时读取完整 mastery state，直接展示：
 
 - `due_review_count` / `due_reviews`：待复习知识点数量与队列。
 - `open_mistake_count`：仍未订正的错题数量。
 - `weakest_points`：当前最薄弱知识点。
+- 未订正错题列表：题目、关联知识点、参考答案和用户作答。
+
+掌握度区块支持手动新增知识点。表单提交到既有 `POST /api/courses/<course_id>/mastery`：
+
+```json
+{
+  "knowledge_point": {
+    "title": "TLB 命中率",
+    "aliases": ["快表"]
+  }
+}
+```
 
 掌握度区块中的“对 / 错”按钮会调用既有 `POST /api/courses/<course_id>/mastery`，仅提交：
 
@@ -216,6 +230,14 @@ next_state = apply_answer_result(
 ```
 
 请求成功后前端刷新 dashboard，让待复习数、未订正数和薄弱点回到后端汇总结果。
+
+未订正错题中的“订正”按钮会调用新增订正接口：
+
+```text
+POST /api/courses/os/mastery/mistakes/mistake-xxxxxxxxxxxx/resolve
+```
+
+请求成功后前端更新完整 mastery state 并刷新 dashboard，使错题列表和未订正数量同步。
 
 `difficulty` 支持：
 

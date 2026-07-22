@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from http import HTTPStatus
+
 from local_course_agent.api.course.errors import ApiError
 from local_course_agent.api.course.validators import course_or_error, parse_bool
 from local_course_agent.learning.mastery import create_knowledge_point
@@ -52,4 +54,14 @@ def update_mastery(context, course_id: str, body: dict) -> dict:
     if not isinstance(point, dict) and not isinstance(answer, dict):
         raise ApiError("缺少 mastery 更新内容")
 
+    return {"ok": True, "mastery": state}
+
+
+def resolve_mastery_mistake(context, course_id: str, mistake_id: str) -> dict:
+    course_or_error(context, course_id)
+    if not str(mistake_id).strip():
+        raise ApiError("错题 ID 不能为空")
+    state = context.store.resolve_mastery_mistake(course_id, str(mistake_id))
+    if state is None:
+        raise ApiError("错题不存在", HTTPStatus.NOT_FOUND)
     return {"ok": True, "mastery": state}

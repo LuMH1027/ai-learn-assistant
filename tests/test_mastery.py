@@ -138,6 +138,8 @@ class MasteryModelTest(unittest.TestCase):
 
         self.assertEqual(mistake["status"], "open")
         self.assertEqual(resolved["status"], "resolved")
+        self.assertEqual(resolved["point_id"], "kp-stack")
+        self.assertEqual(resolved["question"], "栈的访问顺序是什么？")
         self.assertEqual(resolved["review_count"], 1)
         self.assertEqual(resolved["resolved_at"], "2026-07-22 10:00:00")
 

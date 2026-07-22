@@ -3,7 +3,14 @@ import { computed, ref, watch } from 'vue'
 
 import { useCourseStore } from '../stores/course'
 import { usePreviewStore } from '../stores/preview'
-import type { ConfigCapabilityStatus, FileLeafNode, MasteryDashboardItem, StudyPlanItem } from '../types/api'
+import type {
+  ConfigCapabilityStatus,
+  FileLeafNode,
+  MasteryDashboardItem,
+  MasteryKnowledgePointInput,
+  MistakeRecord,
+  StudyPlanItem,
+} from '../types/api'
 import FileTree from './FileTree.vue'
 import MasteryPanel from './MasteryPanel.vue'
 
@@ -19,9 +26,14 @@ const rootFolder = ref('')
 const coursePicker = ref<HTMLInputElement | null>(null)
 const error = ref<string | null>(null)
 const newPlanTitle = ref('')
+const editingPlanItemId = ref<number | null>(null)
+const planDraftTitle = ref('')
+const planDraftKind = ref<StudyPlanItem['kind']>('read')
+const planDraftMinutes = ref(25)
+const planActionId = ref<number | null>(null)
 const masteryActionId = ref<string | null>(null)
 
-const visiblePlanItems = computed(() => course.studyPlan?.items.slice(0, 5) ?? [])
+const planItems = computed(() => course.studyPlan?.items ?? [])
 const nextPlanItem = computed(() =>
   course.studyPlan?.items.find((item) => item.id === course.studyPlan?.stats.next_item_id) ?? null,
 )
@@ -40,8 +52,12 @@ watch(() => course.config?.root_folder, (value) => {
 }, { immediate: true })
 
 watch(() => [course.activeCourseId, course.contextVersion] as const, ([id]) => {
-  if (id !== null) void run(course.loadDashboard)
+  if (id !== null) void run(() => Promise.all([course.loadDashboard(), course.loadMastery()]))
 }, { immediate: true })
+
+watch(() => [course.activeCourseId, course.contextVersion] as const, () => {
+  cancelPlanEdit()
+})
 
 async function run(action: () => unknown | Promise<unknown>) {
   error.value = null
@@ -74,8 +90,61 @@ function addPlanItem() {
   })
 }
 
+function beginPlanEdit(item: StudyPlanItem) {
+  editingPlanItemId.value = item.id
+  planDraftTitle.value = item.title
+  planDraftKind.value = item.kind
+  planDraftMinutes.value = item.estimated_minutes
+}
+
+function cancelPlanEdit() {
+  editingPlanItemId.value = null
+  planDraftTitle.value = ''
+  planDraftKind.value = 'read'
+  planDraftMinutes.value = 25
+}
+
+function savePlanEdit(item: StudyPlanItem) {
+  if (planActionId.value !== null) return
+  planActionId.value = item.id
+  void run(async () => {
+    await course.updateStudyPlanItem(item, {
+      title: planDraftTitle.value,
+      kind: planDraftKind.value,
+      estimated_minutes: planDraftMinutes.value,
+    })
+    cancelPlanEdit()
+  }).finally(() => {
+    planActionId.value = null
+  })
+}
+
+function cyclePlanItem(item: StudyPlanItem) {
+  if (planActionId.value !== null) return
+  planActionId.value = item.id
+  void run(() => course.cycleStudyPlanItem(item)).finally(() => {
+    planActionId.value = null
+  })
+}
+
+function deletePlanItem(item: StudyPlanItem) {
+  if (planActionId.value !== null) return
+  if (!window.confirm(`删除学习项「${item.title}」？`)) return
+  planActionId.value = item.id
+  void run(async () => {
+    await course.deleteStudyPlanItem(item)
+    if (editingPlanItemId.value === item.id) cancelPlanEdit()
+  }).finally(() => {
+    planActionId.value = null
+  })
+}
+
 function planKindLabel(kind: StudyPlanItem['kind']) {
   return kind === 'practice' ? '练' : kind === 'review' ? '复' : '读'
+}
+
+function planKindText(kind: StudyPlanItem['kind']) {
+  return kind === 'practice' ? '练习' : kind === 'review' ? '复习' : '阅读'
 }
 
 function planStatusLabel(status: StudyPlanItem['status']) {
@@ -113,6 +182,28 @@ function recordMasteryAnswer(item: MasteryDashboardItem, correct: boolean) {
         correct,
       },
     })
+    await course.loadDashboard()
+  }).finally(() => {
+    masteryActionId.value = null
+  })
+}
+
+function addMasteryPoint(point: MasteryKnowledgePointInput) {
+  if (masteryActionId.value !== null) return
+  masteryActionId.value = 'add-point'
+  void run(async () => {
+    await course.updateMastery({ knowledge_point: point })
+    await course.loadDashboard()
+  }).finally(() => {
+    masteryActionId.value = null
+  })
+}
+
+function resolveMasteryMistake(mistake: MistakeRecord) {
+  if (masteryActionId.value !== null) return
+  masteryActionId.value = mistake.id
+  void run(async () => {
+    await course.resolveMasteryMistake(mistake.id)
     await course.loadDashboard()
   }).finally(() => {
     masteryActionId.value = null
@@ -165,19 +256,63 @@ function onDrop(event: DragEvent) {
           <span>{{ course.studyPlan.stats.completed }}/{{ course.studyPlan.stats.total }} 项 · {{ course.studyPlan.stats.remaining_minutes }} 分钟</span>
         </div>
         <p v-if="nextPlanItem" class="plan-next">{{ nextPlanItem.title }}</p>
-        <button
-          v-for="item in visiblePlanItems"
-          :key="item.id"
-          type="button"
-          class="plan-item"
-          :data-status="item.status"
-          :title="item.source_file_name || item.title"
-          @click="run(() => course.cycleStudyPlanItem(item))"
-        >
-          <span class="plan-kind" aria-hidden="true">{{ planKindLabel(item.kind) }}</span>
-          <span class="plan-title">{{ item.title }}</span>
-          <span class="plan-status">{{ planStatusLabel(item.status) }}</span>
-        </button>
+        <div class="plan-list" aria-label="完整学习计划">
+          <article
+            v-for="item in planItems"
+            :key="item.id"
+            class="plan-item"
+            :data-status="item.status"
+            :title="item.source_file_name || item.title"
+          >
+            <button
+              type="button"
+              class="plan-status-button"
+              :disabled="planActionId !== null"
+              :aria-label="`切换学习项状态：${item.title}`"
+              @click="cyclePlanItem(item)"
+            >
+              <span class="plan-kind" aria-hidden="true">{{ planKindLabel(item.kind) }}</span>
+              <span class="plan-status">{{ planStatusLabel(item.status) }}</span>
+            </button>
+            <form
+              v-if="editingPlanItemId === item.id"
+              class="plan-edit-form"
+              @submit.prevent="savePlanEdit(item)"
+            >
+              <input v-model="planDraftTitle" :aria-label="`编辑学习项标题：${item.title}`" />
+              <select v-model="planDraftKind" :aria-label="`编辑学习项类型：${item.title}`">
+                <option value="read">阅读</option>
+                <option value="review">复习</option>
+                <option value="practice">练习</option>
+              </select>
+              <input
+                v-model.number="planDraftMinutes"
+                type="number"
+                min="5"
+                max="240"
+                step="5"
+                :aria-label="`编辑预计分钟：${item.title}`"
+              />
+              <button type="submit" :disabled="planActionId !== null">保存</button>
+              <button type="button" :disabled="planActionId !== null" @click="cancelPlanEdit">取消</button>
+            </form>
+            <template v-else>
+              <span class="plan-title">{{ item.title }}</span>
+              <span class="plan-meta">{{ planKindText(item.kind) }} · {{ item.estimated_minutes }} 分钟</span>
+              <span class="plan-actions">
+                <button type="button" :aria-label="`编辑学习项：${item.title}`" @click="beginPlanEdit(item)">编辑</button>
+                <button
+                  type="button"
+                  :disabled="planActionId !== null"
+                  :aria-label="`删除学习项：${item.title}`"
+                  @click="deletePlanItem(item)"
+                >
+                  删除
+                </button>
+              </span>
+            </template>
+          </article>
+        </div>
         <form class="plan-form" @submit.prevent="addPlanItem">
           <input v-model="newPlanTitle" aria-label="新增学习项" placeholder="新增学习项" />
           <button type="submit" aria-label="添加学习项">＋</button>
@@ -207,8 +342,11 @@ function onDrop(event: DragEvent) {
         </p>
         <MasteryPanel
           :mastery="course.dashboard.mastery ?? null"
+          :state="course.mastery"
           :busy="masteryActionId !== null"
+          @add-point="addMasteryPoint"
           @record="recordMasteryAnswer"
+          @resolve-mistake="resolveMasteryMistake"
         />
         <p v-if="latestDashboardActivity" class="dashboard-line">
           最近：{{ activityLabel(latestDashboardActivity.type) }} · {{ latestDashboardActivity.title }}
@@ -284,5 +422,88 @@ button { min-height: 44px; }
 }
 .dashboard-line {
   overflow-wrap: anywhere;
+}
+.plan-list {
+  display: grid;
+  max-height: 320px;
+  overflow-y: auto;
+  gap: 6px;
+  padding-right: 2px;
+}
+.plan-item {
+  display: grid;
+  grid-template-columns: minmax(68px, auto) minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.42);
+  padding: 5px 7px;
+}
+.plan-item:hover { background: rgba(255, 255, 255, 0.82); }
+.plan-item[data-status="doing"] { box-shadow: inset 3px 0 var(--accent); }
+.plan-item[data-status="done"] { color: var(--muted); }
+.plan-item[data-status="done"] .plan-title { text-decoration: line-through; }
+.plan-status-button {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+.plan-title {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-meta,
+.plan-status {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.plan-actions {
+  display: flex;
+  gap: 4px;
+}
+.plan-actions button,
+.plan-edit-form button {
+  min-height: 32px;
+  padding: 4px 7px;
+}
+.plan-edit-form {
+  display: grid;
+  grid-column: 2 / -1;
+  grid-template-columns: minmax(0, 1fr) 70px 64px auto auto;
+  gap: 5px;
+}
+.plan-edit-form input,
+.plan-edit-form select {
+  min-width: 0;
+  height: 32px;
+  padding: 5px 7px;
+}
+@media (max-width: 760px) {
+  .plan-item {
+    grid-template-columns: 1fr;
+  }
+  .plan-status-button,
+  .plan-actions,
+  .plan-edit-form {
+    width: 100%;
+  }
+  .plan-edit-form {
+    grid-column: 1;
+    grid-template-columns: 1fr 1fr;
+  }
+  .plan-edit-form input:first-child {
+    grid-column: 1 / -1;
+  }
 }
 </style>

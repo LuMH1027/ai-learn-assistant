@@ -14,10 +14,12 @@ import type {
   MasteryResponse,
   MasteryState,
   MasteryUpdateRequest,
+  ResolveMasteryMistakeResponse,
   SaveConfigResponse,
   SaveMasteryResponse,
   SaveStudyPlanResponse,
   StudyPlan,
+  StudyPlanItemChanges,
   StudyPlanItem,
   StudyPlanResponse,
   UploadResult,
@@ -411,7 +413,7 @@ export const useCourseStore = defineStore('course', () => {
 
   function updateStudyPlanItem(
     item: StudyPlanItem,
-    changes: Partial<Pick<StudyPlanItem, 'status' | 'title' | 'kind' | 'estimated_minutes'>>,
+    changes: StudyPlanItemChanges,
   ) {
     const courseId = activeCourseId.value
     if (courseId === null) return
@@ -437,6 +439,21 @@ export const useCourseStore = defineStore('course', () => {
     return updateStudyPlanItem(item, { status: nextStatus })
   }
 
+  function deleteStudyPlanItem(item: StudyPlanItem) {
+    const courseId = activeCourseId.value
+    if (courseId === null) return
+    const requestedRootVersion = rootVersion.value
+    return trackRequest(async () => {
+      const result = await postJson<SaveStudyPlanResponse>(
+        `/api/courses/${encodeURIComponent(courseId)}/plan/${encodeURIComponent(String(item.id))}/delete`,
+      )
+      if (activeCourseId.value === courseId && rootVersion.value === requestedRootVersion) {
+        studyPlan.value = result.plan
+      }
+      return result.plan
+    })
+  }
+
   function updateMastery(body: MasteryUpdateRequest) {
     const courseId = activeCourseId.value
     if (courseId === null) return
@@ -445,6 +462,22 @@ export const useCourseStore = defineStore('course', () => {
       const result = await postJson<SaveMasteryResponse>(
         `/api/courses/${encodeURIComponent(courseId)}/mastery`,
         body,
+      )
+      if (activeCourseId.value === courseId && rootVersion.value === requestedRootVersion) {
+        mastery.value = result.mastery
+      }
+      return result.mastery
+    })
+  }
+
+  function resolveMasteryMistake(mistakeId: string) {
+    const courseId = activeCourseId.value
+    const normalizedId = mistakeId.trim()
+    if (courseId === null || !normalizedId) return
+    const requestedRootVersion = rootVersion.value
+    return trackRequest(async () => {
+      const result = await postJson<ResolveMasteryMistakeResponse>(
+        `/api/courses/${encodeURIComponent(courseId)}/mastery/mistakes/${encodeURIComponent(normalizedId)}/resolve`,
       )
       if (activeCourseId.value === courseId && rootVersion.value === requestedRootVersion) {
         mastery.value = result.mastery
@@ -515,6 +548,8 @@ export const useCourseStore = defineStore('course', () => {
     addStudyPlanItem,
     updateStudyPlanItem,
     cycleStudyPlanItem,
+    deleteStudyPlanItem,
     updateMastery,
+    resolveMasteryMistake,
   }
 })

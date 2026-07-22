@@ -39,12 +39,16 @@ class FileStoreTest(unittest.TestCase):
                 [{"title": "不应覆盖", "kind": "practice"}],
             )
             updated = store.update_study_plan_item("course-1", seeded[0]["id"], {"status": "done"})
+            deleted = store.delete_study_plan_item("course-1", seeded[0]["id"])
 
             course_dir = Path(tmp) / "course_memory" / "course-1"
             self.assertTrue((course_dir / "study_plan.json").exists())
             self.assertEqual(unchanged[0]["title"], "阅读第一章")
             self.assertEqual(updated[0]["status"], "done")
             self.assertTrue(updated[0]["completed_at"])
+            self.assertEqual(deleted, [])
+            with self.assertRaises(KeyError):
+                store.delete_study_plan_item("course-1", seeded[0]["id"])
 
     def test_mastery_state_is_saved_and_updated_as_course_state(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,6 +73,13 @@ class FileStoreTest(unittest.TestCase):
             self.assertEqual(state["knowledge_points"][0]["title"], "页表地址转换")
             self.assertEqual(updated["mastery"]["kp-page-table"]["wrong_count"], 1)
             self.assertEqual(loaded["mistakes"][0]["point_id"], "kp-page-table")
+
+            resolved = store.resolve_mastery_mistake("course-1", loaded["mistakes"][0]["id"])
+            missing = store.resolve_mastery_mistake("course-1", "missing")
+
+            self.assertIsNone(missing)
+            self.assertEqual(resolved["mistakes"][0]["status"], "resolved")
+            self.assertEqual(store.get_mastery_state("course-1")["mistakes"][0]["status"], "resolved")
 
     def test_study_plan_normalizes_invalid_user_fields(self):
         with tempfile.TemporaryDirectory() as tmp:

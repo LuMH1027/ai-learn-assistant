@@ -1,6 +1,7 @@
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 
+import { countMarkdownMatches, countTextMatches, normalizedSearchQuery } from '../services/markdown'
 import type { Citation, FileLeafNode } from '../types/api'
 import { useLayoutStore } from './layout'
 
@@ -14,6 +15,8 @@ const IMAGE_EXTENSIONS = new Set([
   '.gif',
   '.bmp',
 ])
+
+const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown'])
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
@@ -29,6 +32,34 @@ export const usePreviewStore = defineStore('preview', () => {
   const contextVersion = ref(0)
   const url = ref<string | null>(null)
   const content = ref<string | null>(null)
+  const searchQuery = ref('')
+  const activeSearchIndex = ref(0)
+
+  const extension = computed(() => activeFile.value?.extension.toLowerCase() ?? '')
+  const supportsSearch = computed(() => {
+    return Boolean(
+      activeFile.value &&
+      content.value !== null &&
+      !error.value &&
+      extension.value !== '.pdf' &&
+      !IMAGE_EXTENSIONS.has(extension.value),
+    )
+  })
+  const searchTerm = computed(() => normalizedSearchQuery(searchQuery.value))
+  const searchMatchCount = computed(() => {
+    if (!supportsSearch.value || !content.value || !searchTerm.value) return 0
+    return MARKDOWN_EXTENSIONS.has(extension.value)
+      ? countMarkdownMatches(content.value, searchTerm.value)
+      : countTextMatches(content.value, searchTerm.value)
+  })
+  const currentSearchMatch = computed(() => (
+    searchMatchCount.value > 0 ? activeSearchIndex.value + 1 : 0
+  ))
+
+  function resetSearch() {
+    searchQuery.value = ''
+    activeSearchIndex.value = 0
+  }
 
   function isCurrentContext(id: string | null, version: number) {
     return courseId.value === id && contextVersion.value === version
@@ -44,6 +75,7 @@ export const usePreviewStore = defineStore('preview', () => {
     error.value = null
     url.value = null
     content.value = null
+    resetSearch()
   }
 
   function previewUrl(file: FileLeafNode, page?: number | null) {
@@ -64,6 +96,7 @@ export const usePreviewStore = defineStore('preview', () => {
     url.value = previewUrl(file, page)
     content.value = null
     error.value = null
+    resetSearch()
     useLayoutStore().setPreviewOpen(true)
 
     const extension = file.extension.toLowerCase()
@@ -122,9 +155,38 @@ export const usePreviewStore = defineStore('preview', () => {
     tab.value = nextTab
   }
 
+  function setSearchQuery(query: string) {
+    searchQuery.value = query
+    activeSearchIndex.value = 0
+  }
+
+  function nextSearchMatch() {
+    if (searchMatchCount.value === 0) return
+    activeSearchIndex.value = (activeSearchIndex.value + 1) % searchMatchCount.value
+    tab.value = 'file'
+  }
+
+  function previousSearchMatch() {
+    if (searchMatchCount.value === 0) return
+    activeSearchIndex.value = (
+      activeSearchIndex.value + searchMatchCount.value - 1
+    ) % searchMatchCount.value
+    tab.value = 'file'
+  }
+
   function close() {
     useLayoutStore().setPreviewOpen(false)
   }
+
+  watch(searchMatchCount, (count) => {
+    if (count === 0) {
+      activeSearchIndex.value = 0
+      return
+    }
+    if (activeSearchIndex.value >= count) {
+      activeSearchIndex.value = 0
+    }
+  })
 
   return {
     activeFile,
@@ -136,11 +198,21 @@ export const usePreviewStore = defineStore('preview', () => {
     contextVersion,
     url,
     content,
+    searchQuery,
+    activeSearchIndex,
+    supportsSearch,
+    searchTerm,
+    searchMatchCount,
+    currentSearchMatch,
     beginCourse,
     isCurrentContext,
     openFile,
     openCitation,
     setTab,
+    setSearchQuery,
+    nextSearchMatch,
+    previousSearchMatch,
+    resetSearch,
     close,
   }
 })

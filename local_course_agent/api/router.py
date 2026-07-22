@@ -61,7 +61,9 @@ POST_COURSE_ACTIONS = (
     CourseActionRoute("notes", "note", "note_id"),
     CourseActionRoute("memory/clear", "clear_memory"),
     CourseActionRoute("plan", "plan"),
+    CourseActionRoute("plan", "delete_plan_item", "item_id", suffix="delete"),
     CourseActionRoute("plan", "plan_item", "item_id"),
+    CourseActionRoute("mastery/mistakes", "resolve_mastery_mistake", "mistake_id", suffix="resolve"),
     CourseActionRoute("mastery", "mastery"),
 )
 
