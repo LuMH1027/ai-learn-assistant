@@ -1,3 +1,7 @@
+from http import HTTPStatus
+from pathlib import Path
+from types import SimpleNamespace
+import tempfile
 import unittest
 
 from local_course_agent.api.router import (
@@ -7,6 +11,8 @@ from local_course_agent.api.router import (
     match_post_course_action,
     parse_course_route,
 )
+from local_course_agent.api.server.routes import ServerRoutesMixin
+from local_course_agent.store import AppStore
 
 
 class ApiRouterTest(unittest.TestCase):
@@ -19,8 +25,12 @@ class ApiRouterTest(unittest.TestCase):
             parse_course_route("/api/courses/os-1/index/jobs"),
             ("os-1", "index/jobs"),
         )
+        self.assertEqual(
+            parse_course_route("/api/courses/os-1/notes/7/delete"),
+            ("os-1", "notes/7/delete"),
+        )
         self.assertIsNone(parse_course_route("/api/config"))
-        self.assertIsNone(parse_course_route("/api/courses/os-1/plan/item-1/extra"))
+        self.assertIsNone(parse_course_route("/api/courses/os-1"))
 
     def test_get_course_actions_match_only_read_routes(self):
         match = match_get_course_action("/api/courses/os-1/dashboard")
@@ -41,6 +51,24 @@ class ApiRouterTest(unittest.TestCase):
         self.assertIsNotNone(index_job)
         self.assertEqual(index_job.endpoint, "index_jobs")
         self.assertIsNone(match_post_course_action("/api/courses/os-1/messages"))
+
+    def test_post_note_and_memory_management_routes_match(self):
+        update = match_post_course_action("/api/courses/os-1/notes/7")
+        delete = match_post_course_action("/api/courses/os-1/notes/7/delete")
+        clear = match_post_course_action("/api/courses/os-1/memory/clear")
+
+        self.assertIsNotNone(update)
+        self.assertEqual(update.endpoint, "note")
+        self.assertEqual(update.params, {"note_id": "7"})
+        self.assertIsNotNone(delete)
+        self.assertEqual(delete.endpoint, "delete_note")
+        self.assertEqual(delete.params, {"note_id": "7"})
+        self.assertIsNotNone(clear)
+        self.assertEqual(clear.endpoint, "clear_memory")
+
+    def test_unknown_deep_course_routes_do_not_match_dynamic_params(self):
+        self.assertIsNone(match_post_course_action("/api/courses/os-1/plan/item-1/extra"))
+        self.assertIsNone(match_post_course_action("/api/courses/os-1/notes/7/archive"))
 
     def test_post_plan_item_route_extracts_item_id(self):
         match = match_post_course_action("/api/courses/os-1/plan/item-42")
@@ -68,6 +96,39 @@ class ApiRouterTest(unittest.TestCase):
         )
 
         self.assertEqual(payload, {"course_id": "os-1", "item_id": "item-42"})
+
+    def test_course_note_and_memory_handlers_update_store(self):
+        class Target(ServerRoutesMixin):
+            def __init__(self, store, body=None):
+                self.ctx = SimpleNamespace(store=store)
+                self.body = body or {}
+
+            def read_body(self):
+                return self.body
+
+            def send_json(self, payload, status=HTTPStatus.OK):
+                return {"status": status, "payload": payload}
+
+            def send_error_json(self, message, status=HTTPStatus.BAD_REQUEST):
+                return {"status": status, "payload": {"ok": False, "error": message}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+            store.add_note("course-1", "旧标题", "旧内容")
+            note_id = str(store.list_notes("course-1")[0]["id"])
+            store.add_message("course-1", "user", "解释页表")
+            store.update_memory_from_question("course-1", "解释页表")
+
+            update = Target(store, {"content": "新内容"}).update_course_note("course-1", note_id)
+            delete = Target(store).delete_course_note("course-1", note_id)
+            clear = Target(store).clear_course_memory("course-1")
+            missing = Target(store).delete_course_note("course-1", note_id)
+
+            self.assertEqual(update["status"], HTTPStatus.OK)
+            self.assertEqual(update["payload"]["note"]["content"], "新内容")
+            self.assertEqual(delete["payload"]["notes"], [])
+            self.assertEqual(clear["payload"], {"ok": True, "messages": [], "memory": ""})
+            self.assertEqual(missing["status"], HTTPStatus.NOT_FOUND)
 
 
 if __name__ == "__main__":

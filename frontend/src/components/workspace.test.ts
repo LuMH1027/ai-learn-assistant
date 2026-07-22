@@ -74,8 +74,39 @@ function mockDesktop() {
   })))
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
+}
+
 function mockApi() {
   api.postJson.mockImplementation((path: string) => {
+    if (path.endsWith('/memory/clear')) {
+      return Promise.resolve({
+        ok: true,
+        messages: [],
+        memory: '',
+      })
+    }
+    if (path.endsWith('/notes/1')) {
+      return Promise.resolve({
+        ok: true,
+        notes: [{
+          id: 1,
+          title: '更新重点',
+          content: '复习 TLB 与页表',
+          created_at: '2026-07-16T00:00:00Z',
+        }],
+      })
+    }
+    if (path.endsWith('/notes/1/delete')) {
+      return Promise.resolve({ ok: true, notes: [] })
+    }
     if (path.endsWith('/mastery')) {
       return Promise.resolve({
         ok: true,
@@ -589,6 +620,68 @@ describe('course workspace components', () => {
     await drawer.trigger('keydown', { key: 'Escape' })
     expect(drawer.attributes('aria-hidden')).toBe('true')
     expect(document.activeElement).toBe(trigger.element)
+  })
+
+  it('edits and deletes saved notes from the drawer', async () => {
+    const { wrapper } = await mountWorkspace()
+    await wrapper.get('button[aria-label="打开课程笔记"]').trigger('click')
+    await flushPromises()
+
+    const edit = wrapper.findAll('button').find((button) => button.text() === '编辑')
+    expect(edit).toBeTruthy()
+    await edit!.trigger('click')
+    await wrapper.get('input[aria-label="编辑笔记标题"]').setValue('更新重点')
+    await wrapper.get('textarea[aria-label="编辑笔记内容"]').setValue('复习 TLB 与页表')
+    await wrapper.findAll('button').find((button) => button.text() === '保存修改')!.trigger('click')
+    await flushPromises()
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/notes/1', {
+      title: '更新重点',
+      content: '复习 TLB 与页表',
+    })
+    expect(wrapper.get('section[aria-label="已保存笔记"]').text()).toContain('更新重点')
+
+    await wrapper.findAll('button').find((button) => button.text() === '删除')!.trigger('click')
+    await flushPromises()
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/notes/1/delete')
+    expect(wrapper.get('section[aria-label="已保存笔记"]').text()).not.toContain('更新重点')
+  })
+
+  it('clears course messages and memory from the toolbar with a busy state', async () => {
+    const clearMemory = deferred<{ ok: boolean; messages: Message[]; memory: string }>()
+    api.postJson.mockImplementation((path: string) => {
+      if (path.endsWith('/memory/clear')) return clearMemory.promise
+      return Promise.resolve({
+        ok: true,
+        mastery: {
+          schema_version: 1,
+          knowledge_points: [],
+          mastery: {},
+          mistakes: [],
+          created_at: '2026-07-22 10:00:00',
+          updated_at: '2026-07-22 10:00:00',
+        },
+      })
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const { wrapper } = await mountWorkspace()
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="清空课程会话和记忆"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const clearButton = wrapper.get('button[aria-label="清空课程会话和记忆"]')
+    expect(clearButton.text()).toBe('清空中…')
+    expect(clearButton.attributes('disabled')).toBeDefined()
+    expect(window.confirm).toHaveBeenCalledWith('清空 操作系统 的会话和记忆？此操作不会删除课程笔记。')
+
+    clearMemory.resolve({ ok: true, messages: [], memory: '' })
+    await flushPromises()
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/memory/clear')
+    expect(useChatStore().messages).toEqual([])
+    expect(clearButton.text()).toBe('清空记忆')
   })
 
   it('uses inert to isolate mobile sidebar and preview drawers', async () => {

@@ -5,6 +5,7 @@ import type {
   ArtifactResult,
   ChatResult,
   ChatStreamEvent,
+  ClearCourseMemoryResponse,
   Course,
   CoursesResponse,
   MessagesResponse,
@@ -374,5 +375,56 @@ describe('chat store', () => {
 
     expect(store.notesMutationEpoch).toBe(0)
     expect(store.notes.map((item) => item.title)).toEqual(['loaded'])
+  })
+
+  it('updates and deletes notes through course-scoped endpoints', async () => {
+    api.postJson
+      .mockResolvedValueOnce({ ok: true, notes: [note(1, 'updated')] } satisfies SaveNotesResponse)
+      .mockResolvedValueOnce({ ok: true, notes: [] } satisfies SaveNotesResponse)
+    const store = useChatStore()
+    store.beginCourse('course/id', 1)
+    store.notes = [note(1, 'old')]
+
+    await store.updateNote(1, 'updated', 'updated content')
+    await store.deleteNote(1)
+
+    expect(api.postJson).toHaveBeenNthCalledWith(1, '/api/courses/course%2Fid/notes/1', {
+      title: 'updated',
+      content: 'updated content',
+    })
+    expect(api.postJson).toHaveBeenNthCalledWith(2, '/api/courses/course%2Fid/notes/1/delete')
+    expect(store.notes).toEqual([])
+    expect(store.notesMutationEpoch).toBe(2)
+  })
+
+  it('clears course messages and prevents an older messages load from restoring them', async () => {
+    const oldMessages = deferred<MessagesResponse>()
+    api.getJson.mockReturnValue(oldMessages.promise)
+    api.postJson.mockResolvedValue({
+      ok: true,
+      messages: [],
+      memory: '',
+    } satisfies ClearCourseMemoryResponse)
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    store.messages = [message('old')]
+
+    const pendingLoad = store.loadMessages()
+    await store.clearCourseMemory()
+    oldMessages.resolve({ messages: [message('stale')] })
+    await pendingLoad
+
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/a/memory/clear')
+    expect(store.messages).toEqual([])
+    expect(store.busy.memory).toBe(false)
+  })
+
+  it('does not clear memory while chat is busy', () => {
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    store.busy.chat = true
+
+    expect(store.clearCourseMemory()).toBeUndefined()
+    expect(api.postJson).not.toHaveBeenCalled()
   })
 })

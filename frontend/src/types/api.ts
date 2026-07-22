@@ -335,6 +335,12 @@ export interface SaveNotesResponse {
   notes: Note[]
 }
 
+export interface ClearCourseMemoryResponse {
+  ok: boolean
+  messages: Message[]
+  memory: string
+}
+
 export interface IndexResult {
   ok: boolean
   indexed_files: number

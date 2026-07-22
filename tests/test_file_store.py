@@ -121,6 +121,49 @@ class FileStoreTest(unittest.TestCase):
             self.assertIn("关注", memory)
             self.assertIn("进程调度", memory)
 
+    def test_notes_can_be_updated_and_deleted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+            store.add_note("course-1", "旧标题", "旧内容")
+            note_id = str(store.list_notes("course-1")[0]["id"])
+
+            updated = store.update_note("course-1", note_id, {"title": " 新标题 ", "content": " 新内容 "})
+            missing = store.update_note("course-1", "missing", {"title": "不存在"})
+            deleted = store.delete_note("course-1", note_id)
+
+            self.assertEqual(updated["title"], "新标题")
+            self.assertEqual(updated["content"], "新内容")
+            self.assertTrue(updated["updated_at"])
+            self.assertIsNone(missing)
+            self.assertTrue(deleted)
+            self.assertEqual(store.list_notes("course-1"), [])
+            self.assertFalse(store.delete_note("course-1", note_id))
+
+    def test_note_update_uses_default_title_for_blank_title(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+            store.add_note("course-1", "旧标题", "旧内容")
+            note_id = str(store.list_notes("course-1")[0]["id"])
+
+            updated = store.update_note("course-1", note_id, {"title": "", "content": "  保留内容  "})
+
+            self.assertEqual(updated["title"], "学习笔记")
+            self.assertEqual(updated["content"], "保留内容")
+
+    def test_messages_and_memory_can_be_cleared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+            store.add_message("course-1", "user", "什么是页表？")
+            store.update_memory_from_question("course-1", "什么是页表？")
+
+            messages = store.clear_messages("course-1")
+            memory = store.clear_memory("course-1")
+
+            self.assertEqual(messages, [])
+            self.assertEqual(memory, "")
+            self.assertEqual(store.list_messages("course-1"), [])
+            self.assertEqual(store.get_memory("course-1"), "")
+
     def test_state_writes_replace_files_atomically(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state.json"

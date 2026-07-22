@@ -16,3 +16,8 @@ class MemoryStoreMixin:
             compact = update_memory_text(current, question)
             self._write_text(self._memory_path(course_id), compact)
             return compact
+
+    def clear_memory(self, course_id: str) -> str:
+        with self._lock_for(course_id):
+            self._write_text(self._memory_path(course_id), "")
+            return ""

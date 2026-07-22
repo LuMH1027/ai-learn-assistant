@@ -6,6 +6,7 @@ import type {
   ArtifactResult,
   ChatResult,
   ChatStreamEvent,
+  ClearCourseMemoryResponse,
   Message,
   MessagesResponse,
   Note,
@@ -39,7 +40,7 @@ export const useChatStore = defineStore('chat', () => {
   const notes = ref<Note[]>([])
   const mode = ref('answer')
   const pendingFiles = ref<File[]>([])
-  const busy = reactive({ chat: false, summary: false, quiz: false, note: false })
+  const busy = reactive({ chat: false, summary: false, quiz: false, note: false, memory: false })
   const error = ref<string | null>(null)
   const courseId = ref<string | null>(null)
   const contextVersion = ref(0)
@@ -50,6 +51,7 @@ export const useChatStore = defineStore('chat', () => {
   let chatRequestToken = 0
   let artifactRequestToken = 0
   let noteRequestToken = 0
+  let memoryRequestToken = 0
   let chatAbortController: AbortController | null = null
 
   function isCurrentContext(id: string | null, version: number) {
@@ -70,11 +72,13 @@ export const useChatStore = defineStore('chat', () => {
     busy.summary = false
     busy.quiz = false
     busy.note = false
+    busy.memory = false
     messagesRequestToken += 1
     notesRequestToken += 1
     chatRequestToken += 1
     artifactRequestToken += 1
     noteRequestToken += 1
+    memoryRequestToken += 1
   }
 
   function loadMessages() {
@@ -338,6 +342,132 @@ export const useChatStore = defineStore('chat', () => {
     })()
   }
 
+  function updateNote(noteId: number, title: string, content: string) {
+    const id = courseId.value
+    const version = contextVersion.value
+    const normalizedTitle = title.trim()
+    const normalizedContent = content.trim()
+    if (id === null || normalizedContent.length === 0 || busy.note) return
+    const token = ++noteRequestToken
+    busy.note = true
+    error.value = null
+
+    return (async () => {
+      try {
+        const result = await postJson<SaveNotesResponse>(
+          `/api/courses/${encodeURIComponent(id)}/notes/${encodeURIComponent(String(noteId))}`,
+          {
+            title: normalizedTitle || '学习笔记',
+            content: normalizedContent,
+          },
+        )
+        if (
+          isCurrentContext(id, version) &&
+          token === noteRequestToken
+        ) {
+          notesMutationEpoch.value += 1
+          notes.value = result.notes
+        }
+        return result
+      } catch (cause) {
+        if (
+          isCurrentContext(id, version) &&
+          token === noteRequestToken
+        ) {
+          error.value = errorMessage(cause)
+        }
+        throw cause
+      } finally {
+        if (
+          isCurrentContext(id, version) &&
+          token === noteRequestToken
+        ) {
+          busy.note = false
+        }
+      }
+    })()
+  }
+
+  function deleteNote(noteId: number) {
+    const id = courseId.value
+    const version = contextVersion.value
+    if (id === null || busy.note) return
+    const token = ++noteRequestToken
+    busy.note = true
+    error.value = null
+
+    return (async () => {
+      try {
+        const result = await postJson<SaveNotesResponse>(
+          `/api/courses/${encodeURIComponent(id)}/notes/${encodeURIComponent(String(noteId))}/delete`,
+        )
+        if (
+          isCurrentContext(id, version) &&
+          token === noteRequestToken
+        ) {
+          notesMutationEpoch.value += 1
+          notes.value = result.notes
+        }
+        return result
+      } catch (cause) {
+        if (
+          isCurrentContext(id, version) &&
+          token === noteRequestToken
+        ) {
+          error.value = errorMessage(cause)
+        }
+        throw cause
+      } finally {
+        if (
+          isCurrentContext(id, version) &&
+          token === noteRequestToken
+        ) {
+          busy.note = false
+        }
+      }
+    })()
+  }
+
+  function clearCourseMemory() {
+    const id = courseId.value
+    const version = contextVersion.value
+    if (id === null || busy.chat || busy.summary || busy.quiz || busy.memory) return
+    const token = ++memoryRequestToken
+    messagesRequestToken += 1
+    busy.memory = true
+    error.value = null
+
+    return (async () => {
+      try {
+        const result = await postJson<ClearCourseMemoryResponse>(
+          `/api/courses/${encodeURIComponent(id)}/memory/clear`,
+        )
+        if (
+          isCurrentContext(id, version) &&
+          token === memoryRequestToken
+        ) {
+          messages.value = result.messages
+        }
+        return result
+      } catch (cause) {
+        if (
+          isCurrentContext(id, version) &&
+          token === memoryRequestToken
+        ) {
+          error.value = errorMessage(cause)
+        }
+        throw cause
+      } finally {
+        if (
+          isCurrentContext(id, version) &&
+          token === memoryRequestToken
+        ) {
+          busy.memory = false
+        }
+      }
+    })()
+  }
+
   return {
     messages,
     notes,
@@ -357,5 +487,8 @@ export const useChatStore = defineStore('chat', () => {
     summary,
     quiz,
     saveNote,
+    updateNote,
+    deleteNote,
+    clearCourseMemory,
   }
 })

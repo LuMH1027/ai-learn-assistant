@@ -22,3 +22,9 @@ class MessagesStoreMixin:
 
     def list_messages(self, course_id: str) -> List[Dict]:
         return self._read_json(self._messages_path(course_id), [])
+
+    def clear_messages(self, course_id: str) -> List[Dict]:
+        with self._lock_for(course_id):
+            messages: List[Dict] = []
+            self._write_json(self._messages_path(course_id), messages)
+            return messages

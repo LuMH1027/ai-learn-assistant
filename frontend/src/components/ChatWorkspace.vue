@@ -21,7 +21,7 @@ const preview = usePreviewStore()
 const question = ref('')
 const chatPicker = ref<HTMLInputElement | null>(null)
 const messagesPanel = ref<HTMLElement | null>(null)
-const busy = computed(() => chat.busy.chat || chat.busy.summary || chat.busy.quiz)
+const busy = computed(() => chat.busy.chat || chat.busy.summary || chat.busy.quiz || chat.busy.memory)
 
 watch(
   () => {
@@ -56,6 +56,12 @@ function openCitation(fileId: string, citationIndex: number, messageIndex: numbe
 
 function generate(kind: 'summary' | 'quiz') {
   void chat[kind]()?.catch(() => undefined)
+}
+
+function clearMemory() {
+  const activeCourseName = course.activeCourse?.name ?? '当前课程'
+  if (!window.confirm(`清空 ${activeCourseName} 的会话和记忆？此操作不会删除课程笔记。`)) return
+  void chat.clearCourseMemory()?.catch(() => undefined)
 }
 
 async function send() {
@@ -117,6 +123,14 @@ function onDrop(event: DragEvent) {
       <button type="button" aria-current="page">对话</button>
       <button type="button" aria-label="生成课程摘要" :disabled="!course.activeCourse || busy" @click="generate('summary')">生成摘要</button>
       <button type="button" aria-label="生成练习题" :disabled="!course.activeCourse || busy" @click="generate('quiz')">生成练习</button>
+      <button
+        type="button"
+        aria-label="清空课程会话和记忆"
+        :disabled="!course.activeCourse || busy"
+        @click="clearMemory"
+      >
+        {{ chat.busy.memory ? '清空中…' : '清空记忆' }}
+      </button>
       <button id="notes-toggle" type="button" aria-label="打开课程笔记" :disabled="!course.activeCourse" @click="emit('open-notes')">课程笔记</button>
       <label for="chat-mode">模式</label>
       <select id="chat-mode" v-model="chat.mode" aria-label="问答模式">

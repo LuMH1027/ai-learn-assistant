@@ -11,6 +11,7 @@ class CourseActionRoute:
     action: str
     endpoint: str
     param_name: str | None = None
+    suffix: str | None = None
 
     def match(self, action: str) -> dict[str, str] | None:
         if self.param_name is None:
@@ -19,9 +20,14 @@ class CourseActionRoute:
         if not action.startswith(prefix):
             return None
         value = action[len(prefix):]
-        if not value:
+        if self.suffix is not None:
+            suffix = f"/{self.suffix}"
+            if not value.endswith(suffix):
+                return None
+            value = value[: -len(suffix)]
+        if not value or "/" in value:
             return None
-        return {self.param_name: value}
+        return {self.param_name: unquote(value)}
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,9 @@ POST_COURSE_ACTIONS = (
     CourseActionRoute("summary", "summary"),
     CourseActionRoute("quiz", "quiz"),
     CourseActionRoute("notes", "notes"),
+    CourseActionRoute("notes", "delete_note", "note_id", suffix="delete"),
+    CourseActionRoute("notes", "note", "note_id"),
+    CourseActionRoute("memory/clear", "clear_memory"),
     CourseActionRoute("plan", "plan"),
     CourseActionRoute("plan", "plan_item", "item_id"),
     CourseActionRoute("mastery", "mastery"),
@@ -58,11 +67,11 @@ POST_COURSE_ACTIONS = (
 
 
 def parse_course_route(request_path: str) -> tuple[str, str] | None:
-    match = re.fullmatch(r"/api/courses/([^/]+)/([^/]+)(?:/([^/]+))?", urlparse(request_path).path)
+    match = re.fullmatch(r"/api/courses/([^/]+)/(.+)", urlparse(request_path).path)
     if not match:
         return None
     course_id = unquote(match.group(1))
-    action = "/".join(part for part in match.groups()[1:] if part)
+    action = match.group(2)
     return course_id, action
 
 

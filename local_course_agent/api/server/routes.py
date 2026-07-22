@@ -50,6 +50,9 @@ class ServerRoutesMixin:
         "summary": "create_course_summary",
         "quiz": "create_course_quiz",
         "notes": "add_course_note",
+        "note": "update_course_note",
+        "delete_note": "delete_course_note",
+        "clear_memory": "clear_course_memory",
         "plan": "add_study_plan_item",
         "plan_item": "update_study_plan_item",
         "mastery": "update_mastery",
@@ -125,6 +128,23 @@ class ServerRoutesMixin:
         body = self.read_body()
         self.ctx.store.add_note(course_id, body.get("title", "学习笔记"), body.get("content", ""))
         return self.send_json({"ok": True, "notes": self.ctx.store.list_notes(course_id)})
+
+    def update_course_note(self, course_id: str, note_id: str):
+        body = self.read_body()
+        note = self.ctx.store.update_note(course_id, note_id, body)
+        if note is None:
+            return self.send_error_json("笔记不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json({"ok": True, "note": note, "notes": self.ctx.store.list_notes(course_id)})
+
+    def delete_course_note(self, course_id: str, note_id: str):
+        if not self.ctx.store.delete_note(course_id, note_id):
+            return self.send_error_json("笔记不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json({"ok": True, "notes": self.ctx.store.list_notes(course_id)})
+
+    def clear_course_memory(self, course_id: str):
+        messages = self.ctx.store.clear_messages(course_id)
+        memory = self.ctx.store.clear_memory(course_id)
+        return self.send_json({"ok": True, "messages": messages, "memory": memory})
 
     def index_course(self, course_id: str):
         return self.send_service_json(lambda: run_index_course(self.ctx, course_id))
