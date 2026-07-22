@@ -2,7 +2,7 @@
 
 本评测框架用于本地验证课程 RAG 检索、真实 ChatFlow 编排结构与摘要产物质量，不接入 HTTP 服务，也不改变线上问答链路。普通用例直接读取 `data/indexes/<course_id>.json`，对一组样例问题执行检索问答，并统计引用命中率、检索质量、答案关键术语覆盖、禁用词命中和引用支撑情况。`--demo-baseline` 会额外跑真实 `ChatFlow.run()` 和摘要 pipeline 的本地质量门禁。
 
-评测实现按职责拆分：`local_course_agent/retrieval/evaluation/rag.py` 保留 retrieval case 加载与检索评测核心；`local_course_agent/evaluation/demo_fixtures.py` 管理 demo 课程和样例索引；`local_course_agent/evaluation/gates.py` 管理 ChatFlow/summary 质量门禁；`local_course_agent/evaluation/reports.py` 负责 Markdown 报告渲染。
+评测实现按职责拆分：`local_course_agent/retrieval/evaluation/` 保留 retrieval case schema、加载、指标与执行核心；`local_course_agent/evaluation/demo_fixtures.py` 管理 demo 课程和样例索引；`local_course_agent/evaluation/gates.py` 管理 ChatFlow/summary 质量门禁；`local_course_agent/evaluation/reports.py` 负责 Markdown 报告渲染。
 
 ## 用例格式
 

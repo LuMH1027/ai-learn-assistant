@@ -2,7 +2,7 @@
 
 This module provides a minimal local backup/restore layer for generated course data.
 It is exposed through a small CLI script and intentionally remains separate from
-`store.py`, `server.py`, and the frontend.
+`store/`, `server.py`, and the frontend.
 
 ## Scope
 

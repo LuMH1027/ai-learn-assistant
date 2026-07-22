@@ -85,7 +85,12 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.embeddings.providers",
             "local_course_agent.retrieval.embeddings.utils",
             "local_course_agent.retrieval.evaluation",
+            "local_course_agent.retrieval.evaluation.compat",
+            "local_course_agent.retrieval.evaluation.loader",
+            "local_course_agent.retrieval.evaluation.metrics",
             "local_course_agent.retrieval.evaluation.rag",
+            "local_course_agent.retrieval.evaluation.runner",
+            "local_course_agent.retrieval.evaluation.schema",
             "local_course_agent.storage.codecs",
             "local_course_agent.storage.memory",
             "local_course_agent.storage.migration",
@@ -130,13 +135,28 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.ops.backup.schema",
             "local_course_agent.ops.backup.validation",
             "local_course_agent.ops.config_status",
+            "local_course_agent.ops.config_status.ai",
             "local_course_agent.ops.config_status.collectors",
             "local_course_agent.ops.config_status.filesystem",
+            "local_course_agent.ops.config_status.mineru",
             "local_course_agent.ops.config_status.model",
+            "local_course_agent.ops.config_status.rag",
+            "local_course_agent.ops.config_status.rerank",
+            "local_course_agent.ops.config_status.runtime",
+            "local_course_agent.ops.config_status.vector",
+            "local_course_agent.ops.config_status.web",
             "local_course_agent.ops.telemetry",
             "local_course_agent.ops.telemetry.core",
             "local_course_agent.ops.telemetry.recorders",
             "local_course_agent.ops.telemetry.utils",
+            "local_course_agent.store",
+            "local_course_agent.store.app_store",
+            "local_course_agent.store.locks",
+            "local_course_agent.store.mastery",
+            "local_course_agent.store.memory",
+            "local_course_agent.store.messages",
+            "local_course_agent.store.notes",
+            "local_course_agent.store.study_plan",
         ]
 
         for module_name in expected_modules:
@@ -233,12 +253,24 @@ class PackageStructureTest(unittest.TestCase):
         for filename in flat_helpers:
             self.assertFalse((ops_dir / filename).exists(), filename)
 
+    def test_store_domain_does_not_regrow_flat_entry(self):
+        package_dir = Path(__file__).resolve().parents[1] / "local_course_agent"
+
+        self.assertFalse((package_dir / "store.py").exists())
+
     def test_evaluation_quality_facade_stays_thin(self):
         facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "evaluation" / "rag_quality.py"
         implementation_dir = facade.with_name("quality")
 
         self.assertTrue(implementation_dir.is_dir())
         self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 24)
+
+    def test_retrieval_evaluation_rag_facade_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "retrieval" / "evaluation" / "rag.py"
+        implementation = facade.with_name("runner.py")
+
+        self.assertTrue(implementation.exists())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 40)
 
     def test_learning_domains_do_not_regrow_flat_indexing_entry(self):
         learning_dir = Path(__file__).resolve().parents[1] / "local_course_agent" / "learning"

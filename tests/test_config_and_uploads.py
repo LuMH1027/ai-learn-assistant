@@ -7,6 +7,17 @@ from unittest import mock
 
 from local_course_agent.config import normalize_config, resolve_siliconflow_api_key
 from local_course_agent.ops.config_status import build_config_status
+from local_course_agent.ops.config_status.collectors import (
+    ai_generation_status,
+    backup_status,
+    collect_config_capabilities,
+    mineru_status,
+    rag_index_status,
+    rerank_status,
+    telemetry_status,
+    vector_status,
+    web_search_status,
+)
 from local_course_agent.uploads import (
     MAX_UPLOAD_FILE_BYTES,
     cleanup_chat_uploads,
@@ -17,6 +28,42 @@ from local_course_agent.uploads import (
 
 
 class ConfigAndUploadsTest(unittest.TestCase):
+    def test_config_status_collectors_keep_public_imports(self):
+        exported = [
+            collect_config_capabilities,
+            ai_generation_status,
+            web_search_status,
+            mineru_status,
+            rag_index_status,
+            vector_status,
+            rerank_status,
+            telemetry_status,
+            backup_status,
+        ]
+
+        self.assertEqual(
+            [func.__name__ for func in exported],
+            [
+                "collect_config_capabilities",
+                "ai_generation_status",
+                "web_search_status",
+                "mineru_status",
+                "rag_index_status",
+                "vector_status",
+                "rerank_status",
+                "telemetry_status",
+                "backup_status",
+            ],
+        )
+        self.assertEqual(ai_generation_status.__module__, "local_course_agent.ops.config_status.ai")
+        self.assertEqual(web_search_status.__module__, "local_course_agent.ops.config_status.web")
+        self.assertEqual(mineru_status.__module__, "local_course_agent.ops.config_status.mineru")
+        self.assertEqual(rag_index_status.__module__, "local_course_agent.ops.config_status.rag")
+        self.assertEqual(vector_status.__module__, "local_course_agent.ops.config_status.vector")
+        self.assertEqual(rerank_status.__module__, "local_course_agent.ops.config_status.rerank")
+        self.assertEqual(telemetry_status.__module__, "local_course_agent.ops.config_status.runtime")
+        self.assertEqual(backup_status.__module__, "local_course_agent.ops.config_status.runtime")
+
     def test_normalize_config_keeps_legacy_values_and_nests_ai(self):
         config = normalize_config(
             {

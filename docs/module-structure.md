@@ -44,7 +44,7 @@
 - `retrieval/vector/`：向量索引构建、持久化、融合和数学工具。
 - `retrieval/citations/`：引用检查与后处理。
 - `retrieval/conversation_context/`：追问信号识别、历史轮次压缩、编号引用抽取和检索查询改写。
-- `retrieval/evaluation/`：RAG 检索评测 case、执行和报告适配入口。
+- `retrieval/evaluation/`：RAG 检索评测 schema、loader、metrics、runner 和 demo/report 兼容入口。
 
 `evaluation`：
 
@@ -56,6 +56,10 @@
 - `ops/config_status/`：配置能力检查、文件系统检查和 capability payload。
 - `ops/backup/`：备份收集、归档、恢复和 archive 安全校验。
 - `ops/telemetry/`：telemetry recorder、recorders 和 payload 工具，入口为 `ops.telemetry`。
+
+`store`：
+
+- `store/`：文件型状态存储，按 messages、memory、notes、study_plan、mastery、locks 拆分，入口为 `store`。
 
 ## 禁止回流
 
@@ -76,6 +80,7 @@
 - `api/course.py`
 - `llm.py`
 - `parser.py`
+- `store.py`
 - `retrieval/conversation_context.py`
 - `learning/indexing.py`
 - `ops/backup.py`
