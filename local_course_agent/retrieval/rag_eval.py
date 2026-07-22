@@ -193,11 +193,9 @@ def _answer_term_coverage(answer: str, expected_terms: Sequence[str]) -> tuple[L
     return found, missing, round(len(found) / len(terms), 4)
 
 
-from local_course_agent.evaluation.demo_fixtures import (  # noqa: E402
-    DEFAULT_SAMPLE_ROOT,
-    DEMO_DATA_STRUCTURE_COURSE_ID,
-    DEMO_OS_COURSE_ID,
-)
+DEFAULT_SAMPLE_ROOT = Path(__file__).resolve().parents[2] / "sample_materials"
+DEMO_OS_COURSE_ID = "demo-operating-system"
+DEMO_DATA_STRUCTURE_COURSE_ID = "demo-data-structures"
 
 
 def sample_eval_cases(course_id: str = "sample-course") -> List[RagEvalCase]:

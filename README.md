@@ -112,11 +112,12 @@ python3 -m unittest discover -s tests -v
 
 ```text
 local_course_agent/
+├─ api/         # HTTP glue、AppContext、系统接口、课程接口和聊天编排
 ├─ retrieval/   # RAG 检索、向量融合、引用校验、追问改写、RAG 评测
 ├─ learning/    # 课程索引任务、摘要、dashboard、掌握度模型
 ├─ ingestion/   # 解析质量评估等资料入库前处理
 ├─ ops/         # 备份恢复、配置健康状态、遥测诊断
-├─ server.py    # HTTP API 编排
+├─ server.py    # ThreadingHTTPServer 与 Handler glue
 ├─ llm.py       # LLM 客户端与 Prompt
 ├─ parser.py    # 文档解析入口
 ├─ scanner.py   # 本地课程目录扫描

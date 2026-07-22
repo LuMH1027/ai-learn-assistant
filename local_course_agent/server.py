@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import json
-import mimetypes
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, urlparse
 
 from local_course_agent.api.chat import (
     CLARIFICATION_ANSWER,
@@ -32,6 +29,17 @@ from local_course_agent.api.course import (
     update_mastery as run_update_mastery,
     upload_course_files as run_upload_course_files,
 )
+from local_course_agent.api.context import (
+    CONFIG_PATH,
+    DATA_DIR,
+    PROJECT_ROOT,
+    STATIC_DIR,
+    AppContext,
+    find_file_node,
+    is_safe_material_root,
+    read_json,
+    write_json,
+)
 from local_course_agent.api.http import (
     ClientDisconnected,
     begin_chunked_stream,
@@ -48,136 +56,20 @@ from local_course_agent.api.router import (
     match_post_course_action,
     parse_course_route,
 )
-from local_course_agent.config import load_config, write_config
-from local_course_agent.learning.service import (
-    CourseIndexJobs,
-    should_index_course_file,
+from local_course_agent.api.static import (
+    frontend_build_error,
+    is_frontend_entry,
+    resolve_static_path,
+    static_cache_control,
 )
-from local_course_agent.llm import create_llm_client
-from local_course_agent.ops.config_status import build_config_status
-from local_course_agent.retrieval.rag import CourseKnowledgeBase
-from local_course_agent.scanner import CourseCatalogCache
-from local_course_agent.store import AppStore
+from local_course_agent.api.system import (
+    build_public_config_payload,
+    build_system_status_payload,
+    send_file_preview,
+    update_root_folder_payload,
+)
+from local_course_agent.learning.service import should_index_course_file
 from local_course_agent.uploads import MAX_TOTAL_UPLOAD_BYTES
-from local_course_agent.web_search import create_web_search_client
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = PROJECT_ROOT / "data"
-STATIC_DIR = PROJECT_ROOT / "web" / "dist"
-CONFIG_PATH = DATA_DIR / "config.json"
-
-
-def resolve_static_path(request_path: str, static_dir: Path = STATIC_DIR) -> Path | None:
-    parsed = urlparse(request_path)
-    decoded = unquote(parsed.path).replace("\\", "/")
-    parts = [part for part in decoded.split("/") if part not in ("", ".")]
-    if ".." in parts:
-        return None
-    requested = Path(*parts) if parts else Path("index.html")
-    root = static_dir.resolve()
-    candidate = (root / requested).resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError:
-        return None
-    return candidate
-
-
-def frontend_build_error() -> str:
-    return "前端尚未构建，请运行 start.sh（macOS/Linux）或 start.bat（Windows）。"
-
-
-def static_cache_control(request_path: str) -> str | None:
-    path = urlparse(request_path).path
-    if path in ("/", "/index.html"):
-        return "no-store, max-age=0"
-    if path.startswith("/assets/"):
-        return "public, max-age=31536000, immutable"
-    return None
-
-
-def is_safe_material_root(root: Path) -> bool:
-    resolved = Path(root).expanduser().resolve()
-    blocked_roots = {resolved.anchor, str(DATA_DIR.resolve()), str(PROJECT_ROOT.resolve())}
-    if str(resolved) in blocked_roots:
-        return False
-    try:
-        resolved.relative_to(DATA_DIR.resolve())
-        return False
-    except ValueError:
-        return True
-
-
-def is_frontend_entry(request_path: str) -> bool:
-    return urlparse(request_path).path in ("/", "/index.html")
-
-
-def read_json(path: Path, default):
-    if not path.exists():
-        return default
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def write_json(path: Path, data) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-class AppContext:
-    def __init__(self):
-        DATA_DIR.mkdir(exist_ok=True)
-        self.store = AppStore(DATA_DIR)
-        self.kb = CourseKnowledgeBase(DATA_DIR / "indexes")
-        self.course_cache = CourseCatalogCache()
-        self.index_jobs = CourseIndexJobs(self.kb, snapshot_path=DATA_DIR / "index_jobs.json")
-
-    @property
-    def config(self):
-        config = load_config(CONFIG_PATH)
-        configure = getattr(self.kb, "configure_embeddings", None)
-        if callable(configure):
-            configure(config.get("ai", {}))
-        return config
-
-    def root(self) -> Path | None:
-        root = self.config.get("root_folder", "")
-        if not root:
-            return None
-        return Path(root).expanduser().resolve()
-
-    def courses(self):
-        root = self.root()
-        if not root:
-            return []
-        return self.course_cache.get(root)
-
-    def invalidate_courses(self) -> None:
-        self.course_cache.invalidate()
-
-    def find_file(self, file_id: str) -> Path | None:
-        for course in self.courses():
-            found = find_file_node(course.get("children", []), file_id)
-            if found:
-                return Path(found["path"]).resolve()
-        return None
-
-    def find_course(self, course_id: str):
-        for course in self.courses():
-            if course["id"] == course_id:
-                return course
-        return None
-
-
-def find_file_node(nodes, file_id):
-    for node in nodes:
-        if node["id"] == file_id and node["type"] == "file":
-            return node
-        if node["type"] == "folder":
-            found = find_file_node(node.get("children", []), file_id)
-            if found:
-                return found
-    return None
 
 
 CTX = AppContext()
@@ -224,22 +116,9 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/config":
-            config = CTX.config
-            ai_client = create_llm_client(config.get("ai", {}))
-            mineru_config = config.get("mineru", {})
-            web_client = create_web_search_client(config.get("web_search", {}))
-            return self.send_json(
-                {
-                    "root_folder": config.get("root_folder", ""),
-                    "ai_provider": config.get("ai", {}).get("provider", "openai_compatible"),
-                    "ai_configured": ai_client.enabled(),
-                    "mineru_auto": bool(mineru_config.get("auto", True)),
-                    "mineru_configured": bool(mineru_config.get("command") or mineru_config.get("token")),
-                    "web_search_configured": web_client.enabled(),
-                }
-            )
+            return self.send_json(build_public_config_payload(CTX.config))
         if parsed.path == "/api/config/status":
-            return self.send_json(build_config_status(DATA_DIR, CTX.config, CTX.courses()))
+            return self.send_json(build_system_status_payload(DATA_DIR, CTX.config, CTX.courses()))
         if parsed.path == "/api/courses":
             return self.send_json({"courses": CTX.courses()})
         if parsed.path.startswith("/api/index-jobs/"):
@@ -265,20 +144,18 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/config":
             body = self.read_body()
-            current = CTX.config
-            root_folder = body.get("root_folder", current.get("root_folder", "")).strip()
-            if not root_folder:
-                return self.send_error_json("请填写资料根目录")
-            root = Path(root_folder).expanduser().resolve()
-            if not root.exists() or not root.is_dir():
-                return self.send_error_json(f"资料根目录不存在: {root}")
-            if not is_safe_material_root(root):
-                return self.send_error_json("资料根目录不能设置为项目目录、数据目录或系统根目录")
-            next_config = dict(current)
-            next_config["root_folder"] = str(root)
-            write_config(CONFIG_PATH, next_config)
+            try:
+                payload = update_root_folder_payload(
+                    CTX.config,
+                    body,
+                    config_path=CONFIG_PATH,
+                    project_root=PROJECT_ROOT,
+                    data_dir=DATA_DIR,
+                )
+            except ApiError as exc:
+                return self.send_error_json(exc.message, exc.status)
             CTX.invalidate_courses()
-            return self.send_json({"ok": True, "config": {"root_folder": str(root)}})
+            return self.send_json(payload)
         course_match = match_post_course_action(self.path)
         if course_match:
             return dispatch_course_action(self, course_match, self.POST_COURSE_HANDLERS)
@@ -433,16 +310,7 @@ class Handler(SimpleHTTPRequestHandler):
         )
 
     def send_preview(self, file_id: str):
-        path = CTX.find_file(file_id)
-        if not path:
-            return self.send_error_json("文件不存在", HTTPStatus.NOT_FOUND)
-        ctype = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(path.stat().st_size))
-        self.end_headers()
-        with path.open("rb") as fh:
-            self.wfile.write(fh.read())
+        return send_file_preview(self, CTX, file_id)
 
     def read_body(self):
         return read_json_body(self.headers, self.rfile)
