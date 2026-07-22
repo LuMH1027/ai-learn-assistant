@@ -8,6 +8,8 @@ from local_course_agent.learning.mastery import (
     review_suggestion,
     upsert_knowledge_point,
 )
+from local_course_agent.learning.mastery_policy import score_delta
+from local_course_agent.learning.mastery_schema import normalize_state
 
 
 class MasteryModelTest(unittest.TestCase):
@@ -91,6 +93,32 @@ class MasteryModelTest(unittest.TestCase):
         self.assertEqual(familiar["interval_days"], 4)
         self.assertEqual(mastered["interval_days"], 7)
         self.assertEqual(mastered["next_review_at"], "2026-07-28 10:00:00")
+
+    def test_schema_module_normalizes_legacy_state_shape(self):
+        normalized = normalize_state(
+            {
+                "knowledge_points": [{"title": "  页表   地址转换  ", "aliases": [" 页表 ", "页表"]}],
+                "mastery": {"kp-old": {"score": "bad", "attempts": -1, "wrong_count": "2"}},
+                "mistakes": [{"point_id": "kp-old", "question": "", "status": "unknown"}],
+            },
+            timestamp="2026-07-21 10:00:00",
+        )
+
+        self.assertEqual(normalized["knowledge_points"][0]["title"], "页表 地址转换")
+        self.assertEqual(normalized["knowledge_points"][0]["aliases"], ["页表"])
+        self.assertEqual(normalized["mastery"]["kp-old"]["score"], 50)
+        self.assertEqual(normalized["mastery"]["kp-old"]["attempts"], 0)
+        self.assertEqual(normalized["mastery"]["kp-old"]["wrong_count"], 2)
+        self.assertEqual(normalized["mistakes"][0]["status"], "open")
+        self.assertEqual(normalized["mistakes"][0]["question"], "未记录题目")
+
+    def test_policy_module_keeps_score_strategy_separate(self):
+        easy_delta = score_delta(correct=True, difficulty="easy", current_score=50, streak=0)
+        hard_delta = score_delta(correct=True, difficulty="hard", current_score=50, streak=0)
+        wrong_delta = score_delta(correct=False, difficulty="normal", current_score=80, streak=3)
+
+        self.assertGreater(hard_delta, easy_delta)
+        self.assertLess(wrong_delta, 0)
 
     def test_resolve_mistake_marks_item_done_without_mutating_input(self):
         state = apply_answer_result(

@@ -2,6 +2,12 @@
 
 本文档描述 `local_course_agent.learning.mastery` 的知识点掌握度与错题闭环模型。当前实现已接入课程级本地持久化、后端 API 和课程 Dashboard 汇总；模型函数仍保持纯数据输入输出，便于测试和后续扩展。
 
+实现按职责拆分：
+
+- `local_course_agent.learning.mastery_schema`：创建和规范化 state、knowledge point、mastery record、mistake record，并处理文本、引用和 ID 的稳定化。
+- `local_course_agent.learning.mastery_policy`：定义分数边界、难度权重、分数增减、等级划分和复习间隔建议。
+- `local_course_agent.learning.mastery`：兼容门面和薄编排层，继续导出旧调用方依赖的公开函数，同时串联 schema 与 policy 完成知识点 upsert、答题更新和错题订正。
+
 ## 目标
 
 - 以知识点为粒度记录学习状态。
@@ -100,7 +106,7 @@
 
 ## 更新规则
 
-核心入口是 `apply_answer_result()`：
+核心入口是 `apply_answer_result()`。它位于兼容门面 `learning.mastery`，内部先用 `mastery_schema.normalize_state()` 固定输入形态，再用 `mastery_policy.score_delta()` 和 `mastery_policy.review_suggestion()` 计算策略结果：
 
 ```python
 next_state = apply_answer_result(
