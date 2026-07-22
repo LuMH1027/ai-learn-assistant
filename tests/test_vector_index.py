@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from local_course_agent.vector_index import (
+from local_course_agent.retrieval.vector_index import (
     FakeEmbeddingModel,
     VectorIndex,
     VectorSearchResult,

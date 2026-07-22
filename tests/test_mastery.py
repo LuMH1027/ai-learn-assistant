@@ -1,6 +1,6 @@
 import unittest
 
-from local_course_agent.mastery import (
+from local_course_agent.learning.mastery import (
     apply_answer_result,
     create_knowledge_point,
     create_mastery_state,

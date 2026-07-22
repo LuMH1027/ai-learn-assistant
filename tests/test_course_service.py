@@ -4,14 +4,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from local_course_agent.course_service import (
+from local_course_agent.learning.service import (
     CourseIndexJobs,
     build_course_index,
     build_default_study_plan,
     generate_course_summary,
     study_plan_stats,
 )
-from local_course_agent.rag import CourseKnowledgeBase
+from local_course_agent.retrieval.rag import CourseKnowledgeBase
 
 
 class FakeSummaryClient:
@@ -79,7 +79,7 @@ class CourseServiceTest(unittest.TestCase):
                     return [{"page": 1, "text": "需要 OCR 才能识别扫描件内容"}]
                 return [{"page": 1, "text": good_text}]
 
-            with mock.patch("local_course_agent.course_service.extract_text", side_effect=fake_extract_text):
+            with mock.patch("local_course_agent.learning.service.extract_text", side_effect=fake_extract_text):
                 result = build_course_index(
                     kb,
                     {
@@ -180,7 +180,7 @@ class CourseServiceTest(unittest.TestCase):
             kb.index_text("ds", "stack", "栈.md", "栈是后进先出的线性表，常用于函数调用。")
             client = FakeSummaryClient("LLM 课程复习摘要\n\n## 总体脉络\n- 栈用于约束访问顺序。[S1]")
 
-            with mock.patch("local_course_agent.course_service.create_llm_client", return_value=client):
+            with mock.patch("local_course_agent.learning.service.create_llm_client", return_value=client):
                 summary = generate_course_summary(kb, "ds", "数据结构", ai_config={"api_key": "configured"})
 
             self.assertEqual(summary["llm_status"], "used")
@@ -195,7 +195,7 @@ class CourseServiceTest(unittest.TestCase):
             kb.index_text("ds", "queue", "队列.md", "队列是先进先出的线性表，常用于任务调度。")
             client = FakeSummaryClient(None, enabled=False)
 
-            with mock.patch("local_course_agent.course_service.create_llm_client", return_value=client):
+            with mock.patch("local_course_agent.learning.service.create_llm_client", return_value=client):
                 summary = generate_course_summary(kb, "ds", "数据结构", ai_config={})
 
             self.assertEqual(summary["llm_status"], "disabled")

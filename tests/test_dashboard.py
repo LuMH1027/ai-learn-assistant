@@ -1,6 +1,6 @@
 import unittest
 
-from local_course_agent.dashboard import build_course_dashboard
+from local_course_agent.learning.dashboard import build_course_dashboard
 
 
 class CourseDashboardTest(unittest.TestCase):

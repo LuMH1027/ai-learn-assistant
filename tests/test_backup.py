@@ -6,7 +6,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from local_course_agent.backup import (
+from local_course_agent.ops.backup import (
     MANIFEST_NAME,
     collect_backup_entries,
     create_backup,

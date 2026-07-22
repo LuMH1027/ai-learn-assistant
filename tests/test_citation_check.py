@@ -1,6 +1,6 @@
 import unittest
 
-from local_course_agent.citation_check import (
+from local_course_agent.retrieval.citation_check import (
     check_citations,
     postprocess_answer_with_citation_check,
     split_sentences,

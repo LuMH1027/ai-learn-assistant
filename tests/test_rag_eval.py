@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from local_course_agent.rag import CourseKnowledgeBase
-from local_course_agent.rag_eval import (
+from local_course_agent.retrieval.rag import CourseKnowledgeBase
+from local_course_agent.retrieval.rag_eval import (
     demo_eval_cases,
     index_sample_materials,
     load_eval_cases,

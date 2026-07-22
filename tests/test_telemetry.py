@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from local_course_agent.telemetry import (
+from local_course_agent.ops.telemetry import (
     TelemetryRecorder,
     record_index_result,
     record_llm_result,

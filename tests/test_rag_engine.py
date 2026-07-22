@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from local_course_agent.rag import CourseKnowledgeBase, tokenize
+from local_course_agent.retrieval.rag import CourseKnowledgeBase, tokenize
 
 
 class CourseKnowledgeBaseTest(unittest.TestCase):
@@ -250,7 +250,7 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
 
             fake_vector_index = FakeVectorIndex()
             with mock.patch(
-                "local_course_agent.rag.build_vector_index_from_chunks",
+                "local_course_agent.retrieval.rag.build_vector_index_from_chunks",
                 return_value=fake_vector_index,
             ) as build_vector_index:
                 hits = kb.search("os", "页表如何映射地址？", limit=2, strategy="hybrid")
@@ -273,7 +273,7 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
             kb.index_text("os", "book", "教材.md", "页表保存虚拟页到物理页框的映射。")
 
             with mock.patch(
-                "local_course_agent.rag.build_vector_index_from_chunks",
+                "local_course_agent.retrieval.rag.build_vector_index_from_chunks",
                 side_effect=RuntimeError("embedding unavailable"),
             ):
                 hits = kb.search("os", "页表映射", limit=1, strategy="hybrid")

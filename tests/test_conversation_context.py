@@ -1,6 +1,6 @@
 import unittest
 
-from local_course_agent.conversation_context import (
+from local_course_agent.retrieval.conversation_context import (
     build_contextual_retrieval_query,
     compress_recent_turns,
     detect_follow_up_signals,

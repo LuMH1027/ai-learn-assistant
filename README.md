@@ -123,7 +123,7 @@ local_course_agent/
 └─ store.py     # 文件型状态存储
 ```
 
-旧的 `local_course_agent.rag`、`local_course_agent.summary`、`local_course_agent.backup` 等模块仍作为兼容 alias 保留；新代码优先导入子包路径，例如 `local_course_agent.retrieval.rag`、`local_course_agent.learning.summary`、`local_course_agent.ops.backup`。
+功能模块不再保留顶层兼容 alias。业务代码应直接导入子包路径，例如 `local_course_agent.retrieval.rag`、`local_course_agent.learning.summary`、`local_course_agent.ops.backup`。
 
 ## 资料目录
 

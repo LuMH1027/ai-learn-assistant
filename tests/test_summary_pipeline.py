@@ -1,6 +1,6 @@
 import unittest
 
-from local_course_agent.summary import (
+from local_course_agent.learning.summary import (
     EMPTY_SUMMARY_MESSAGE,
     build_map_prompt,
     build_reduce_prompt,

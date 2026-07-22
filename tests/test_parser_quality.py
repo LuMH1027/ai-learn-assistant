@@ -1,6 +1,6 @@
 import unittest
 
-from local_course_agent.parser_quality import evaluate_parser_quality
+from local_course_agent.ingestion.parser_quality import evaluate_parser_quality
 
 
 class ParserQualityTest(unittest.TestCase):

@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from local_course_agent.config import normalize_config
-from local_course_agent.config_status import build_config_status
+from local_course_agent.ops.config_status import build_config_status
 from local_course_agent.uploads import (
     MAX_UPLOAD_FILE_BYTES,
     cleanup_chat_uploads,
