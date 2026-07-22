@@ -5,12 +5,15 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
-from local_course_agent.llm import (
-    OpenAICompatibleClient,
-    build_course_summary_prompt,
-    build_grounded_prompt,
-    create_llm_client,
-)
+from local_course_agent.llm import OpenAICompatibleClient as PublicOpenAICompatibleClient
+from local_course_agent.llm import build_course_summary_prompt as public_build_course_summary_prompt
+from local_course_agent.llm import build_grounded_prompt as public_build_grounded_prompt
+from local_course_agent.llm import create_llm_client as public_create_llm_client
+from local_course_agent.llm import image_to_data_url as public_image_to_data_url
+from local_course_agent.llm.client import OpenAICompatibleClient
+from local_course_agent.llm.config import create_llm_client
+from local_course_agent.llm.images import image_to_data_url
+from local_course_agent.llm.prompts import build_course_summary_prompt, build_grounded_prompt
 
 
 class LlmPromptTest(unittest.TestCase):
@@ -28,7 +31,7 @@ class LlmPromptTest(unittest.TestCase):
             b'data: [DONE]\n',
         ])
 
-        with mock.patch("urllib.request.urlopen", return_value=fake_response) as urlopen:
+        with mock.patch("local_course_agent.llm.client.urllib.request.urlopen", return_value=fake_response) as urlopen:
             chunks = list(client.stream("hello"))
 
         payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
@@ -112,7 +115,7 @@ class LlmPromptTest(unittest.TestCase):
         fake_response.__exit__ = mock.Mock(return_value=None)
         fake_response.read.return_value = b'{"choices":[{"message":{"content":"answer"}}]}'
 
-        with mock.patch("urllib.request.urlopen", return_value=fake_response) as urlopen:
+        with mock.patch("local_course_agent.llm.client.urllib.request.urlopen", return_value=fake_response) as urlopen:
             result = client.generate("hello")
 
         request = urlopen.call_args.args[0]
@@ -143,7 +146,7 @@ class LlmPromptTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             image = Path(tmp) / "screen.png"
             image.write_bytes(b"fake-png")
-            with mock.patch("urllib.request.urlopen", return_value=fake_response) as urlopen:
+            with mock.patch("local_course_agent.llm.client.urllib.request.urlopen", return_value=fake_response) as urlopen:
                 result = client.generate_with_images("讲解截图", [image])
 
         request = urlopen.call_args.args[0]
@@ -151,6 +154,13 @@ class LlmPromptTest(unittest.TestCase):
         self.assertEqual(result, "image answer")
         self.assertIn('"type": "image_url"', payload)
         self.assertIn("data:image/png;base64", payload)
+
+    def test_public_llm_entry_reexports_core_api(self):
+        self.assertIs(PublicOpenAICompatibleClient, OpenAICompatibleClient)
+        self.assertIs(public_build_grounded_prompt, build_grounded_prompt)
+        self.assertIs(public_build_course_summary_prompt, build_course_summary_prompt)
+        self.assertIs(public_create_llm_client, create_llm_client)
+        self.assertIs(public_image_to_data_url, image_to_data_url)
 
 
 if __name__ == "__main__":

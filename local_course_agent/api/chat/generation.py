@@ -5,7 +5,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from local_course_agent.llm import build_grounded_prompt, create_llm_client
+from local_course_agent.llm.config import create_llm_client
+from local_course_agent.llm.prompts import build_grounded_prompt
 
 
 CLARIFICATION_ANSWER = "你的问题信息不足，请补充完整题目、知识点名称，或说明输入的编号对应哪一道题。为避免误导，本次没有联网搜索，也没有调用模型猜测。"

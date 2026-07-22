@@ -4,7 +4,8 @@ from pathlib import Path
 
 from local_course_agent.learning.files import save_study_artifact
 from local_course_agent.learning.summary import generate_map_reduce_course_summary
-from local_course_agent.llm import build_course_summary_prompt, create_llm_client
+from local_course_agent.llm.config import create_llm_client
+from local_course_agent.llm.prompts import build_course_summary_prompt
 from local_course_agent.retrieval.rag import citation_from_chunk
 
 

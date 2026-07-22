@@ -19,6 +19,15 @@
 - `api/server/`：HTTP handler、routes 和 chat streaming adapter。
 - `api/course/`：课程 API 索引、产物、上传、dashboard、mastery 和学习计划适配，入口为 `api.course`。
 
+`llm`：
+
+- `llm/`：OpenAI-compatible chat client、SiliconFlow 默认配置、图片 data URL 和课程 prompt 构造，入口为 `llm`。
+
+`parser`：
+
+- `parser/`：文件类型路由、PDF/DOCX 解析、MinerU API/CLI fallback，入口为 `parser`。
+- `mineru_api.py`：旧入口兼容门面，只做 re-export。
+
 `learning`：
 
 - `learning/dashboard/`：课程概览投影，入口为 `learning.dashboard`。
@@ -34,6 +43,7 @@
 - `retrieval/reranking/`：候选重排协议、fallback、provider adapter 和候选文本转换。
 - `retrieval/vector/`：向量索引构建、持久化、融合和数学工具。
 - `retrieval/citations/`：引用检查与后处理。
+- `retrieval/conversation_context/`：追问信号识别、历史轮次压缩、编号引用抽取和检索查询改写。
 - `retrieval/evaluation/`：RAG 检索评测 case、执行和报告适配入口。
 
 `evaluation`：
@@ -64,6 +74,9 @@
 - `api/chat_generation.py`
 - `api/chat_steps.py`
 - `api/course.py`
+- `llm.py`
+- `parser.py`
+- `retrieval/conversation_context.py`
 - `learning/indexing.py`
 - `ops/backup.py`
 - `ops/telemetry_core.py`

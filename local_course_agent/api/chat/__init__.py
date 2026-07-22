@@ -23,7 +23,7 @@ from local_course_agent.api.telemetry import (
     record_citation_check_result,
     record_web_result,
 )
-from local_course_agent.llm import create_llm_client
+from local_course_agent.llm.config import create_llm_client
 from local_course_agent.parser import extract_text
 from local_course_agent.scanner import is_image_file, stable_id
 from local_course_agent.uploads import save_chat_upload

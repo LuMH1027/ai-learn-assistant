@@ -8,7 +8,7 @@ from typing import Any, Mapping
 from local_course_agent.api.context import is_safe_material_root
 from local_course_agent.api.course import ApiError
 from local_course_agent.config import write_config
-from local_course_agent.llm import create_llm_client
+from local_course_agent.llm.config import create_llm_client
 from local_course_agent.ops.config_status import build_config_status
 from local_course_agent.web_search import create_web_search_client
 

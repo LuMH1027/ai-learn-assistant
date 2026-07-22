@@ -12,7 +12,7 @@ from local_course_agent.learning.indexing import (
     index_job_file_payload as _index_job_file_payload,
     timestamp_now as _timestamp_now,
 )
-from local_course_agent.llm import create_llm_client
+from local_course_agent.llm.config import create_llm_client
 from local_course_agent.parser import extract_text
 
 PLAN_FILE_LIMIT = _study_plan.PLAN_FILE_LIMIT

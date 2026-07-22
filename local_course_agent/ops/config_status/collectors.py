@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional
 
 from local_course_agent.config import resolve_siliconflow_api_key
-from local_course_agent.llm import create_llm_client
+from local_course_agent.llm.config import create_llm_client
 from local_course_agent.ops.backup import collect_backup_entries
 from local_course_agent.ops.config_status.filesystem import data_dir_status, material_root_status
 from local_course_agent.ops.config_status.model import capability

@@ -4,8 +4,8 @@ import zipfile
 from pathlib import Path
 from unittest import mock
 
-from local_course_agent.mineru_api import MineruAgentClient
 from local_course_agent.parser import discover_mineru_command, extract_text
+from local_course_agent.parser.mineru import MineruAgentClient
 
 
 class MineruDiscoveryTest(unittest.TestCase):
@@ -13,7 +13,7 @@ class MineruDiscoveryTest(unittest.TestCase):
         self.assertEqual(discover_mineru_command({"command": "mineru -p {input}"}), "mineru -p {input}")
 
     def test_auto_discovers_known_binary(self):
-        with mock.patch("local_course_agent.parser.shutil.which") as which:
+        with mock.patch("local_course_agent.parser.mineru.shutil.which") as which:
             which.side_effect = lambda name: "/usr/bin/mineru" if name == "mineru" else None
 
             self.assertEqual(discover_mineru_command({"auto": True}), 'mineru -p "{input}"')

@@ -29,6 +29,16 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.api.static",
             "local_course_agent.api.system",
             "local_course_agent.api.telemetry",
+            "local_course_agent.llm",
+            "local_course_agent.llm.client",
+            "local_course_agent.llm.config",
+            "local_course_agent.llm.images",
+            "local_course_agent.llm.prompts",
+            "local_course_agent.parser",
+            "local_course_agent.parser.core",
+            "local_course_agent.parser.docx",
+            "local_course_agent.parser.mineru",
+            "local_course_agent.parser.pdf",
             "local_course_agent.web.mcp_client",
             "local_course_agent.web.normalization",
             "local_course_agent.web.policy",
@@ -63,6 +73,12 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.citations.schema",
             "local_course_agent.retrieval.citations.tokenization",
             "local_course_agent.retrieval.conversation_context",
+            "local_course_agent.retrieval.conversation_context.references",
+            "local_course_agent.retrieval.conversation_context.rewrite",
+            "local_course_agent.retrieval.conversation_context.schema",
+            "local_course_agent.retrieval.conversation_context.signals",
+            "local_course_agent.retrieval.conversation_context.text",
+            "local_course_agent.retrieval.conversation_context.turns",
             "local_course_agent.retrieval.embeddings",
             "local_course_agent.retrieval.embeddings.config",
             "local_course_agent.retrieval.embeddings.models",
@@ -176,6 +192,7 @@ class PackageStructureTest(unittest.TestCase):
     def test_retrieval_domains_do_not_regrow_flat_helpers(self):
         retrieval_dir = Path(__file__).resolve().parents[1] / "local_course_agent" / "retrieval"
         flat_helpers = [
+            "conversation_context.py",
             "indexing.py",
             "knowledge_store.py",
             "rag_answering.py",
@@ -227,3 +244,16 @@ class PackageStructureTest(unittest.TestCase):
         learning_dir = Path(__file__).resolve().parents[1] / "local_course_agent" / "learning"
 
         self.assertFalse((learning_dir / "indexing.py").exists())
+
+    def test_llm_and_parser_domains_do_not_regrow_flat_entries(self):
+        package_dir = Path(__file__).resolve().parents[1] / "local_course_agent"
+
+        self.assertFalse((package_dir / "llm.py").exists())
+        self.assertFalse((package_dir / "parser.py").exists())
+
+    def test_mineru_compat_facade_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "mineru_api.py"
+        implementation = facade.with_name("parser") / "mineru.py"
+
+        self.assertTrue(implementation.exists())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 12)

@@ -38,7 +38,7 @@ class SummaryLLMClient:
     def generate(self, prompt: str) -> str | None: ...
 ```
 
-`generate_map_reduce_course_summary` 同样不读写文件，也不直接导入 `learning/service.py` 或 `llm.py`。调用方通过 `create_client(ai_config)` 注入现有 OpenAI-compatible client 工厂，避免在摘要 pipeline 中绑定服务层实现。
+`generate_map_reduce_course_summary` 同样不读写文件，也不直接导入 `learning/service.py` 或 `llm/`。调用方通过 `create_client(ai_config)` 注入现有 OpenAI-compatible client 工厂，避免在摘要 pipeline 中绑定服务层实现。
 
 ## 输入
 
