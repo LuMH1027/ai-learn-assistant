@@ -9,6 +9,7 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.api.chat",
             "local_course_agent.api.chat_steps",
             "local_course_agent.api.course",
+            "local_course_agent.api.http",
             "local_course_agent.api.router",
             "local_course_agent.api.telemetry",
             "local_course_agent.retrieval.rag",

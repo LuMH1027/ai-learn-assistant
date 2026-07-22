@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import mimetypes
-import cgi
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +32,16 @@ from local_course_agent.api.course import (
     update_mastery as run_update_mastery,
     upload_course_files as run_upload_course_files,
 )
+from local_course_agent.api.http import (
+    ClientDisconnected,
+    begin_chunked_stream,
+    error_payload,
+    read_json_body,
+    read_request_payload,
+    send_json_response,
+    write_stream_end,
+    write_stream_event,
+)
 from local_course_agent.api.router import (
     dispatch_course_action,
     match_get_course_action,
@@ -57,10 +66,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
 STATIC_DIR = PROJECT_ROOT / "web" / "dist"
 CONFIG_PATH = DATA_DIR / "config.json"
-
-
-class ClientDisconnected(Exception):
-    pass
 
 
 def resolve_static_path(request_path: str, static_dir: Path = STATIC_DIR) -> Path | None:
@@ -440,35 +445,14 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(fh.read())
 
     def read_body(self):
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length) if length else b"{}"
-        return json.loads(raw.decode("utf-8") or "{}")
+        return read_json_body(self.headers, self.rfile)
 
     def read_maybe_multipart(self):
-        content_type = self.headers.get("Content-Type", "")
-        if not content_type.startswith("multipart/form-data"):
-            return self.read_body(), []
-        length = int(self.headers.get("Content-Length", "0") or "0")
-        if length > MAX_TOTAL_UPLOAD_BYTES:
-            limit_mb = MAX_TOTAL_UPLOAD_BYTES // (1024 * 1024)
-            raise ValueError(f"上传内容过大，总大小不能超过 {limit_mb} MB")
-        form = cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": content_type},
+        return read_request_payload(
+            self.headers,
+            self.rfile,
+            max_total_upload_bytes=MAX_TOTAL_UPLOAD_BYTES,
         )
-        fields = {}
-        uploads = []
-        for key in form.keys():
-            values = form[key]
-            if not isinstance(values, list):
-                values = [values]
-            for item in values:
-                if item.filename:
-                    uploads.append({"filename": item.filename, "content": item.file.read()})
-                else:
-                    fields[key] = item.value
-        return fields, uploads
 
     def send_service_json(self, action, status=HTTPStatus.OK):
         try:
@@ -478,50 +462,19 @@ class Handler(SimpleHTTPRequestHandler):
         return self.send_json(payload, status)
 
     def send_json(self, payload, status=HTTPStatus.OK):
-        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
+        send_json_response(self, payload, status)
 
     def begin_stream(self, stream_format="sse"):
-        self.send_response(HTTPStatus.OK)
-        content_type = (
-            "text/event-stream; charset=utf-8"
-            if stream_format == "sse"
-            else "application/x-ndjson; charset=utf-8"
-        )
-        self.send_header("Content-Type", content_type)
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Cache-Control", "no-cache, no-transform")
-        self.send_header("X-Accel-Buffering", "no")
-        self.send_header("Transfer-Encoding", "chunked")
-        self.end_headers()
+        begin_chunked_stream(self, stream_format)
 
     def send_stream_event(self, event, stream_format="sse"):
-        payload = json.dumps(event, ensure_ascii=False)
-        raw = (
-            f"data: {payload}\n\n" if stream_format == "sse" else f"{payload}\n"
-        ).encode("utf-8")
-        frame = f"{len(raw):X}\r\n".encode("ascii") + raw + b"\r\n"
-        try:
-            self.wfile.write(frame)
-            self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            raise ClientDisconnected
-        return True
+        return write_stream_event(self.wfile, event, stream_format)
 
     def end_stream(self):
-        try:
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            return False
-        return True
+        return write_stream_end(self.wfile)
 
     def send_error_json(self, message, status=HTTPStatus.BAD_REQUEST):
-        return self.send_json({"ok": False, "error": message}, status)
+        return self.send_json(error_payload(message), status)
 
 
 def main():
