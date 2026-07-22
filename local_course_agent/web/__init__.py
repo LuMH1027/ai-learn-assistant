@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-from local_course_agent.web import (
-    FRESHNESS_RE,
+from local_course_agent.web.mcp_client import (
     MCP_PROTOCOL_VERSION,
     McpWebSearchClient,
     WebSearchError,
     create_web_search_client,
-    is_underspecified_query,
-    normalize_sources,
-    should_search_web,
-    source_quality,
 )
 from local_course_agent.web.normalization import (
-    is_http_url as _is_http_url,
-    parse_labeled_search_text as _parse_labeled_search_text,
-    parse_sse_response as _parse_sse_response,
+    normalize_sources,
+    parse_labeled_search_text,
+    parse_sse_response,
 )
+from local_course_agent.web.policy import (
+    FRESHNESS_RE,
+    is_underspecified_query,
+    should_search_web,
+)
+from local_course_agent.web.quality import source_quality
 
 __all__ = [
     "FRESHNESS_RE",
@@ -25,6 +26,8 @@ __all__ = [
     "create_web_search_client",
     "is_underspecified_query",
     "normalize_sources",
+    "parse_labeled_search_text",
+    "parse_sse_response",
     "should_search_web",
     "source_quality",
 ]

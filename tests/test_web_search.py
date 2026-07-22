@@ -4,10 +4,14 @@ from unittest import mock
 
 from local_course_agent.web_search import (
     McpWebSearchClient,
+    create_web_search_client,
     is_underspecified_query,
     should_search_web,
     source_quality,
 )
+from local_course_agent.web.normalization import normalize_sources
+from local_course_agent.web.policy import should_search_web as should_search_web_from_policy
+from local_course_agent.web.quality import source_quality as source_quality_from_quality
 
 
 class FakeResponse:
@@ -29,6 +33,25 @@ class FakeResponse:
 
 
 class WebSearchTest(unittest.TestCase):
+    def test_web_search_facade_keeps_legacy_import_surface(self):
+        client = create_web_search_client({"enabled": True, "mcp_url": "https://search.example/mcp"})
+
+        self.assertIsInstance(client, McpWebSearchClient)
+        self.assertIs(should_search_web, should_search_web_from_policy)
+        self.assertIs(source_quality, source_quality_from_quality)
+        self.assertEqual(
+            normalize_sources({
+                "structuredContent": {
+                    "results": [{
+                        "title": "Docs",
+                        "url": "https://docs.python.org/3/",
+                        "content": "Python documentation reference with enough text for ranking.",
+                    }]
+                }
+            })[0]["source_type"],
+            "web",
+        )
+
     def test_underspecified_queries_never_trigger_web_search(self):
         missing = {"retrieval_quality": "none", "citations": []}
 
