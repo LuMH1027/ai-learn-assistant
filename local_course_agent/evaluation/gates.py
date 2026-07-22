@@ -10,7 +10,7 @@ from local_course_agent.evaluation.demo_fixtures import (
     DEMO_DATA_STRUCTURE_COURSE_ID,
     DEMO_OS_COURSE_ID,
 )
-from local_course_agent.evaluation.rag_quality import (
+from local_course_agent.evaluation.quality import (
     evaluate_chatflow_payload,
     evaluate_summary_payload,
     summarize_quality_results,

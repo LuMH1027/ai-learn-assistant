@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from local_course_agent.ops.telemetry_core import TelemetryEvent, TelemetryRecorder
-from local_course_agent.ops.telemetry_utils import (
+from local_course_agent.ops.telemetry.core import TelemetryEvent, TelemetryRecorder
+from local_course_agent.ops.telemetry.utils import (
     bool_from_payload,
     collect_trace_values,
     compact_attributes,

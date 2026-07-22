@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from local_course_agent.agent_strategy import build_agent_trace
-from local_course_agent.api import chat_steps
-from local_course_agent.api.chat_generation import (
+from . import steps as chat_steps
+from .generation import (
     CLARIFICATION_ANSWER,
     ChatAnswerGenerator,
     adapt_answer_by_mode,

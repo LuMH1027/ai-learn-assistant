@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from local_course_agent.evaluation.rag_quality import evaluate_chatflow_payload, evaluate_summary_payload
+from local_course_agent.evaluation.quality import evaluate_chatflow_payload, evaluate_summary_payload
 from local_course_agent.retrieval.rag import CourseKnowledgeBase
 from local_course_agent.retrieval.evaluation import (
     demo_eval_cases,

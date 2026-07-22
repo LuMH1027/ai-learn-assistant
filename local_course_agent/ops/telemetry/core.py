@@ -6,7 +6,7 @@ from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional
 
-from local_course_agent.ops.telemetry_utils import (
+from local_course_agent.ops.telemetry.utils import (
     counter_key,
     duration_summary,
     normalize_stage,

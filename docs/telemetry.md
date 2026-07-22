@@ -8,13 +8,13 @@ aggregate the compact payload.
 
 The implementation is split by responsibility:
 
-- `ops/telemetry_core.py`: dataclasses, `TelemetryRecorder`, span lifecycle, and
+- `ops/telemetry/core.py`: dataclasses, `TelemetryRecorder`, span lifecycle, and
   serialization.
-- `ops/telemetry_utils.py`: stage/name normalization, payload coercion, and
+- `ops/telemetry/utils.py`: stage/name normalization, payload coercion, and
   numeric summary helpers.
-- `ops/telemetry_recorders.py`: domain-level `record_index_result`,
+- `ops/telemetry/recorders.py`: domain-level `record_index_result`,
   `record_retrieval_result`, and `record_llm_result` helpers.
-- `ops/telemetry.py`: stable re-export facade for existing imports.
+- `ops/telemetry/__init__.py`: stable re-export facade for existing imports.
 
 The chat API now creates a request-local recorder through
 `local_course_agent.api.telemetry`. Chat responses include a compact

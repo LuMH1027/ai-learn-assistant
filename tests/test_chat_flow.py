@@ -4,8 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from local_course_agent.api.chat import ChatFlow
-from local_course_agent.api.chat_generation import ChatAnswerGenerator
-from local_course_agent.api.chat_steps import (
+from local_course_agent.api.chat.generation import ChatAnswerGenerator
+from local_course_agent.api.chat.steps import (
     build_attachment_context,
     build_retrieval_context,
     build_source_context,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from local_course_agent.ops.telemetry_core import (
+from local_course_agent.ops.telemetry.core import (
     Clock,
     TelemetryCounter,
     TelemetryEvent,
@@ -9,12 +9,12 @@ from local_course_agent.ops.telemetry_core import (
     TelemetrySpan,
     _SpanContext,
 )
-from local_course_agent.ops.telemetry_recorders import (
+from local_course_agent.ops.telemetry.recorders import (
     record_index_result,
     record_llm_result,
     record_retrieval_result,
 )
-from local_course_agent.ops.telemetry_utils import (
+from local_course_agent.ops.telemetry.utils import (
     _bool_from_payload,
     _collect_trace_values,
     _compact_attributes,

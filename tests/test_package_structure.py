@@ -7,8 +7,8 @@ class PackageStructureTest(unittest.TestCase):
     def test_feature_modules_live_in_domain_packages(self):
         expected_modules = [
             "local_course_agent.api.chat",
-            "local_course_agent.api.chat_generation",
-            "local_course_agent.api.chat_steps",
+            "local_course_agent.api.chat.generation",
+            "local_course_agent.api.chat.steps",
             "local_course_agent.api.context",
             "local_course_agent.api.course",
             "local_course_agent.api.http",
@@ -69,6 +69,10 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.evaluation.demo_baseline",
             "local_course_agent.evaluation.demo_fixtures",
             "local_course_agent.evaluation.gates",
+            "local_course_agent.evaluation.quality",
+            "local_course_agent.evaluation.quality.chatflow",
+            "local_course_agent.evaluation.quality.common",
+            "local_course_agent.evaluation.quality.summary",
             "local_course_agent.evaluation.rag_quality",
             "local_course_agent.evaluation.reports",
             "local_course_agent.learning.service",
@@ -96,9 +100,9 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.ops.config_status.filesystem",
             "local_course_agent.ops.config_status.model",
             "local_course_agent.ops.telemetry",
-            "local_course_agent.ops.telemetry_core",
-            "local_course_agent.ops.telemetry_recorders",
-            "local_course_agent.ops.telemetry_utils",
+            "local_course_agent.ops.telemetry.core",
+            "local_course_agent.ops.telemetry.recorders",
+            "local_course_agent.ops.telemetry.utils",
         ]
 
         for module_name in expected_modules:
@@ -170,3 +174,31 @@ class PackageStructureTest(unittest.TestCase):
 
         for filename in flat_helpers:
             self.assertFalse((retrieval_dir / filename).exists(), filename)
+
+    def test_api_domains_do_not_regrow_flat_chat_helpers(self):
+        api_dir = Path(__file__).resolve().parents[1] / "local_course_agent" / "api"
+        flat_helpers = [
+            "chat_generation.py",
+            "chat_steps.py",
+        ]
+
+        for filename in flat_helpers:
+            self.assertFalse((api_dir / filename).exists(), filename)
+
+    def test_ops_domains_do_not_regrow_flat_telemetry_helpers(self):
+        ops_dir = Path(__file__).resolve().parents[1] / "local_course_agent" / "ops"
+        flat_helpers = [
+            "telemetry_core.py",
+            "telemetry_recorders.py",
+            "telemetry_utils.py",
+        ]
+
+        for filename in flat_helpers:
+            self.assertFalse((ops_dir / filename).exists(), filename)
+
+    def test_evaluation_quality_facade_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "evaluation" / "rag_quality.py"
+        implementation_dir = facade.with_name("quality")
+
+        self.assertTrue(implementation_dir.is_dir())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 24)

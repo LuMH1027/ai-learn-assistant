@@ -1,8 +1,8 @@
 import json
 import unittest
 
-from local_course_agent.ops.telemetry_core import TelemetryRecorder as CoreTelemetryRecorder
-from local_course_agent.ops.telemetry_recorders import record_llm_result as record_llm_result_from_recorders
+from local_course_agent.ops.telemetry.core import TelemetryRecorder as CoreTelemetryRecorder
+from local_course_agent.ops.telemetry.recorders import record_llm_result as record_llm_result_from_recorders
 from local_course_agent.ops.telemetry import (
     TelemetryRecorder,
     record_index_result,
