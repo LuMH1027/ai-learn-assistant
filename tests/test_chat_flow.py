@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from local_course_agent.api.chat import ChatFlow
+from local_course_agent.api.chat_generation import ChatAnswerGenerator
 from local_course_agent.api.chat_steps import (
     build_attachment_context,
     build_retrieval_context,
@@ -61,6 +62,31 @@ class FakeKnowledgeBase:
 
 
 class ChatFlowTelemetryTest(unittest.TestCase):
+    def test_answer_generator_skips_synthesis_for_clarification(self):
+        events = []
+        synthesis_calls = []
+
+        def synthesize(*_args, **_kwargs):
+            synthesis_calls.append(True)
+            return "不应调用", "used"
+
+        generator = ChatAnswerGenerator(emit=events.append, synthesize=synthesize)
+
+        answer, status = generator.generate(
+            mode="homework",
+            needs_clarification=True,
+            search_question="1",
+            combined_result={"answer": "本地回答", "citations": []},
+            image_paths=[],
+            ai_config={"api_key": "configured"},
+        )
+
+        self.assertEqual(status, "skipped")
+        self.assertTrue(answer.startswith("作业提示模式"))
+        self.assertIn("你的问题信息不足", answer)
+        self.assertEqual(events, [{"type": "delta", "delta": answer}])
+        self.assertEqual(synthesis_calls, [])
+
     def test_step_contexts_structure_retrieval_and_sources(self):
         attachment = build_attachment_context("", "附件内容" * 1000, [Path("/tmp/screen.png")])
         retrieval = build_retrieval_context(attachment.question, [], attachment)
