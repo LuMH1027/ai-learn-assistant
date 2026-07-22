@@ -129,9 +129,11 @@ This gives repeatable behavior across processes and machines, which is enough fo
 ## Main RAG Flow
 
 1. Course indexing writes the lexical index and then attempts to write the vector index.
-2. Hybrid search builds sparse candidates with BM25, phrase, metadata, and local semantic signals.
-3. It loads the persistent vector index and searches dense candidates.
-4. `hybrid_merge_lexical_vector()` fuses lexical and vector rankings.
-5. MMR-style diverse selection still runs after fusion.
+2. `retrieval/query.py` normalizes the query, removes stop tokens, expands course-domain aliases, and extracts phrase/semantic features.
+3. `retrieval/scoring.py` builds sparse candidates with BM25, phrase, metadata, and local semantic signals.
+4. It loads the persistent vector index and searches dense candidates.
+5. `retrieval/selection.py` calls `hybrid_merge_lexical_vector()` to fuse lexical and vector rankings, then runs MMR-style diverse selection.
+
+`retrieval/ranking.py` remains a compatibility facade for existing imports; new ranking behavior should usually live in `query.py`, `scoring.py`, or `selection.py` according to responsibility.
 
 Embedding failures do not fail course indexing. The lexical JSON index remains authoritative, and hybrid retrieval degrades to lexical/rerank results when vector loading or embedding calls fail. If a saved vector index was built with a different embedding model, base URL, or dimension, the hybrid flow treats it as stale and rebuilds it before falling back.
