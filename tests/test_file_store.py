@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import json
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -129,6 +130,39 @@ class FileStoreTest(unittest.TestCase):
 
             self.assertEqual(path.read_text(encoding="utf-8"), '{"ok": false}')
             self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
+
+    def test_legacy_sqlite_state_is_migrated_to_course_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "app.db"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    "CREATE TABLE messages ("
+                    "id INTEGER PRIMARY KEY, course_id TEXT, role TEXT, content TEXT, "
+                    "citations TEXT, trace TEXT, created_at TEXT)"
+                )
+                conn.execute("CREATE TABLE memories (course_id TEXT, content TEXT)")
+                conn.execute(
+                    "CREATE TABLE notes ("
+                    "course_id TEXT, id INTEGER, title TEXT, content TEXT, created_at TEXT)"
+                )
+                conn.execute(
+                    "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (1, "course-1", "user", "旧消息", '[{"file_name":"a.md"}]', "[]", "2026-01-01 10:00:00"),
+                )
+                conn.execute(
+                    "INSERT INTO memories VALUES (?, ?)",
+                    ("course-1", "- 最近关注：旧问题"),
+                )
+                conn.execute(
+                    "INSERT INTO notes VALUES (?, ?, ?, ?, ?)",
+                    ("course-1", 7, "旧笔记", "旧内容", "2026-01-01 10:01:00"),
+                )
+
+            store = AppStore(Path(tmp))
+
+            self.assertEqual(store.list_messages("course-1")[0]["content"], "旧消息")
+            self.assertIn("旧问题", store.get_memory("course-1"))
+            self.assertEqual(store.list_notes("course-1")[0]["title"], "旧笔记")
 
     def test_index_writes_use_valid_replaceable_json(self):
         with tempfile.TemporaryDirectory() as tmp:
