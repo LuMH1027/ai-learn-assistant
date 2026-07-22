@@ -2,14 +2,11 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional, Protocol, Sequence
 
+from local_course_agent.learning.summary.citations import summary_citation_from_chunk
+from local_course_agent.learning.summary.models import MapSummary
+from local_course_agent.learning.summary.pipeline import build_summary_pipeline
 from local_course_agent.learning.summary.prompts import build_map_prompt, build_reduce_prompt
-from local_course_agent.learning.summary.schema import (
-    MapSummary,
-    build_summary_pipeline,
-    evidence_group_from_dict,
-    map_summary_to_dict,
-    summary_citation_from_chunk,
-)
+from local_course_agent.learning.summary.serialization import evidence_group_from_dict, map_summary_to_dict
 
 
 EMPTY_SUMMARY_MESSAGE = "当前课程还没有可用于生成章节摘要的资料片段，请先构建知识库。"

@@ -15,7 +15,7 @@
 
 `api`：
 
-- `api/chat/`：聊天编排、阶段上下文和 LLM 答案生成，入口为 `api.chat`。
+- `api/chat/`：聊天编排、阶段上下文、附件 adapter、联网 adapter 和 LLM 答案生成；`api.chat` 只做兼容导出。
 - `api/server/`：HTTP handler、routes 和 chat streaming adapter。
 - `api/course/`：课程 API 索引、产物、上传、dashboard、mastery 和学习计划适配，入口为 `api.course`。
 
@@ -32,13 +32,13 @@
 
 - `learning/dashboard/`：课程概览投影，入口为 `learning.dashboard`。
 - `learning/indexing/`：课程索引构建、文档抽取、进度事件和后台任务快照。
-- `learning/summary/`：LLM 课程摘要 pipeline，入口为 `learning.summary`。
-- `learning/mastery/`：掌握度与错题模型，入口为 `learning.mastery`。
+- `learning/summary/`：LLM 课程摘要 pipeline，按 `models`、`normalization`、`pipeline`、`serialization`、`citations`、`prompts`、`runner` 拆分，入口为 `learning.summary`。
+- `learning/mastery/`：掌握度与错题模型，按 `builders`、`normalization`、`policy`、`operations` 拆分，入口为 `learning.mastery`。
 - `learning/service.py`：课程学习服务的协调入口，不能继续吸收 dashboard/summary/mastery 内部细节。
 
 `retrieval`：
 
-- `retrieval/rag/`：课程知识库编排、chunk store、检索搜索、答案合成和本地学习产物。
+- `retrieval/rag/`：课程知识库编排、chunk store、检索搜索、答案合成和本地学习产物；`CourseKnowledgeBase` 位于 `knowledge_base.py`，`retrieval.rag` 只做兼容导出。
 - `retrieval/embeddings/`：embedding 配置、模型协议、provider 和向量工具。
 - `retrieval/reranking/`：候选重排协议、fallback、provider adapter 和候选文本转换。
 - `retrieval/vector/`：向量索引构建、持久化、融合和数学工具。
@@ -77,6 +77,9 @@
 - `retrieval/vector_cache.py`
 - `api/chat_generation.py`
 - `api/chat_steps.py`
+- `api/chat_uploads.py`
+- `api/chat_web.py`
+- `api/chat_llm_adapter.py`
 - `api/course.py`
 - `llm.py`
 - `parser.py`

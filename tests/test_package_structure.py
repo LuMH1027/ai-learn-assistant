@@ -7,8 +7,14 @@ class PackageStructureTest(unittest.TestCase):
     def test_feature_modules_live_in_domain_packages(self):
         expected_modules = [
             "local_course_agent.api.chat",
+            "local_course_agent.api.chat.compat",
+            "local_course_agent.api.chat.errors",
+            "local_course_agent.api.chat.flow",
             "local_course_agent.api.chat.generation",
+            "local_course_agent.api.chat.llm_adapter",
             "local_course_agent.api.chat.steps",
+            "local_course_agent.api.chat.uploads",
+            "local_course_agent.api.chat.web",
             "local_course_agent.api.context",
             "local_course_agent.api.course",
             "local_course_agent.api.course.artifacts",
@@ -46,7 +52,9 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.rag",
             "local_course_agent.retrieval.rag.answering",
             "local_course_agent.retrieval.rag.artifacts",
+            "local_course_agent.retrieval.rag.compat",
             "local_course_agent.retrieval.rag.indexing",
+            "local_course_agent.retrieval.rag.knowledge_base",
             "local_course_agent.retrieval.rag.search",
             "local_course_agent.retrieval.rag.store",
             "local_course_agent.retrieval.rag.vector_cache",
@@ -115,7 +123,12 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.learning.artifacts",
             "local_course_agent.learning.files",
             "local_course_agent.learning.summary",
+            "local_course_agent.learning.summary.citations",
+            "local_course_agent.learning.summary.models",
+            "local_course_agent.learning.summary.normalization",
+            "local_course_agent.learning.summary.pipeline",
             "local_course_agent.learning.summary.schema",
+            "local_course_agent.learning.summary.serialization",
             "local_course_agent.learning.summary.prompts",
             "local_course_agent.learning.summary.runner",
             "local_course_agent.learning.dashboard",
@@ -125,6 +138,9 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.learning.dashboard.progress",
             "local_course_agent.learning.dashboard.utils",
             "local_course_agent.learning.mastery",
+            "local_course_agent.learning.mastery.builders",
+            "local_course_agent.learning.mastery.normalization",
+            "local_course_agent.learning.mastery.operations",
             "local_course_agent.learning.mastery.schema",
             "local_course_agent.learning.mastery.policy",
             "local_course_agent.ingestion.parser_quality",
@@ -270,6 +286,36 @@ class PackageStructureTest(unittest.TestCase):
         implementation = facade.with_name("runner.py")
 
         self.assertTrue(implementation.exists())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 40)
+
+    def test_retrieval_rag_package_entry_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "retrieval" / "rag" / "__init__.py"
+        implementation = facade.with_name("knowledge_base.py")
+        compat_exports = facade.with_name("compat.py")
+
+        self.assertTrue(implementation.exists())
+        self.assertTrue(compat_exports.exists())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 12)
+
+    def test_api_chat_package_entry_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "api" / "chat" / "__init__.py"
+
+        self.assertTrue(facade.with_name("flow.py").exists())
+        self.assertTrue(facade.with_name("compat.py").exists())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 35)
+
+    def test_learning_mastery_package_entry_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "learning" / "mastery" / "__init__.py"
+
+        self.assertTrue(facade.with_name("operations.py").exists())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 50)
+
+    def test_learning_summary_schema_facade_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "learning" / "summary" / "schema.py"
+
+        self.assertTrue(facade.with_name("models.py").exists())
+        self.assertTrue(facade.with_name("pipeline.py").exists())
+        self.assertTrue(facade.with_name("serialization.py").exists())
         self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 40)
 
     def test_learning_domains_do_not_regrow_flat_indexing_entry(self):

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from local_course_agent.learning.summary.citations import summary_citation_from_chunk
+from local_course_agent.learning.summary.models import EvidenceGroup, MapSummary, SummaryEvidence
+from local_course_agent.learning.summary.normalization import compact_summary_text, normalize_summary_evidence
+from local_course_agent.learning.summary.pipeline import build_summary_pipeline, group_evidence_by_section
 from local_course_agent.learning.summary.prompts import (
     build_map_prompt,
     build_reduce_prompt,
@@ -15,21 +19,13 @@ from local_course_agent.learning.summary.runner import (
     map_reduce_fallback_payload,
     run_map_reduce_summary,
 )
-from local_course_agent.learning.summary.schema import (
-    EvidenceGroup,
-    MapSummary,
-    SummaryEvidence,
-    build_summary_pipeline,
-    compact_summary_text,
+from local_course_agent.learning.summary.serialization import (
     evidence_group_from_dict,
     evidence_group_to_dict,
     evidence_item_from_dict,
     evidence_item_to_dict,
-    group_evidence_by_section,
     map_summary_from_dict,
     map_summary_to_dict,
-    normalize_summary_evidence,
-    summary_citation_from_chunk,
 )
 
 # Compatibility aliases for older tests/tools that reached into the previous

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from local_course_agent.learning.summary.schema import EvidenceGroup, MapSummary, SummaryEvidence
+from local_course_agent.learning.summary.models import EvidenceGroup, MapSummary, SummaryEvidence
 
 
 def build_map_prompt(course_name: str, group: EvidenceGroup) -> str:

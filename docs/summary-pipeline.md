@@ -13,9 +13,14 @@
 
 ## 模块边界
 
-实现已从单文件拆成三层，`local_course_agent/learning/summary/` 是兼容入口和内部实现包：
+实现已从单文件拆成职责明确的子模块，`local_course_agent/learning/summary/` 是兼容入口和内部实现包：
 
-- `local_course_agent/learning/summary/schema.py`：定义 `SummaryEvidence`、`EvidenceGroup`、`MapSummary`，负责 evidence normalize/group、dict round-trip、citation payload 和文本压缩。
+- `local_course_agent/learning/summary/models.py`：定义 `SummaryEvidence`、`EvidenceGroup`、`MapSummary`。
+- `local_course_agent/learning/summary/normalization.py`：负责 evidence normalize 和文本压缩。
+- `local_course_agent/learning/summary/pipeline.py`：负责 evidence 分组和 pipeline payload 组装。
+- `local_course_agent/learning/summary/serialization.py`：负责 dataclass 与 dict 的 round-trip。
+- `local_course_agent/learning/summary/citations.py`：负责 summary citation payload。
+- `local_course_agent/learning/summary/schema.py`：兼容导出旧 schema 入口。
 - `local_course_agent/learning/summary/prompts.py`：负责 map/reduce prompt 构造，以及 evidence/map-summary block formatting。
 - `local_course_agent/learning/summary/runner.py`：负责 `run_map_reduce_summary()` 状态机、LLM client 协议、高层 service adapter 和 fallback payload。
 - `local_course_agent/learning/summary/__init__.py`：re-export 旧符号，保证 `from local_course_agent.learning.summary import ...` 继续可用。
