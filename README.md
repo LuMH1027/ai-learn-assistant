@@ -162,11 +162,11 @@ copy data\config.example.json data\config.json
 主要字段：
 
 - `root_folder`：课程资料根目录。
-- `ai.base_url/api_key/model`：OpenAI-compatible 模型配置。
+- `ai.base_url/api_key/model`：OpenAI-compatible 模型配置；默认使用 SiliconFlow `Qwen/Qwen3.5-35B-A3B`，`api_key` 可写 `$SILICONFLOW_API_KEY`。
 - `ai.embedding_model/embedding_dimensions`：可选的 OpenAI-compatible embedding 配置；留空时使用本地确定性 embedding fallback。
-- `ai.embedding_base_url/embedding_api_key`：可选的 embedding 专用 endpoint 和 key；留空时复用 `ai.base_url/api_key`。
+- `ai.embedding_base_url/embedding_api_key`：可选的 embedding 专用 endpoint 和 key；默认接 SiliconFlow `Qwen/Qwen3-VL-Embedding-8B`，key 留空时读取 `SILICONFLOW_API_KEY`。
 - `ai.embedding_batch_size/embedding_max_retries/embedding_retry_delay`：embedding 批大小、失败重试次数和重试间隔，用于提升外部 provider 的稳定性。
-- `ai.rerank_model/rerank_base_url/rerank_api_key`：可选的 SiliconFlow `/rerank` 配置；留空时使用本地 rerank。
+- `ai.rerank_model/rerank_base_url/rerank_api_key`：可选的 SiliconFlow `/rerank` 配置；默认模型为 `Qwen/Qwen3-Reranker-8B`，无 key 时使用本地 rerank。
 - `web_search`：MCP Web Search 配置；`enabled` 开启后才会向外部服务发送学生问题。
 - `mineru.token`：MinerU API token。
 
@@ -178,19 +178,19 @@ copy data\config.example.json data\config.json
   "ai": {
     "provider": "openai_compatible",
     "base_url": "https://api.siliconflow.cn/v1",
-    "api_key": "",
+    "api_key": "$SILICONFLOW_API_KEY",
     "model": "Qwen/Qwen3.5-35B-A3B",
     "embedding_model": "Qwen/Qwen3-VL-Embedding-8B",
     "embedding_dimensions": "",
-    "embedding_base_url": "",
-    "embedding_api_key": "",
+    "embedding_base_url": "https://api.siliconflow.cn/v1",
+    "embedding_api_key": "$SILICONFLOW_API_KEY",
     "embedding_timeout": 30,
     "embedding_batch_size": 32,
     "embedding_max_retries": 2,
     "embedding_retry_delay": 1.0,
     "rerank_model": "Qwen/Qwen3-Reranker-8B",
-    "rerank_base_url": "",
-    "rerank_api_key": "",
+    "rerank_base_url": "https://api.siliconflow.cn/v1",
+    "rerank_api_key": "$SILICONFLOW_API_KEY",
     "rerank_timeout": 30,
     "rerank_top_n": 12
   },

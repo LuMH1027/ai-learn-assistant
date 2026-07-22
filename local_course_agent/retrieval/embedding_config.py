@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
+from local_course_agent.config import (
+    SILICONFLOW_BASE_URL,
+    SILICONFLOW_EMBEDDING_MODEL,
+    resolve_siliconflow_api_key,
+)
 from local_course_agent.retrieval.embedding_models import EmbeddingModel
 from local_course_agent.retrieval.embedding_providers import FakeEmbeddingModel, OpenAICompatibleEmbeddingModel
 from local_course_agent.retrieval.embedding_utils import (
@@ -14,9 +19,9 @@ from local_course_agent.retrieval.embedding_utils import (
 
 def create_embedding_model(config: Mapping[str, Any] | None = None) -> EmbeddingModel:
     config = dict(config or {})
-    embedding_model = str(config.get("embedding_model") or "").strip()
-    api_key = str(config.get("embedding_api_key") or config.get("api_key") or "").strip()
-    base_url = str(config.get("embedding_base_url") or config.get("base_url") or "").strip()
+    embedding_model = str(config.get("embedding_model") or SILICONFLOW_EMBEDDING_MODEL).strip()
+    api_key = resolve_siliconflow_api_key(config.get("embedding_api_key"), config.get("api_key"))
+    base_url = str(config.get("embedding_base_url") or config.get("base_url") or SILICONFLOW_BASE_URL).strip()
     if embedding_model and api_key and base_url:
         return OpenAICompatibleEmbeddingModel(
             base_url=base_url,

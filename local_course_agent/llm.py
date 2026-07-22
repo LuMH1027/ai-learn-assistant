@@ -8,6 +8,8 @@ import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from local_course_agent.config import SILICONFLOW_BASE_URL, SILICONFLOW_CHAT_MODEL, resolve_siliconflow_api_key
+
 
 def build_grounded_prompt(question: str, evidence: List[Dict], memory: str = "") -> str:
     local_evidence = [item for item in evidence if item.get("source_type", "local") != "web"]
@@ -195,10 +197,11 @@ class OpenAICompatibleClient:
 
 
 def create_llm_client(ai_config: Dict):
+    ai_config = dict(ai_config or {})
     return OpenAICompatibleClient(
-        base_url=(ai_config or {}).get("base_url", ""),
-        api_key=(ai_config or {}).get("api_key", ""),
-        model=(ai_config or {}).get("model", ""),
+        base_url=ai_config.get("base_url") or SILICONFLOW_BASE_URL,
+        api_key=resolve_siliconflow_api_key(ai_config.get("api_key")),
+        model=ai_config.get("model") or SILICONFLOW_CHAT_MODEL,
     )
 
 

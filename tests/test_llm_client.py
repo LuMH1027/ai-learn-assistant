@@ -1,10 +1,16 @@
 import json
+import os
 import unittest
 import tempfile
 from pathlib import Path
 from unittest import mock
 
-from local_course_agent.llm import OpenAICompatibleClient, build_course_summary_prompt, build_grounded_prompt
+from local_course_agent.llm import (
+    OpenAICompatibleClient,
+    build_course_summary_prompt,
+    build_grounded_prompt,
+    create_llm_client,
+)
 
 
 class LlmPromptTest(unittest.TestCase):
@@ -113,6 +119,15 @@ class LlmPromptTest(unittest.TestCase):
         self.assertEqual(result, "answer")
         self.assertEqual(request.full_url, "https://api.siliconflow.cn/v1/chat/completions")
         self.assertEqual(request.headers["Authorization"], "Bearer test-key")
+
+    def test_create_llm_client_uses_siliconflow_defaults_with_env_key(self):
+        with mock.patch.dict(os.environ, {"SILICONFLOW_API_KEY": "env-secret"}):
+            client = create_llm_client({})
+
+        self.assertTrue(client.enabled())
+        self.assertEqual(client.base_url, "https://api.siliconflow.cn/v1")
+        self.assertEqual(client.api_key, "env-secret")
+        self.assertEqual(client.model, "Qwen/Qwen3.5-35B-A3B")
 
     def test_openai_compatible_client_sends_images_as_content_parts(self):
         client = OpenAICompatibleClient(

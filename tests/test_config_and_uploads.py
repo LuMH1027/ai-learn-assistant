@@ -3,8 +3,9 @@ import tempfile
 import unittest
 import time
 from pathlib import Path
+from unittest import mock
 
-from local_course_agent.config import normalize_config
+from local_course_agent.config import normalize_config, resolve_siliconflow_api_key
 from local_course_agent.ops.config_status import build_config_status
 from local_course_agent.uploads import (
     MAX_UPLOAD_FILE_BYTES,
@@ -32,6 +33,10 @@ class ConfigAndUploadsTest(unittest.TestCase):
         self.assertEqual(config["ai"]["provider"], "openai_compatible")
         self.assertEqual(config["ai"]["base_url"], "https://api.siliconflow.cn/v1")
         self.assertEqual(config["ai"]["model"], "Qwen/Qwen3.5-35B-A3B")
+        self.assertEqual(config["ai"]["embedding_model"], "Qwen/Qwen3-VL-Embedding-8B")
+        self.assertEqual(config["ai"]["embedding_base_url"], "https://api.siliconflow.cn/v1")
+        self.assertEqual(config["ai"]["rerank_model"], "Qwen/Qwen3-Reranker-8B")
+        self.assertEqual(config["ai"]["rerank_base_url"], "https://api.siliconflow.cn/v1")
         self.assertIn("rerank_model", config["ai"])
         self.assertTrue(config["mineru"]["auto"])
         self.assertFalse(config["web_search"]["enabled"])
@@ -89,7 +94,10 @@ class ConfigAndUploadsTest(unittest.TestCase):
         self.assertTrue(by_key["ai"]["enabled"])
         self.assertTrue(by_key["web_search"]["enabled"])
         self.assertEqual(by_key["rag_index"]["total_chunks"], 1)
-        self.assertEqual(by_key["vector"]["model"], "fake-hash-embedding-v1")
+        self.assertEqual(by_key["vector"]["model"], "openai-compatible:Qwen/Qwen3-VL-Embedding-8B")
+        self.assertEqual(by_key["vector"]["provider"], "openai_compatible")
+        self.assertTrue(by_key["rerank"]["enabled"])
+        self.assertEqual(by_key["rerank"]["model"], "siliconflow-rerank:Qwen/Qwen3-Reranker-8B")
 
     def test_config_status_marks_missing_root_and_ai_configuration(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -100,7 +108,13 @@ class ConfigAndUploadsTest(unittest.TestCase):
         self.assertEqual(by_key["material_root"]["status"], "warning")
         self.assertIn("root_folder", by_key["material_root"]["missing"])
         self.assertEqual(by_key["ai"]["status"], "warning")
-        self.assertEqual(by_key["ai"]["missing"], ["base_url", "api_key", "model"])
+        self.assertEqual(by_key["ai"]["missing"], ["api_key"])
+
+    def test_siliconflow_key_can_resolve_from_env_reference(self):
+        with mock.patch.dict(os.environ, {"SILICONFLOW_API_KEY": "env-secret"}):
+            self.assertEqual(resolve_siliconflow_api_key("$SILICONFLOW_API_KEY"), "env-secret")
+            self.assertEqual(resolve_siliconflow_api_key("${SILICONFLOW_API_KEY}"), "env-secret")
+            self.assertEqual(resolve_siliconflow_api_key(""), "env-secret")
 
     def test_safe_upload_name_removes_path_segments(self):
         self.assertEqual(safe_upload_name("../evil.pdf"), "evil.pdf")

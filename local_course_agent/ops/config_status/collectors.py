@@ -4,85 +4,65 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional
 
-from local_course_agent.config import normalize_config
+from local_course_agent.config import resolve_siliconflow_api_key
 from local_course_agent.llm import create_llm_client
 from local_course_agent.ops.backup import collect_backup_entries
+from local_course_agent.ops.config_status.filesystem import data_dir_status, material_root_status
+from local_course_agent.ops.config_status.model import capability
+from local_course_agent.retrieval.rerankers import NoopReranker, create_reranker
 from local_course_agent.retrieval.vector_index import create_embedding_model
 from local_course_agent.web_search import create_web_search_client
 
 
-def build_config_status(
-    data_dir: Path,
-    config: Mapping,
+def collect_config_capabilities(
+    *,
+    data_path: Path,
+    root_path: Optional[Path],
+    ai_config: Mapping,
+    web_config: Mapping,
+    mineru_config: Mapping,
     courses: Optional[Iterable[Mapping]] = None,
-) -> Dict:
-    normalized = normalize_config(dict(config or {}))
-    root_folder = str(normalized.get("root_folder") or "")
-    root_path = Path(root_folder).expanduser() if root_folder else None
-    data_path = Path(data_dir)
+) -> List[Dict]:
     index_dir = data_path / "indexes"
-
-    capabilities = [
-        _data_dir_status(data_path),
-        _root_status(root_path),
-        _ai_status(normalized.get("ai", {})),
-        _web_search_status(normalized.get("web_search", {})),
-        _mineru_status(normalized.get("mineru", {})),
-        _rag_index_status(index_dir, courses),
-        _vector_status(index_dir, normalized.get("ai", {})),
-        _telemetry_status(),
-        _backup_status(data_path),
+    return [
+        data_dir_status(data_path),
+        material_root_status(root_path),
+        ai_generation_status(ai_config),
+        web_search_status(web_config),
+        mineru_status(mineru_config),
+        rag_index_status(index_dir, courses),
+        vector_status(index_dir, ai_config),
+        rerank_status(ai_config),
+        telemetry_status(),
+        backup_status(data_path),
     ]
-    overall = _overall_status(capabilities)
-
-    return {
-        "data_dir": str(data_path),
-        "root_folder": root_folder,
-        "overall": overall,
-        "capabilities": capabilities,
-    }
 
 
-def _data_dir_status(data_dir: Path) -> Dict:
-    exists = data_dir.exists()
-    writable = _is_writable(data_dir)
-    if exists and writable:
-        return _capability("data_dir", "数据目录", "ok", True, str(data_dir))
-    if exists:
-        return _capability("data_dir", "数据目录", "warning", False, "数据目录存在，但当前不可写。")
-    return _capability("data_dir", "数据目录", "warning", False, "数据目录尚未创建，首次写入时会尝试创建。")
-
-
-def _root_status(root: Optional[Path]) -> Dict:
-    if root is None:
-        return _capability("material_root", "资料根目录", "warning", False, "尚未设置资料根目录。", ["root_folder"])
-    expanded = root.expanduser()
-    if expanded.exists() and expanded.is_dir():
-        return _capability("material_root", "资料根目录", "ok", True, str(expanded))
-    return _capability("material_root", "资料根目录", "error", False, f"资料根目录不存在：{expanded}")
-
-
-def _ai_status(ai_config: Mapping) -> Dict:
+def ai_generation_status(ai_config: Mapping) -> Dict:
     ai_config = dict(ai_config or {})
+    api_key = resolve_siliconflow_api_key(ai_config.get("api_key"))
     missing = [
         key
         for key in ("base_url", "api_key", "model")
-        if not str(ai_config.get(key) or "").strip()
+        if not (api_key if key == "api_key" else str(ai_config.get(key) or "").strip())
     ]
     enabled = create_llm_client(ai_config).enabled()
     provider = str(ai_config.get("provider") or "openai_compatible")
-    return _capability(
+    return capability(
         "ai",
         "AI 生成",
         "ok" if enabled else "warning",
         enabled,
         f"{provider} 已配置" if enabled else "缺少大模型配置，回答和摘要会回退到本地检索结果。",
         missing,
-        {"provider": provider},
+        {
+            "provider": provider,
+            "model": str(ai_config.get("model") or "") if enabled else "",
+        },
     )
 
 
-def _web_search_status(web_config: Mapping) -> Dict:
+def web_search_status(web_config: Mapping) -> Dict:
     web_config = dict(web_config or {})
     enabled = create_web_search_client(web_config).enabled()
     configured_enabled = bool(web_config.get("enabled"))
@@ -100,10 +80,10 @@ def _web_search_status(web_config: Mapping) -> Dict:
     else:
         status = "skip"
         detail = "联网补充未启用。"
-    return _capability("web_search", "联网补充", status, enabled, detail, missing)
+    return capability("web_search", "联网补充", status, enabled, detail, missing)
 
 
-def _mineru_status(mineru_config: Mapping) -> Dict:
+def mineru_status(mineru_config: Mapping) -> Dict:
     mineru_config = dict(mineru_config or {})
     configured = bool(mineru_config.get("command") or mineru_config.get("token"))
     auto = bool(mineru_config.get("auto", True))
@@ -117,10 +97,10 @@ def _mineru_status(mineru_config: Mapping) -> Dict:
         detail = "MinerU 未启用，将只使用内置解析。"
         status = "skip"
     missing = [] if configured else ["command_or_token"]
-    return _capability("mineru", "文档解析", status, configured, detail, missing, {"auto": auto})
+    return capability("mineru", "文档解析", status, configured, detail, missing, {"auto": auto})
 
 
-def _rag_index_status(index_dir: Path, courses: Optional[Iterable[Mapping]]) -> Dict:
+def rag_index_status(index_dir: Path, courses: Optional[Iterable[Mapping]]) -> Dict:
     files = sorted(index_dir.glob("*.json")) if index_dir.exists() else []
     chunks = 0
     schema_versions = set()
@@ -149,7 +129,7 @@ def _rag_index_status(index_dir: Path, courses: Optional[Iterable[Mapping]]) -> 
     else:
         status = "warning"
         detail = "还没有课程索引。"
-    return _capability(
+    return capability(
         "rag_index",
         "RAG 索引",
         status,
@@ -164,18 +144,18 @@ def _rag_index_status(index_dir: Path, courses: Optional[Iterable[Mapping]]) -> 
     )
 
 
-def _vector_status(index_dir: Path, ai_config: Mapping) -> Dict:
+def vector_status(index_dir: Path, ai_config: Mapping) -> Dict:
     model = create_embedding_model(ai_config)
     vector_files = sorted(index_dir.glob("*.vector.json")) if index_dir.exists() else []
     real_provider = str(model.model_id).startswith("openai-compatible:")
     detail = (
         "已配置真实 embedding provider，可用于持久向量索引和混合检索。"
         if real_provider
-        else "使用本地确定性 embedding，可离线运行；配置 ai.embedding_model 后可切换真实 embedding。"
+        else "使用本地确定性 embedding，可离线运行；配置 SiliconFlow key 后可启用真实 embedding。"
     )
     if vector_files:
         detail = f"{detail} 检测到 {len(vector_files)} 个持久化向量索引。"
-    return _capability(
+    return capability(
         "vector",
         "向量检索",
         "ok",
@@ -186,12 +166,52 @@ def _vector_status(index_dir: Path, ai_config: Mapping) -> Dict:
             "model": model.model_id,
             "dimensions": model.dimensions,
             "index_files": len(vector_files),
+            "provider": "openai_compatible" if real_provider else "local",
         },
     )
 
 
-def _telemetry_status() -> Dict:
-    return _capability(
+def rerank_status(ai_config: Mapping) -> Dict:
+    ai_config = dict(ai_config or {})
+    configured_model = str(ai_config.get("rerank_model") or "").strip()
+    configured_base_url = str(ai_config.get("rerank_base_url") or ai_config.get("base_url") or "").strip()
+    configured_key = resolve_siliconflow_api_key(ai_config.get("rerank_api_key"), ai_config.get("api_key"))
+    any_configured = any((configured_model, configured_base_url, configured_key))
+    missing = []
+    if any_configured and not configured_model:
+        missing.append("rerank_model")
+    if any_configured and not configured_base_url:
+        missing.append("rerank_base_url_or_base_url")
+    if any_configured and not configured_key:
+        missing.append("rerank_api_key_or_api_key")
+
+    reranker = create_reranker(ai_config)
+    enabled = not isinstance(reranker, NoopReranker)
+    if enabled:
+        status = "ok"
+        detail = "已配置外部 rerank provider，可用于 cross-encoder 候选重排。"
+    elif any_configured:
+        status = "warning"
+        detail = "rerank 配置不完整，将回退到本地重排。"
+    else:
+        status = "skip"
+        detail = "未配置外部 rerank，将使用本地重排。"
+    return capability(
+        "rerank",
+        "候选重排",
+        status,
+        enabled,
+        detail,
+        missing,
+        {
+            "model": getattr(reranker, "model_id", "local-rerank"),
+            "top_n": int(ai_config.get("rerank_top_n") or 12),
+        },
+    )
+
+
+def telemetry_status() -> Dict:
+    return capability(
         "telemetry",
         "遥测诊断",
         "ok",
@@ -202,12 +222,12 @@ def _telemetry_status() -> Dict:
     )
 
 
-def _backup_status(data_dir: Path) -> Dict:
+def backup_status(data_dir: Path) -> Dict:
     try:
         entries = collect_backup_entries(data_dir)
     except OSError:
-        return _capability("backup", "备份恢复", "warning", False, "无法读取可备份数据。")
-    return _capability(
+        return capability("backup", "备份恢复", "warning", False, "无法读取可备份数据。")
+    return capability(
         "backup",
         "备份恢复",
         "ok",
@@ -216,45 +236,3 @@ def _backup_status(data_dir: Path) -> Dict:
         [],
         {"backup_file_count": len(entries)},
     )
-
-
-def _capability(
-    key: str,
-    label: str,
-    status: str,
-    enabled: bool,
-    detail: str,
-    missing: Optional[List[str]] = None,
-    meta: Optional[Dict] = None,
-) -> Dict:
-    payload = {
-        "key": key,
-        "label": label,
-        "status": status,
-        "enabled": bool(enabled),
-        "detail": detail,
-        "missing": list(missing or []),
-    }
-    if meta:
-        payload.update(meta)
-    return payload
-
-
-def _overall_status(capabilities: List[Mapping]) -> str:
-    statuses = {item.get("status") for item in capabilities}
-    if "error" in statuses:
-        return "error"
-    if "warning" in statuses:
-        return "warning"
-    return "ok"
-
-
-def _is_writable(path: Path) -> bool:
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        probe = path / ".healthcheck"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink(missing_ok=True)
-        return True
-    except OSError:
-        return False

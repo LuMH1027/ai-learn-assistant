@@ -1,27 +1,35 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Dict
+
+
+SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
+SILICONFLOW_CHAT_MODEL = "Qwen/Qwen3.5-35B-A3B"
+SILICONFLOW_EMBEDDING_MODEL = "Qwen/Qwen3-VL-Embedding-8B"
+SILICONFLOW_RERANK_MODEL = "Qwen/Qwen3-Reranker-8B"
+SILICONFLOW_API_KEY_ENV = "SILICONFLOW_API_KEY"
 
 
 DEFAULT_CONFIG = {
     "root_folder": "",
     "ai": {
         "provider": "openai_compatible",
-        "base_url": "",
+        "base_url": SILICONFLOW_BASE_URL,
         "api_key": "",
-        "model": "",
-        "embedding_model": "",
+        "model": SILICONFLOW_CHAT_MODEL,
+        "embedding_model": SILICONFLOW_EMBEDDING_MODEL,
         "embedding_dimensions": "",
-        "embedding_base_url": "",
+        "embedding_base_url": SILICONFLOW_BASE_URL,
         "embedding_api_key": "",
         "embedding_timeout": 30,
         "embedding_batch_size": 32,
         "embedding_max_retries": 2,
         "embedding_retry_delay": 1.0,
-        "rerank_model": "",
-        "rerank_base_url": "",
+        "rerank_model": SILICONFLOW_RERANK_MODEL,
+        "rerank_base_url": SILICONFLOW_BASE_URL,
         "rerank_api_key": "",
         "rerank_timeout": 30,
         "rerank_top_n": 12,
@@ -77,3 +85,15 @@ def load_config(path: Path) -> Dict:
 def write_config(path: Path, config: Dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(normalize_config(config), ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def resolve_siliconflow_api_key(*values: object) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text.startswith("${") and text.endswith("}"):
+            text = os.getenv(text[2:-1], "").strip()
+        elif text.startswith("$") and len(text) > 1:
+            text = os.getenv(text[1:], "").strip()
+        if text:
+            return text
+    return os.getenv(SILICONFLOW_API_KEY_ENV, "").strip()

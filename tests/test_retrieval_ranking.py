@@ -1,4 +1,6 @@
+import os
 import unittest
+from unittest import mock
 
 from local_course_agent.retrieval import query, ranking, scoring, selection
 from local_course_agent.retrieval.chunking import tokenize
@@ -81,6 +83,15 @@ class RetrievalRankingStructureTest(unittest.TestCase):
 
         self.assertIsInstance(reranker, SiliconFlowReranker)
         self.assertEqual(reranker.base_url, "https://api.siliconflow.cn/v1")
+        self.assertEqual(reranker.model, "Qwen/Qwen3-Reranker-8B")
+
+    def test_create_reranker_uses_siliconflow_defaults_with_env_key(self):
+        with mock.patch.dict(os.environ, {"SILICONFLOW_API_KEY": "env-secret"}):
+            reranker = create_reranker({})
+
+        self.assertIsInstance(reranker, SiliconFlowReranker)
+        self.assertEqual(reranker.base_url, "https://api.siliconflow.cn/v1")
+        self.assertEqual(reranker.api_key, "env-secret")
         self.assertEqual(reranker.model, "Qwen/Qwen3-Reranker-8B")
 
 
