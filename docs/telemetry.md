@@ -1,9 +1,15 @@
 # Telemetry module
 
 `local_course_agent.ops.telemetry` provides a small in-memory telemetry buffer for
-future RAG and course-processing diagnostics. It is intentionally a pure module:
-no server integration, no background thread, no file writes, and no third-party
-dependency.
+RAG and course-processing diagnostics. The recorder itself is intentionally pure:
+no background thread, no file writes, and no third-party dependency. Runtime
+callers decide whether to return, persist, or aggregate the compact payload.
+
+The chat API now creates a request-local recorder through
+`local_course_agent.api.telemetry`. Chat responses include a compact
+`telemetry` field with stage summaries, spans, and sanitized events for
+attachment indexing, retrieval, optional web search, LLM generation, and
+citation checking.
 
 ## Current API
 
@@ -46,7 +52,7 @@ summary = telemetry.summary_by_stage()
 
 ## Result helpers
 
-The module also provides three low-friction helpers for future integration
+The module also provides three low-friction helpers for runtime integration
 points. They accept existing result payload dictionaries, normalize common field
 names, then write counters, observations, and one event.
 
@@ -212,21 +218,22 @@ provided, it is derived from prompt and completion tokens.
 }
 ```
 
-## Intended integrations
+## Runtime integrations
 
-- Indexing: wrap full index build and per-file indexing in spans; count indexed
-  files, skipped files, and chunk totals.
-- Parsing: record `files_total`, `files_failed`, parser quality warnings, and
-  parse duration per file type.
-- LLM calls: wrap summary and answer generation in spans; record model, route,
-  timeout/error status, and latency.
-- Retrieval: observe requested topK, recalled candidate count, reranked count,
-  and final citation count.
+- ChatFlow: wraps attachment indexing, course retrieval, web search, answer
+  generation, and citation checking. The response keeps existing fields and adds
+  a compact `telemetry` object for request diagnostics.
+- Index jobs: expose durable job status through `GET /api/index-jobs/{job_id}`
+  with progress, current file, timestamps, and per-file error details. Job
+  snapshots are stored in `data/index_jobs.json`; interrupted queued/running
+  jobs are restored as failed diagnostic records on restart.
+- Future parsing and summary integrations can reuse the same recorder and result
+  helpers without changing the payload shape.
 
 The result helpers are deliberately separate from spans. A later integration can
 use both: span wraps the operation duration and exception path, while the helper
 records the normalized result payload after the operation returns.
 
-The module should stay request-local or job-local. Callers decide whether to
-return the JSON payload in debug responses, persist it next to eval reports, or
-aggregate it in a later runtime telemetry layer.
+The module should stay request-local or job-local. It is not a persistent
+monitoring platform, and it deliberately avoids secrets such as API keys in
+returned attributes.

@@ -323,6 +323,24 @@ export interface IndexJob {
   status: 'queued' | 'running' | 'succeeded' | 'failed'
   result: IndexResult | null
   error: string
+  started_at: string | null
+  updated_at: string
+  finished_at: string | null
+  progress: number
+  current_file: IndexJobFile | null
+  processed_files: number
+  total_files: number
+  error_files: IndexJobErrorFile[]
+}
+
+export interface IndexJobFile {
+  file_id: string | null
+  file_name: string
+  path: string
+}
+
+export interface IndexJobErrorFile extends IndexJobFile {
+  error: string
 }
 
 export interface ArtifactResult {

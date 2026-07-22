@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import mimetypes
 import cgi
-import re
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +32,12 @@ from local_course_agent.api.course import (
     update_study_plan_item as run_update_study_plan_item,
     update_mastery as run_update_mastery,
     upload_course_files as run_upload_course_files,
+)
+from local_course_agent.api.router import (
+    dispatch_course_action,
+    match_get_course_action,
+    match_post_course_action,
+    parse_course_route,
 )
 from local_course_agent.config import load_config, write_config
 from local_course_agent.learning.service import (
@@ -103,15 +108,6 @@ def is_frontend_entry(request_path: str) -> bool:
     return urlparse(request_path).path in ("/", "/index.html")
 
 
-def parse_course_route(request_path: str) -> tuple[str, str] | None:
-    match = re.fullmatch(r"/api/courses/([^/]+)/([^/]+)(?:/([^/]+))?", urlparse(request_path).path)
-    if not match:
-        return None
-    course_id = unquote(match.group(1))
-    action = "/".join(part for part in match.groups()[1:] if part)
-    return course_id, action
-
-
 def read_json(path: Path, default):
     if not path.exists():
         return default
@@ -129,7 +125,7 @@ class AppContext:
         self.store = AppStore(DATA_DIR)
         self.kb = CourseKnowledgeBase(DATA_DIR / "indexes")
         self.course_cache = CourseCatalogCache()
-        self.index_jobs = CourseIndexJobs(self.kb)
+        self.index_jobs = CourseIndexJobs(self.kb, snapshot_path=DATA_DIR / "index_jobs.json")
 
     @property
     def config(self):
@@ -184,6 +180,28 @@ CTX = AppContext()
 
 class Handler(SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    GET_COURSE_HANDLERS = {
+        "messages": "get_course_messages",
+        "memory": "get_course_memory",
+        "summary": "get_course_summary",
+        "quiz": "get_course_quiz",
+        "notes": "get_course_notes",
+        "plan": "get_study_plan",
+        "dashboard": "get_course_dashboard",
+        "mastery": "get_mastery",
+    }
+    POST_COURSE_HANDLERS = {
+        "index": "index_course",
+        "index_jobs": "start_index_job",
+        "files": "upload_course_files",
+        "chat": "post_course_chat",
+        "summary": "create_course_summary",
+        "quiz": "create_course_quiz",
+        "notes": "add_course_note",
+        "plan": "add_study_plan_item",
+        "plan_item": "update_study_plan_item",
+        "mastery": "update_mastery",
+    }
 
     def translate_path(self, path):
         resolved = resolve_static_path(path)
@@ -200,7 +218,6 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        course_route = parse_course_route(self.path)
         if parsed.path == "/api/config":
             config = CTX.config
             ai_client = create_llm_client(config.get("ai", {}))
@@ -226,30 +243,9 @@ class Handler(SimpleHTTPRequestHandler):
             if not job:
                 return self.send_error_json("索引任务不存在", HTTPStatus.NOT_FOUND)
             return self.send_json(job)
-        if course_route and course_route[1] == "messages":
-            course_id = course_route[0]
-            return self.send_json({"messages": CTX.store.list_messages(course_id)})
-        if course_route and course_route[1] == "memory":
-            course_id = course_route[0]
-            return self.send_json({"memory": CTX.store.get_memory(course_id)})
-        if course_route and course_route[1] == "summary":
-            course_id = course_route[0]
-            return self.get_course_summary(course_id)
-        if course_route and course_route[1] == "quiz":
-            course_id = course_route[0]
-            return self.send_json(CTX.kb.generate_quiz(course_id))
-        if course_route and course_route[1] == "notes":
-            course_id = course_route[0]
-            return self.send_json({"notes": CTX.store.list_notes(course_id)})
-        if course_route and course_route[1] == "plan":
-            course_id = course_route[0]
-            return self.get_study_plan(course_id)
-        if course_route and course_route[1] == "dashboard":
-            course_id = course_route[0]
-            return self.get_course_dashboard(course_id)
-        if course_route and course_route[1] == "mastery":
-            course_id = course_route[0]
-            return self.get_mastery(course_id)
+        course_match = match_get_course_action(self.path)
+        if course_match:
+            return dispatch_course_action(self, course_match, self.GET_COURSE_HANDLERS)
         if parsed.path == "/api/files/preview":
             return self.send_preview(parse_qs(parsed.query).get("id", [""])[0])
         if not (STATIC_DIR / "index.html").is_file():
@@ -262,7 +258,6 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        course_route = parse_course_route(self.path)
         if parsed.path == "/api/config":
             body = self.read_body()
             current = CTX.config
@@ -279,49 +274,45 @@ class Handler(SimpleHTTPRequestHandler):
             write_config(CONFIG_PATH, next_config)
             CTX.invalidate_courses()
             return self.send_json({"ok": True, "config": {"root_folder": str(root)}})
-        if course_route and course_route[1] == "index":
-            course_id = course_route[0]
-            return self.index_course(course_id)
-        if course_route and course_route[1] == "index/jobs":
-            course_id = course_route[0]
-            return self.start_index_job(course_id)
-        if course_route and course_route[1] == "files":
-            course_id = course_route[0]
-            return self.upload_course_files(course_id)
-        if course_route and course_route[1] == "chat":
-            course_id = course_route[0]
-            accept = self.headers.get("Accept", "")
-            stream_format = (
-                "sse" if "text/event-stream" in accept
-                else "ndjson" if "application/x-ndjson" in accept
-                else None
-            )
-            try:
-                return self.chat(course_id, stream=stream_format)
-            except ClientDisconnected:
-                return None
-        if course_route and course_route[1] == "summary":
-            course_id = course_route[0]
-            return self.create_study_artifact(course_id, "summary")
-        if course_route and course_route[1] == "quiz":
-            course_id = course_route[0]
-            return self.create_study_artifact(course_id, "quiz")
-        if course_route and course_route[1] == "notes":
-            course_id = course_route[0]
-            body = self.read_body()
-            CTX.store.add_note(course_id, body.get("title", "学习笔记"), body.get("content", ""))
-            return self.send_json({"ok": True, "notes": CTX.store.list_notes(course_id)})
-        if course_route and course_route[1] == "plan":
-            course_id = course_route[0]
-            return self.add_study_plan_item(course_id)
-        if course_route and course_route[1].startswith("plan/"):
-            course_id = course_route[0]
-            item_id = course_route[1].split("/", 1)[1]
-            return self.update_study_plan_item(course_id, item_id)
-        if course_route and course_route[1] == "mastery":
-            course_id = course_route[0]
-            return self.update_mastery(course_id)
+        course_match = match_post_course_action(self.path)
+        if course_match:
+            return dispatch_course_action(self, course_match, self.POST_COURSE_HANDLERS)
         return self.send_error_json("未知接口", HTTPStatus.NOT_FOUND)
+
+    def get_course_messages(self, course_id: str):
+        return self.send_json({"messages": CTX.store.list_messages(course_id)})
+
+    def get_course_memory(self, course_id: str):
+        return self.send_json({"memory": CTX.store.get_memory(course_id)})
+
+    def get_course_quiz(self, course_id: str):
+        return self.send_json(CTX.kb.generate_quiz(course_id))
+
+    def get_course_notes(self, course_id: str):
+        return self.send_json({"notes": CTX.store.list_notes(course_id)})
+
+    def post_course_chat(self, course_id: str):
+        accept = self.headers.get("Accept", "")
+        stream_format = (
+            "sse" if "text/event-stream" in accept
+            else "ndjson" if "application/x-ndjson" in accept
+            else None
+        )
+        try:
+            return self.chat(course_id, stream=stream_format)
+        except ClientDisconnected:
+            return None
+
+    def create_course_summary(self, course_id: str):
+        return self.create_study_artifact(course_id, "summary")
+
+    def create_course_quiz(self, course_id: str):
+        return self.create_study_artifact(course_id, "quiz")
+
+    def add_course_note(self, course_id: str):
+        body = self.read_body()
+        CTX.store.add_note(course_id, body.get("title", "学习笔记"), body.get("content", ""))
+        return self.send_json({"ok": True, "notes": CTX.store.list_notes(course_id)})
 
     def index_course(self, course_id: str):
         return self.send_service_json(lambda: run_index_course(CTX, course_id))

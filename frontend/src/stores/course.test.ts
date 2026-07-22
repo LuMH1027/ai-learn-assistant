@@ -94,6 +94,14 @@ function indexJob(status: IndexJob['status'], result: IndexResult | null = null)
     status,
     result,
     error: '',
+    started_at: status === 'queued' ? null : '2026-07-22T10:00:00',
+    updated_at: '2026-07-22T10:00:00',
+    finished_at: ['succeeded', 'failed'].includes(status) ? '2026-07-22T10:00:01' : null,
+    progress: status === 'succeeded' ? 100 : 0,
+    current_file: null,
+    processed_files: status === 'succeeded' ? 1 : 0,
+    total_files: status === 'queued' ? 0 : 1,
+    error_files: [],
   }
 }
 

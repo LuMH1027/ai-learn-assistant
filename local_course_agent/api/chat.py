@@ -7,6 +7,14 @@ from typing import Callable, Iterable
 
 from local_course_agent.agent_strategy import build_agent_trace
 from local_course_agent.llm import build_grounded_prompt, create_llm_client
+from local_course_agent.api.telemetry import (
+    TelemetryRecorder,
+    compact_telemetry_payload,
+    record_chat_llm_result,
+    record_chat_retrieval_result,
+    record_citation_check_result,
+    record_web_result,
+)
 from local_course_agent.parser import extract_text
 from local_course_agent.retrieval.citation_check import postprocess_answer_with_citation_check
 from local_course_agent.retrieval.conversation_context import build_contextual_retrieval_query
@@ -56,6 +64,7 @@ class ChatFlow:
         self.synthesize_stream = synthesize_stream or synthesize_answer_stream
 
     def run(self, course_id: str, body: dict, uploads: list) -> dict:
+        telemetry = TelemetryRecorder()
         question = str(body.get("question", "")).strip()
         mode = body.get("mode", "answer")
         if not question and not uploads:
@@ -64,7 +73,18 @@ class ChatFlow:
         course = self.context.find_course(course_id) or {"name": ""}
         if uploads:
             self.emit({"type": "status", "stage": "attachments", "detail": "正在读取附件…"})
-        attachment_text, image_paths = self.index_uploads(course_id, uploads)
+        with telemetry.span("chat-upload-index", stage="indexing", attributes={"upload_count": len(uploads)}):
+            attachment_text, image_paths = self.index_uploads(course_id, uploads)
+        if uploads:
+            telemetry.event(
+                "chat-upload-index-result",
+                stage="indexing",
+                attributes={
+                    "upload_count": len(uploads),
+                    "extracted_chars": len(attachment_text),
+                    "image_count": len(image_paths),
+                },
+            )
         if (attachment_text or image_paths) and not question:
             question = "请阅读并总结我拖入的文件。"
 
@@ -82,7 +102,9 @@ class ChatFlow:
 
         self.context.store.add_message(course_id, "user", question)
         self.emit({"type": "status", "stage": "retrieval", "detail": "正在检索课程资料…"})
-        result = self.context.kb.answer(course_id, search_question)
+        with telemetry.span("course-retrieval", stage="retrieval", attributes={"course_id": course_id}):
+            result = self.context.kb.answer(course_id, search_question)
+        record_chat_retrieval_result(telemetry, result)
         config = self.context.config
 
         needs_clarification = not uploads and is_underspecified_query(question)
@@ -91,12 +113,14 @@ class ChatFlow:
             web_sources, web_status = [], "clarification"
         else:
             self.emit({"type": "status", "stage": "web", "detail": "正在判断是否需要联网…"})
-            web_sources, web_status = self.retrieve_web(
-                question,
-                result,
-                config.get("web_search", {}),
-                allow_web=not uploads,
-            )
+            with telemetry.span("web-search", stage="web", attributes={"allow_web": not uploads}):
+                web_sources, web_status = self.retrieve_web(
+                    question,
+                    result,
+                    config.get("web_search", {}),
+                    allow_web=not uploads,
+                )
+        record_web_result(telemetry, web_status, web_sources, allow_web=not uploads)
 
         local_sources = [
             {**source, "source_type": "local", "reference_label": f"L{index}"}
@@ -115,13 +139,19 @@ class ChatFlow:
             combined_result["answer"] = append_web_fallback(result["answer"], labeled_web_sources)
 
         self.emit({"type": "status", "stage": "generation", "detail": "正在生成回答…"})
-        answer, llm_status = self._generate_answer(
-            mode=mode,
-            needs_clarification=needs_clarification,
-            search_question=search_question,
-            combined_result=combined_result,
-            image_paths=image_paths,
-            ai_config=config.get("ai", {}),
+        with telemetry.span("llm-answer", stage="llm", attributes={"mode": mode, "image_count": len(image_paths)}):
+            answer, llm_status = self._generate_answer(
+                mode=mode,
+                needs_clarification=needs_clarification,
+                search_question=search_question,
+                combined_result=combined_result,
+                image_paths=image_paths,
+                ai_config=config.get("ai", {}),
+            )
+        record_chat_llm_result(
+            telemetry,
+            llm_status=llm_status,
+            fallback_reason="clarification" if needs_clarification else None,
         )
         memory = (
             self.context.store.get_memory(course_id)
@@ -129,8 +159,14 @@ class ChatFlow:
             else self.context.store.update_memory_from_question(course_id, question)
         )
 
-        citation_postprocess = postprocess_answer_with_citation_check(answer, combined_result["citations"])
+        with telemetry.span(
+            "citation-check",
+            stage="citation_check",
+            attributes={"citation_count": len(combined_result["citations"])},
+        ):
+            citation_postprocess = postprocess_answer_with_citation_check(answer, combined_result["citations"])
         answer = citation_postprocess["answer"]
+        record_citation_check_result(telemetry, citation_postprocess["citation_check"])
         trace = build_agent_trace(
             course_name=course.get("name", ""),
             question=question,
@@ -156,6 +192,7 @@ class ChatFlow:
             "unsupported_claims": citation_postprocess["unsupported_claims"],
             "llm_status": llm_status,
             "web_search_status": web_status,
+            "telemetry": compact_telemetry_payload(telemetry),
         }
 
     def _generate_answer(

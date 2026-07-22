@@ -1,3 +1,4 @@
+import json
 import time
 import tempfile
 import unittest
@@ -36,7 +37,8 @@ class CourseServiceTest(unittest.TestCase):
             material = source / "notes.md"
             material.write_text("页表用于虚拟地址到物理地址转换。", encoding="utf-8")
             kb = CourseKnowledgeBase(Path(tmp) / "indexes")
-            jobs = CourseIndexJobs(kb)
+            snapshot_path = Path(tmp) / "index_jobs.json"
+            jobs = CourseIndexJobs(kb, snapshot_path=snapshot_path)
 
             started = jobs.start(
                 "course-1",
@@ -62,6 +64,97 @@ class CourseServiceTest(unittest.TestCase):
             self.assertEqual(current["status"], "succeeded")
             self.assertEqual(current["result"]["indexed_files"], 1)
             self.assertGreaterEqual(current["result"]["total_chunks"], 1)
+            self.assertIsNotNone(current["started_at"])
+            self.assertIsNotNone(current["updated_at"])
+            self.assertIsNotNone(current["finished_at"])
+            self.assertEqual(current["progress"], 100)
+            self.assertIsNone(current["current_file"])
+            self.assertEqual(current["processed_files"], 1)
+            self.assertEqual(current["total_files"], 1)
+            self.assertEqual(current["error_files"], [])
+
+            persisted = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["jobs"][0]["id"], started["id"])
+            self.assertEqual(persisted["jobs"][0]["status"], "succeeded")
+
+    def test_index_job_records_failed_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "OS"
+            source.mkdir()
+            material = source / "broken.md"
+            material.write_text("broken", encoding="utf-8")
+            kb = CourseKnowledgeBase(Path(tmp) / "indexes")
+            jobs = CourseIndexJobs(kb, snapshot_path=Path(tmp) / "index_jobs.json")
+
+            with mock.patch("local_course_agent.learning.service.extract_text", side_effect=RuntimeError("parse failed")):
+                started = jobs.start(
+                    "course-1",
+                    {
+                        "path": str(source),
+                        "children": [
+                            {
+                                "id": "broken",
+                                "name": "broken.md",
+                                "path": str(material),
+                                "type": "file",
+                            }
+                        ],
+                    },
+                )
+
+                for _ in range(50):
+                    current = jobs.get(started["id"])
+                    if current and current["status"] == "failed":
+                        break
+                    time.sleep(0.01)
+
+            self.assertEqual(current["status"], "failed")
+            self.assertEqual(current["error"], "parse failed")
+            self.assertEqual(current["processed_files"], 0)
+            self.assertEqual(current["total_files"], 1)
+            self.assertEqual(current["error_files"][0]["file_id"], "broken")
+            self.assertEqual(current["error_files"][0]["file_name"], "broken.md")
+            self.assertEqual(current["error_files"][0]["error"], "parse failed")
+            self.assertIsNotNone(current["finished_at"])
+
+    def test_index_jobs_restore_interrupted_snapshot_as_failed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "index_jobs.json"
+            snapshot_path.write_text(
+                json.dumps(
+                    {
+                        "jobs": [
+                            {
+                                "id": "job-1",
+                                "course_id": "course-1",
+                                "status": "running",
+                                "result": None,
+                                "error": "",
+                                "started_at": "2026-07-22T10:00:00",
+                                "updated_at": "2026-07-22T10:00:05",
+                                "finished_at": None,
+                                "progress": 50,
+                                "current_file": {"file_id": "notes", "file_name": "notes.md", "path": "/tmp/notes.md"},
+                                "processed_files": 1,
+                                "total_files": 2,
+                                "error_files": [],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            jobs = CourseIndexJobs(CourseKnowledgeBase(Path(tmp) / "indexes"), snapshot_path=snapshot_path)
+            restored = jobs.get("job-1")
+
+            self.assertEqual(restored["status"], "failed")
+            self.assertEqual(restored["error"], "索引任务因服务重启中断")
+            self.assertIsNone(restored["current_file"])
+            self.assertEqual(restored["processed_files"], 1)
+            self.assertEqual(restored["total_files"], 2)
+            self.assertIsNotNone(restored["finished_at"])
 
     def test_build_course_index_reports_parser_quality_for_low_quality_files(self):
         with tempfile.TemporaryDirectory() as tmp:

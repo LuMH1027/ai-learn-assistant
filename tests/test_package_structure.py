@@ -6,6 +6,10 @@ from pathlib import Path
 class PackageStructureTest(unittest.TestCase):
     def test_feature_modules_live_in_domain_packages(self):
         expected_modules = [
+            "local_course_agent.api.chat",
+            "local_course_agent.api.course",
+            "local_course_agent.api.router",
+            "local_course_agent.api.telemetry",
             "local_course_agent.retrieval.rag",
             "local_course_agent.retrieval.chunking",
             "local_course_agent.retrieval.ranking",

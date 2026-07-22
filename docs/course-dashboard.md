@@ -18,6 +18,7 @@ The route is read-only. It loads the course tree from `CTX.find_course`, message
     "recent_activity": [],
     "materials": {},
     "review_queue": [],
+    "mastery": {},
     "generated_artifacts": {}
   }
 }
@@ -33,6 +34,7 @@ payload = build_course_dashboard(
     messages=messages,
     notes=notes,
     study_plan=study_plan,
+    mastery_state=mastery_state,
     index_stats=index_stats,
 )
 ```
@@ -43,6 +45,7 @@ Inputs are plain dictionaries/lists already used by the scanner, store, and inde
 - `messages`: chat messages with `role`, `content`, and `created_at`.
 - `notes`: note records with `title`, `content`, and `created_at`.
 - `study_plan`: plan items with `kind`, `status`, `estimated_minutes`, and timestamps.
+- `mastery_state`: optional course mastery state from `AppStore.get_mastery_state`.
 - `index_stats`: optional index metadata such as `indexed_files`, `total_chunks`, `schema_version`, and `tokenizer_version`.
 
 ## Payload
@@ -53,6 +56,7 @@ The returned dashboard has five product-facing sections:
 - `recent_activity`: recent messages, notes, plan updates, and generated artifacts sorted by timestamp.
 - `materials`: source material file count, byte size, extension distribution, generated file count, and index stats.
 - `review_queue`: the current review-oriented queue, prioritizing `doing` and `review` items.
+- `mastery`: average score, tracked point count, level counts, due review count, open mistake count, weakest points, and due reviews.
 - `generated_artifacts`: total generated files plus summary/quiz/other counts and the latest generated artifact.
 
 Generated artifacts are detected from files under the `AI生成` folder. They are counted separately from source materials so dashboard stats match the RAG rule that generated outputs should not be reindexed as course evidence.
@@ -64,6 +68,7 @@ Generated artifacts are detected from files under the `AI生成` folder. They ar
 - course tree from the scanner/cache
 - messages and notes from `AppStore`
 - study plan from `AppStore.list_study_plan`
+- mastery state from `AppStore.get_mastery_state`
 - index stats from the knowledge base index file
 
 Index stats support both the current object-shaped index payload and the legacy list-shaped payload. Missing or unreadable indexes report zero indexed files/chunks instead of failing the dashboard route.
@@ -84,9 +89,10 @@ and applies the response only when the selected course and root version still ma
 - learning progress percent
 - indexed/source material count
 - indexed chunk count
-- generated artifact count
+- average mastery score
 - next learning item
 - top review items
+- weakest mastery points
 - latest activity
 
 The sidebar triggers `loadDashboard()` when the active course changes and also provides a manual refresh button. It does not reimplement aggregation client-side; it only displays the backend payload.

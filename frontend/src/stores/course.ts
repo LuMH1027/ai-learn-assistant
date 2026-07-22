@@ -296,12 +296,22 @@ export const useCourseStore = defineStore('course', () => {
       if (job.status === 'failed') {
         throw new Error(job.error || '索引任务失败')
       }
-      indexStatus.value = job.status === 'queued' ? '索引排队中…' : '正在构建知识库…'
+      indexStatus.value = indexJobStatusText(job)
       await wait(INDEX_POLL_MS)
       if (!isCurrentIndexRequest(courseId, requestedRootVersion, requestId)) return undefined
       job = await getJson<IndexJob>(`/api/index-jobs/${encodeURIComponent(job.id)}`)
     }
     return undefined
+  }
+
+  function indexJobStatusText(job: IndexJob) {
+    if (job.status === 'queued') return '索引排队中…'
+    const total = job.total_files ?? 0
+    const processed = job.processed_files ?? 0
+    const fileName = job.current_file?.file_name
+    if (total > 0 && fileName) return `正在构建知识库… ${processed}/${total} ${fileName}`
+    if (total > 0) return `正在构建知识库… ${processed}/${total}`
+    return '正在构建知识库…'
   }
 
   function loadStudyPlan() {
