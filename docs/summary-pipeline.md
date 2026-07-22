@@ -1,6 +1,6 @@
 # 章节级 Map-Reduce 摘要 Pipeline
 
-当前实现已通过 `local_course_agent.learning.service.generate_course_summary()` 接入课程摘要接口。纯函数式 pipeline 仍保持不读写文件、不直接创建网络 client 的边界，由服务层注入现有 OpenAI-compatible LLM client，并在失败时降级到 single prompt 或本地抽取式摘要。
+当前实现已通过 `local_course_agent.learning.artifacts.generate_course_summary()` 接入课程摘要接口，并由 `local_course_agent.learning.service.generate_course_summary()` 保持旧导入兼容。纯函数式 pipeline 仍保持不读写文件、不直接创建网络 client 的边界，由学习产物服务注入现有 OpenAI-compatible LLM client，并在失败时降级到 single prompt 或本地抽取式摘要。
 
 ## 目标
 
@@ -23,7 +23,7 @@
 - `build_reduce_prompt(course_name, map_summaries)`：生成课程总摘要 reduce prompt。
 - `build_summary_pipeline(chunks)`：返回纯字典结构，方便后续 API 集成和调试。
 - `run_map_reduce_summary(chunks, llm_client, course_name=...)`：用注入的 LLM client 执行 map-reduce。
-- `generate_map_reduce_course_summary(kb, course_id, course_name, ai_config, create_client)`：面向 `course_service.py` 的高层适配函数，从 `kb.summary_chunks()` 取证据、创建 LLM client、返回可直接用于摘要接口的 payload。
+- `generate_map_reduce_course_summary(kb, course_id, course_name, ai_config, create_client)`：面向学习产物服务的高层适配函数，从 `kb.summary_chunks()` 取证据、创建 LLM client、返回可直接用于摘要接口的 payload。
 
 `run_map_reduce_summary` 不读写文件，不读取配置，不创建网络 client。调用方需要传入满足以下协议的 client：
 
@@ -33,7 +33,7 @@ class SummaryLLMClient:
     def generate(self, prompt: str) -> str | None: ...
 ```
 
-`generate_map_reduce_course_summary` 同样不读写文件，也不直接导入 `course_service.py` 或 `llm.py`。调用方通过 `create_client(ai_config)` 注入现有 OpenAI-compatible client 工厂，避免在摘要 pipeline 中绑定服务层实现。
+`generate_map_reduce_course_summary` 同样不读写文件，也不直接导入 `learning/service.py` 或 `llm.py`。调用方通过 `create_client(ai_config)` 注入现有 OpenAI-compatible client 工厂，避免在摘要 pipeline 中绑定服务层实现。
 
 ## 输入
 
@@ -96,7 +96,7 @@ class SummaryLLMClient:
 
 ## 服务层接入
 
-`local_course_agent.learning.service.generate_course_summary()` 已按以下顺序执行摘要策略：
+`local_course_agent.learning.artifacts.generate_course_summary()` 已按以下顺序执行摘要策略，`learning.service` 仅代理该入口以保持兼容：
 
 1. 调用 `generate_map_reduce_course_summary(kb, course_id, course_name, ai_config, create_llm_client)`。
 2. 当 `fallback_needed` 为 `false` 时返回 `summary_method = "map_reduce"`，并保留 `map_summaries` 与 `evidence_groups` 供调试。
