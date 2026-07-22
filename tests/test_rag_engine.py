@@ -225,6 +225,71 @@ class CourseKnowledgeBaseTest(unittest.TestCase):
                 {"hybrid_bm25_semantic_rrf_mmr", "hybrid_lexical_vector_rrf"},
             )
 
+    def test_search_exposes_pre_and_post_selection_rerank_hooks(self):
+        class RecordingReranker:
+            def __init__(self):
+                self.calls = []
+                self.post_input_names = []
+
+            def rerank(self, *, query, documents, top_n, stage):
+                self.calls.append((stage, query, top_n, len(documents)))
+                if stage == "post_hybrid_selection":
+                    self.post_input_names = [document["file_name"] for document in documents]
+                    return list(reversed(documents))[:top_n]
+                return list(documents)[:top_n]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            reranker = RecordingReranker()
+            kb = CourseKnowledgeBase(
+                Path(tmp),
+                reranker=reranker,
+                reranker_config={
+                    "endpoint": "https://api.siliconflow.cn/v1/rerank",
+                    "model": "Qwen/Qwen3-Reranker-8B",
+                },
+            )
+            kb.index_text("os", "book", "教材.md", "页表保存虚拟页到物理页框的映射，用于地址转换。")
+            kb.index_text("os", "slides", "课件.md", "地址转换会查询页表，TLB 用来缓存常用页表项。")
+
+            hits = kb.search("os", "页表 地址转换", limit=2, strategy="hybrid")
+
+            self.assertEqual(
+                [stage for stage, _, _, _ in reranker.calls],
+                ["pre_hybrid_selection", "post_hybrid_selection"],
+            )
+            self.assertEqual(kb.reranker_config["model"], "Qwen/Qwen3-Reranker-8B")
+            self.assertEqual(
+                [hit["file_name"] for hit in hits],
+                list(reversed(reranker.post_input_names)),
+            )
+
+    def test_search_accepts_provider_style_reranker_for_siliconflow_client(self):
+        class ProviderStyleReranker:
+            model_id = "siliconflow-rerank:Qwen/Qwen3-Reranker-8B"
+
+            def __init__(self):
+                self.document_batches = []
+
+            def rerank(self, query, documents, top_n=None):
+                self.document_batches.append(list(documents))
+                limit = min(top_n or len(documents), len(documents))
+                return [
+                    {"index": index, "score": 1.0 - index / 10}
+                    for index in range(limit)
+                ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            reranker = ProviderStyleReranker()
+            kb = CourseKnowledgeBase(Path(tmp), reranker=reranker)
+            kb.index_text("os", "book", "教材.md", "页表保存虚拟页到物理页框的映射，用于地址转换。")
+            kb.index_text("os", "slides", "课件.md", "地址转换会查询页表，TLB 用来缓存常用页表项。")
+
+            hits = kb.search("os", "页表 地址转换", limit=2, strategy="hybrid")
+
+            self.assertTrue(reranker.document_batches)
+            self.assertIn("Qwen/Qwen3-Reranker-8B", hits[0]["rerank_model"])
+            self.assertIn("external_rerank_score", hits[0])
+
     def test_hybrid_search_merges_vector_hits_into_main_rag_flow(self):
         with tempfile.TemporaryDirectory() as tmp:
             kb = CourseKnowledgeBase(Path(tmp))
