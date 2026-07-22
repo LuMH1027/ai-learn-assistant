@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type {
   MemoryResponse,
+  MasteryResponse,
   SaveConfigResponse,
   SaveNotesResponse,
   StudyContentResponse,
@@ -10,6 +11,16 @@ import { ApiError, postFiles, postJson, postJsonStream, requestJson } from './ap
 
 const responseTypeContract = {
   memory: { memory: '最近关注：虚拟内存' } satisfies MemoryResponse,
+  mastery: {
+    mastery: {
+      schema_version: 1,
+      knowledge_points: [],
+      mastery: {},
+      mistakes: [],
+      created_at: '2026-07-21 10:00:00',
+      updated_at: '2026-07-21 10:00:00',
+    },
+  } satisfies MasteryResponse,
   studyContent: { content: '课程摘要', citations: [] } satisfies StudyContentResponse,
   savedConfig: { ok: true, config: { root_folder: '/courses' } } satisfies SaveConfigResponse,
   savedNotes: { ok: true, notes: [] } satisfies SaveNotesResponse,
@@ -22,6 +33,7 @@ afterEach(() => {
 describe('requestJson', () => {
   it('exposes the backend response type contract', () => {
     expect(responseTypeContract.memory.memory).toContain('虚拟内存')
+    expect(responseTypeContract.mastery.mastery.schema_version).toBe(1)
     expect(responseTypeContract.studyContent.citations).toEqual([])
     expect(responseTypeContract.savedConfig.config.root_folder).toBe('/courses')
     expect(responseTypeContract.savedNotes.notes).toEqual([])

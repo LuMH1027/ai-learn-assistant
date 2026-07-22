@@ -230,10 +230,14 @@ data/
 │  └─ study_plan.json
 ├─ chat_uploads/
 └─ indexes/
+   ├─ <course_id>.json
+   └─ <course_id>.vector.json
 ```
 
 生成的摘要与练习题保存在对应课程的 `AI生成/` 文件夹。
 
 检索索引会记录 schema/tokenizer 版本、章节标题、资料类型和来源路径，并在同目录保存持久向量索引；回答接口会返回检索 trace，便于核对命中片段、匹配词、分数和证据充分性。检索实现见 [`docs/rag-retrieval-strategy.md`](docs/rag-retrieval-strategy.md)，向量检索见 [`docs/vector-retrieval.md`](docs/vector-retrieval.md)，答案级评测见 [`docs/rag-eval.md`](docs/rag-eval.md)。
+
+课程摘要优先使用章节级 map-reduce LLM pipeline，失败时降级为 single prompt 或本地抽取式摘要；实现边界见 [`docs/summary-pipeline.md`](docs/summary-pipeline.md)。配置能力状态、内存遥测诊断和本地数据备份恢复分别见 [`docs/telemetry.md`](docs/telemetry.md) 与 [`docs/backup-and-migration.md`](docs/backup-and-migration.md)。
 
 项目开发中遇到的 UI、异步状态、RAG、联网、流式传输、跨平台依赖和配置安全问题，以及对应解决过程，见 [`docs/开发问题与解决记录.md`](docs/开发问题与解决记录.md)。

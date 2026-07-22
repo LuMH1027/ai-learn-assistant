@@ -89,6 +89,78 @@ export interface StudyPlan {
   stats: StudyPlanStats
 }
 
+export interface KnowledgePoint {
+  id: string
+  title: string
+  aliases: string[]
+  source_refs: Array<Record<string, string>>
+  created_at: string
+  updated_at: string
+}
+
+export interface MasteryRecord {
+  point_id: string
+  score: number
+  level: 'weak' | 'building' | 'familiar' | 'mastered'
+  attempts: number
+  correct_count: number
+  wrong_count: number
+  streak: number
+  last_result: '' | 'correct' | 'wrong'
+  last_answered_at: string
+  next_review_at: string
+  review_interval_days: number
+  updated_at: string
+}
+
+export interface MistakeRecord {
+  id: string
+  point_id: string
+  question: string
+  user_answer: string
+  expected_answer: string
+  source_ref: Record<string, string>
+  status: 'open' | 'resolved'
+  review_count: number
+  created_at: string
+  updated_at: string
+  resolved_at: string
+}
+
+export interface MasteryState {
+  schema_version: number
+  knowledge_points: KnowledgePoint[]
+  mastery: Record<string, MasteryRecord>
+  mistakes: MistakeRecord[]
+  created_at: string
+  updated_at: string
+}
+
+export interface MasteryDashboardItem {
+  id: string
+  type: 'weak_point' | 'mastery_review'
+  title: string
+  score: number
+  level: MasteryRecord['level'] | string
+  attempts: number
+  wrong_count: number
+  next_review_at: string
+}
+
+export interface DashboardMastery {
+  knowledge_point_count: number
+  tracked_count: number
+  average_score: number
+  weak_count: number
+  building_count: number
+  familiar_count: number
+  mastered_count: number
+  due_review_count: number
+  open_mistake_count: number
+  weakest_points: MasteryDashboardItem[]
+  due_reviews: MasteryDashboardItem[]
+}
+
 export interface DashboardLearningProgress {
   total: number
   done: number
@@ -145,6 +217,7 @@ export interface CourseDashboard {
   recent_activity: DashboardActivity[]
   materials: DashboardMaterials
   review_queue: DashboardReviewItem[]
+  mastery?: DashboardMastery
   generated_artifacts: DashboardGeneratedArtifacts
 }
 
@@ -200,6 +273,15 @@ export interface StudyPlanResponse {
 
 export interface CourseDashboardResponse {
   dashboard: CourseDashboard
+}
+
+export interface MasteryResponse {
+  mastery: MasteryState
+}
+
+export interface SaveMasteryResponse {
+  ok: boolean
+  mastery: MasteryState
 }
 
 export interface SaveStudyPlanResponse {

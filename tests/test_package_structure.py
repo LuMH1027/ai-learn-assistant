@@ -7,6 +7,8 @@ class PackageStructureTest(unittest.TestCase):
     def test_feature_modules_live_in_domain_packages(self):
         expected_modules = [
             "local_course_agent.retrieval.rag",
+            "local_course_agent.retrieval.chunking",
+            "local_course_agent.retrieval.ranking",
             "local_course_agent.retrieval.vector_index",
             "local_course_agent.retrieval.citation_check",
             "local_course_agent.retrieval.conversation_context",

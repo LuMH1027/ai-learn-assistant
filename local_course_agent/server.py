@@ -26,10 +26,12 @@ from local_course_agent.api.course import (
     create_study_artifact as run_create_study_artifact,
     get_course_dashboard as run_get_course_dashboard,
     get_course_summary as run_get_course_summary,
+    get_mastery as run_get_mastery,
     get_study_plan as run_get_study_plan,
     index_course as run_index_course,
     start_index_job as run_start_index_job,
     update_study_plan_item as run_update_study_plan_item,
+    update_mastery as run_update_mastery,
     upload_course_files as run_upload_course_files,
 )
 from local_course_agent.config import load_config, write_config
@@ -245,6 +247,9 @@ class Handler(SimpleHTTPRequestHandler):
         if course_route and course_route[1] == "dashboard":
             course_id = course_route[0]
             return self.get_course_dashboard(course_id)
+        if course_route and course_route[1] == "mastery":
+            course_id = course_route[0]
+            return self.get_mastery(course_id)
         if parsed.path == "/api/files/preview":
             return self.send_preview(parse_qs(parsed.query).get("id", [""])[0])
         if not (STATIC_DIR / "index.html").is_file():
@@ -313,6 +318,9 @@ class Handler(SimpleHTTPRequestHandler):
             course_id = course_route[0]
             item_id = course_route[1].split("/", 1)[1]
             return self.update_study_plan_item(course_id, item_id)
+        if course_route and course_route[1] == "mastery":
+            course_id = course_route[0]
+            return self.update_mastery(course_id)
         return self.send_error_json("未知接口", HTTPStatus.NOT_FOUND)
 
     def index_course(self, course_id: str):
@@ -386,6 +394,9 @@ class Handler(SimpleHTTPRequestHandler):
     def get_course_dashboard(self, course_id: str):
         return self.send_service_json(lambda: run_get_course_dashboard(CTX, course_id))
 
+    def get_mastery(self, course_id: str):
+        return self.send_service_json(lambda: run_get_mastery(CTX, course_id))
+
     def add_study_plan_item(self, course_id: str):
         body = self.read_body()
         return self.send_service_json(lambda: run_add_study_plan_item(CTX, course_id, body))
@@ -393,6 +404,10 @@ class Handler(SimpleHTTPRequestHandler):
     def update_study_plan_item(self, course_id: str, item_id: str):
         body = self.read_body()
         return self.send_service_json(lambda: run_update_study_plan_item(CTX, course_id, item_id, body))
+
+    def update_mastery(self, course_id: str):
+        body = self.read_body()
+        return self.send_service_json(lambda: run_update_mastery(CTX, course_id, body))
 
     def index_chat_uploads(self, course_id: str, uploads: list):
         return run_index_chat_uploads(CTX, DATA_DIR, course_id, uploads)

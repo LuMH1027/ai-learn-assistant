@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
+from local_course_agent.learning.mastery import normalize_state
+
 
 GENERATED_FOLDER = "AI生成"
 SUMMARY_KEYWORDS = ("摘要", "summary")
@@ -15,7 +17,9 @@ def build_course_dashboard(
     messages: list[dict] | None = None,
     notes: list[dict] | None = None,
     study_plan: list[dict] | None = None,
+    mastery_state: dict | None = None,
     index_stats: dict | None = None,
+    timestamp: str | None = None,
 ) -> dict:
     """Build a side-effect-free dashboard payload for one course."""
 
@@ -23,6 +27,7 @@ def build_course_dashboard(
     notes = list(notes or [])
     study_plan = list(study_plan or [])
     index_stats = dict(index_stats or {})
+    mastery = _mastery_summary(mastery_state, timestamp=timestamp)
     file_nodes = list(_iter_files(course.get("children", [])))
     generated_files = [node for node in file_nodes if _is_generated_file(course, node)]
     material_files = [node for node in file_nodes if node not in generated_files]
@@ -38,6 +43,7 @@ def build_course_dashboard(
         "recent_activity": _recent_activity(messages, notes, study_plan, generated_files),
         "materials": _materials_stats(material_files, generated_files, index_stats),
         "review_queue": _review_queue(study_plan),
+        "mastery": mastery,
         "generated_artifacts": _generated_artifacts(generated_files),
     }
 
@@ -92,6 +98,57 @@ def _review_queue(study_plan: list[dict]) -> list[dict]:
     if not candidates:
         candidates = [_plan_item_summary(item) for item in study_plan if item.get("status") != "done"]
     return sorted(candidates, key=lambda item: (_status_rank(item["status"]), item["id"]))[:5]
+
+
+def _mastery_summary(state: dict | None, timestamp: str | None = None) -> dict:
+    normalized = normalize_state(state or {}, timestamp=timestamp)
+    points_by_id = {point["id"]: point for point in normalized["knowledge_points"]}
+    records = list(normalized["mastery"].values())
+    level_counts = {"weak": 0, "building": 0, "familiar": 0, "mastered": 0}
+    for record in records:
+        level = str(record.get("level") or "")
+        if level in level_counts:
+            level_counts[level] += 1
+
+    open_mistakes = [item for item in normalized["mistakes"] if item.get("status") == "open"]
+    due_reviews = [
+        _mastery_item_summary(record, points_by_id, item_type="mastery_review")
+        for record in records
+        if _is_due(record.get("next_review_at"), timestamp)
+    ]
+    weakest_points = [
+        _mastery_item_summary(record, points_by_id, item_type="weak_point")
+        for record in sorted(records, key=lambda item: (_int(item.get("score")), str(item.get("updated_at"))))[:5]
+    ]
+    total_score = sum(_int(record.get("score")) for record in records)
+    return {
+        "knowledge_point_count": len(points_by_id),
+        "tracked_count": len(records),
+        "average_score": round(total_score / len(records)) if records else 0,
+        "weak_count": level_counts["weak"],
+        "building_count": level_counts["building"],
+        "familiar_count": level_counts["familiar"],
+        "mastered_count": level_counts["mastered"],
+        "due_review_count": len(due_reviews),
+        "open_mistake_count": len(open_mistakes),
+        "weakest_points": weakest_points,
+        "due_reviews": sorted(due_reviews, key=lambda item: (item["next_review_at"], item["score"]))[:5],
+    }
+
+
+def _mastery_item_summary(record: dict, points_by_id: dict[str, dict], item_type: str) -> dict:
+    point_id = str(record.get("point_id") or "")
+    point = points_by_id.get(point_id, {})
+    return {
+        "id": point_id,
+        "type": item_type,
+        "title": str(point.get("title") or point_id or "未命名知识点"),
+        "score": _int(record.get("score")),
+        "level": str(record.get("level") or ""),
+        "attempts": _int(record.get("attempts")),
+        "wrong_count": _int(record.get("wrong_count")),
+        "next_review_at": str(record.get("next_review_at") or ""),
+    }
 
 
 def _generated_artifacts(generated_files: list[dict]) -> dict:
@@ -224,6 +281,14 @@ def _time_key(value) -> str:
         except ValueError:
             continue
     return text
+
+
+def _is_due(value, timestamp: str | None = None) -> bool:
+    target = _time_key(value)
+    if not target:
+        return False
+    now = _time_key(timestamp) if timestamp else datetime.now().isoformat()
+    return target <= now
 
 
 def _compact(text: str, limit: int = 72) -> str:

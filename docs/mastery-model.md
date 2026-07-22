@@ -1,6 +1,6 @@
 # 知识点掌握度与错题闭环模型
 
-本文档描述 `local_course_agent.learning.mastery` 的纯数据模型。当前切片不接入 `store.py`、`server.py` 或前端，只提供后续持久化和接口开发可复用的 schema 与更新函数。
+本文档描述 `local_course_agent.learning.mastery` 的知识点掌握度与错题闭环模型。当前实现已接入课程级本地持久化、后端 API 和课程 Dashboard 汇总；模型函数仍保持纯数据输入输出，便于测试和后续扩展。
 
 ## 目标
 
@@ -9,6 +9,8 @@
 - 答错时生成错题记录。
 - 根据掌握度和最近答题结果给出下一次复习时间。
 - 所有输入输出都是可 JSON 序列化的 `dict` / `list`，便于后续直接写入本地文件或数据库。
+- 每门课程的状态保存在 `data/course_memory/<course_id>/mastery.json`。
+- 课程 Dashboard 会汇总平均掌握分、薄弱知识点、待复习数量和未解决错题数。
 
 ## State Schema
 
@@ -128,6 +130,67 @@ next_state = apply_answer_result(
 - 生成一条 `status = "open"` 的错题记录。
 - 下一次复习固定建议为 1 天后。
 
+## 接入点
+
+### Store
+
+`AppStore` 提供课程级读写入口：
+
+- `get_mastery_state(course_id)`：读取并规范化 `mastery.json`，缺失时返回空状态。
+- `upsert_mastery_knowledge_point(course_id, point)`：新增或合并知识点，同时确保存在 mastery record。
+- `apply_mastery_answer_result(course_id, point_id, correct, **kwargs)`：写入一次答题结果，更新掌握分并在答错时记录错题。
+
+### API
+
+后端路由：
+
+- `GET /api/courses/<course_id>/mastery` 返回 `{ "mastery": MasteryState }`。
+- `POST /api/courses/<course_id>/mastery` 接受 `knowledge_point` 和/或 `answer_result`，返回 `{ "ok": true, "mastery": MasteryState }`。
+
+示例：
+
+```json
+{
+  "knowledge_point": {
+    "id": "kp-address",
+    "title": "页表地址转换",
+    "aliases": ["虚拟地址转换"],
+    "source_refs": [{ "file_name": "操作系统.md", "page": "3" }]
+  },
+  "answer_result": {
+    "point_id": "kp-address",
+    "correct": false,
+    "question": "解释页表如何完成地址转换。",
+    "user_answer": "直接查物理地址。",
+    "expected_answer": "先用页号查页表得到页框号，再拼接页内偏移。",
+    "difficulty": "normal",
+    "confidence": 0.6
+  }
+}
+```
+
+### Dashboard
+
+`GET /api/courses/<course_id>/dashboard` 的原有字段保持不变，并新增 `dashboard.mastery`：
+
+```json
+{
+  "knowledge_point_count": 2,
+  "tracked_count": 2,
+  "average_score": 58,
+  "weak_count": 1,
+  "building_count": 0,
+  "familiar_count": 1,
+  "mastered_count": 0,
+  "due_review_count": 1,
+  "open_mistake_count": 1,
+  "weakest_points": [],
+  "due_reviews": []
+}
+```
+
+前端课程概览使用该字段展示平均掌握分与薄弱点。
+
 `difficulty` 支持：
 
 | 难度 | 权重 |
@@ -160,10 +223,8 @@ next_state = apply_answer_result(
 | score < 80 | 4 天 |
 | score >= 80 | 7 天 |
 
-## 后续接入建议
+## 后续扩展建议
 
-1. 在持久化层为每门课程增加 `mastery.json` 或等价字段。
-2. 练习题批改后调用 `apply_answer_result()`。
-3. RAG 引用可以作为 `source_ref` 写入知识点和错题。
-4. 前端课程 Dashboard 可读取 `mastery` 聚合弱项、待复习项和未解决错题。
-5. 后续可以把固定评分规则替换为可配置策略，但保持当前 schema 不变。
+1. 练习题批改后调用 `apply_answer_result()`。
+2. RAG 引用可以作为 `source_ref` 写入知识点和错题。
+3. 后续可以把固定评分规则替换为可配置策略，但保持当前 schema 不变。

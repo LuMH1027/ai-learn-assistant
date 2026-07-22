@@ -374,6 +374,11 @@ class ServerLlmRoutingTest(unittest.TestCase):
                 {"id": 1, "title": "读课件", "kind": "read", "status": "done", "estimated_minutes": 30},
                 {"id": 2, "title": "做练习", "kind": "practice", "status": "doing", "estimated_minutes": 45},
             ],
+            get_mastery_state=lambda _course_id: {
+                "knowledge_points": [{"id": "kp-tlb", "title": "TLB"}],
+                "mastery": {"kp-tlb": {"score": 70, "level": "familiar"}},
+                "mistakes": [],
+            },
         )
         with tempfile.TemporaryDirectory() as tmp:
             index_path = Path(tmp) / "course-1.json"
@@ -412,6 +417,41 @@ class ServerLlmRoutingTest(unittest.TestCase):
         self.assertEqual(dashboard["materials"]["indexed_chunks"], 3)
         self.assertEqual(dashboard["materials"]["schema_version"], 2)
         self.assertEqual(dashboard["materials"]["tokenizer_version"], "zh_ngrams_v2")
+        self.assertEqual(dashboard["mastery"]["tracked_count"], 1)
+        self.assertEqual(dashboard["mastery"]["average_score"], 70)
+
+    def test_mastery_routes_read_and_update_course_state(self):
+        handler = Handler.__new__(Handler)
+        handler.send_json = mock.Mock(side_effect=lambda payload, *args: payload)
+        with tempfile.TemporaryDirectory() as tmp:
+            from local_course_agent.store import AppStore
+
+            store = AppStore(Path(tmp))
+            context = SimpleNamespace(
+                find_course=lambda course_id: {"id": "course-1", "name": "操作系统"} if course_id == "course-1" else None,
+                store=store,
+            )
+            with mock.patch("local_course_agent.server.CTX", context):
+                handler.path = "/api/courses/course-1/mastery"
+                before = handler.do_GET()
+                handler.read_body = mock.Mock(
+                    return_value={
+                        "knowledge_point": {"id": "kp-page-table", "title": "页表地址转换"},
+                        "answer_result": {
+                            "point_id": "kp-page-table",
+                            "correct": "false",
+                            "question": "解释页表地址转换。",
+                            "user_answer": "直接查物理地址。",
+                            "expected_answer": "页号查页表得到页框号，再拼接偏移。",
+                        },
+                    }
+                )
+                after = handler.do_POST()
+
+        self.assertEqual(before["mastery"]["knowledge_points"], [])
+        self.assertEqual(after["mastery"]["knowledge_points"][0]["id"], "kp-page-table")
+        self.assertEqual(after["mastery"]["mastery"]["kp-page-table"]["wrong_count"], 1)
+        self.assertEqual(after["mastery"]["mistakes"][0]["status"], "open")
 
     def test_dashboard_route_reports_missing_course(self):
         handler = Handler.__new__(Handler)

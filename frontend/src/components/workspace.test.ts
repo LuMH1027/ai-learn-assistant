@@ -191,6 +191,37 @@ function mockApi() {
             estimated_minutes: 40,
             source_file_name: '复习题.txt',
           }],
+          mastery: {
+            knowledge_point_count: 1,
+            tracked_count: 1,
+            average_score: 35,
+            weak_count: 1,
+            building_count: 0,
+            familiar_count: 0,
+            mastered_count: 0,
+            due_review_count: 1,
+            open_mistake_count: 1,
+            weakest_points: [{
+              id: 'kp-page-table',
+              type: 'weak_point',
+              title: '页表地址转换',
+              score: 35,
+              level: 'weak',
+              attempts: 2,
+              wrong_count: 1,
+              next_review_at: '2026-07-22 10:00:00',
+            }],
+            due_reviews: [{
+              id: 'kp-page-table',
+              type: 'mastery_review',
+              title: '页表地址转换',
+              score: 35,
+              level: 'weak',
+              attempts: 2,
+              wrong_count: 1,
+              next_review_at: '2026-07-22 10:00:00',
+            }],
+          },
           generated_artifacts: {
             total: 2,
             summaries: 1,
@@ -290,6 +321,7 @@ describe('course workspace components', () => {
     expect(dashboard.text()).toContain('2/3')
     expect(dashboard.text()).toContain('12')
     expect(dashboard.text()).toContain('下一步：订正页表练习')
+    expect(dashboard.text()).toContain('薄弱点：页表地址转换 35')
     expect(dashboard.text()).toContain('最近：笔记 · TLB 易错点')
   })
 

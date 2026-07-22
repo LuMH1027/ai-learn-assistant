@@ -1,6 +1,6 @@
 # 章节级 Map-Reduce 摘要 Pipeline
 
-当前切片只实现纯函数式编排，不接入 `course_service.py`、`server.py` 或前端接口。
+当前实现已通过 `local_course_agent.learning.service.generate_course_summary()` 接入课程摘要接口。纯函数式 pipeline 仍保持不读写文件、不直接创建网络 client 的边界，由服务层注入现有 OpenAI-compatible LLM client，并在失败时降级到 single prompt 或本地抽取式摘要。
 
 ## 目标
 
@@ -13,7 +13,7 @@
 
 ## 模块边界
 
-实现文件：`local_course_agent/summary.py`
+实现文件：`local_course_agent/learning/summary.py`
 
 核心函数：
 
@@ -94,16 +94,16 @@ class SummaryLLMClient:
 }
 ```
 
-## 后续接入
+## 服务层接入
 
-后续主接口可以在 `course_service.generate_course_summary()` 中替换当前单 prompt 摘要：
+`local_course_agent.learning.service.generate_course_summary()` 已按以下顺序执行摘要策略：
 
-1. 导入 `generate_map_reduce_course_summary`。
-2. 调用 `generate_map_reduce_course_summary(kb, course_id, course_name, ai_config, create_llm_client)`。
-3. 当 `fallback_needed` 为 `false` 时直接返回新摘要。
-4. 当 `fallback_needed` 为 `true` 时沿用当前 `kb.generate_summary()` 本地 fallback，并可把 `status` / `fallback_reason` 透传给调试信息。
+1. 调用 `generate_map_reduce_course_summary(kb, course_id, course_name, ai_config, create_llm_client)`。
+2. 当 `fallback_needed` 为 `false` 时返回 `summary_method = "map_reduce"`，并保留 `map_summaries` 与 `evidence_groups` 供调试。
+3. 当 map-reduce 不可用但有代表片段时，使用 `llm.build_course_summary_prompt()` 走 single prompt 摘要，返回 `summary_method = "single_prompt"`。
+4. 当模型不可用、生成失败或没有片段时，沿用 `kb.generate_summary()` 本地抽取式摘要，返回 `summary_method = "extractive"`。
 
-这一步不在当前切片中实现，避免同时改变 API 行为和摘要算法。
+`GET /api/courses/{course_id}/summary` 返回即时摘要 payload；`POST /api/courses/{course_id}/summary` 会把摘要写入课程目录的 `AI生成/*.md`，并保存一条助手消息。
 
 ## 验证
 

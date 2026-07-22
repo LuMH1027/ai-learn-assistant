@@ -45,6 +45,30 @@ class FileStoreTest(unittest.TestCase):
             self.assertEqual(updated[0]["status"], "done")
             self.assertTrue(updated[0]["completed_at"])
 
+    def test_mastery_state_is_saved_and_updated_as_course_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+
+            state = store.upsert_mastery_knowledge_point(
+                "course-1",
+                {"id": "kp-page-table", "title": "页表地址转换"},
+            )
+            updated = store.apply_mastery_answer_result(
+                "course-1",
+                "kp-page-table",
+                correct=False,
+                question="解释页表地址转换。",
+                user_answer="直接访问物理地址。",
+                expected_answer="页号查页表得到页框号，再拼接偏移。",
+            )
+
+            course_dir = Path(tmp) / "course_memory" / "course-1"
+            loaded = store.get_mastery_state("course-1")
+            self.assertTrue((course_dir / "mastery.json").exists())
+            self.assertEqual(state["knowledge_points"][0]["title"], "页表地址转换")
+            self.assertEqual(updated["mastery"]["kp-page-table"]["wrong_count"], 1)
+            self.assertEqual(loaded["mistakes"][0]["point_id"], "kp-page-table")
+
     def test_study_plan_normalizes_invalid_user_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = AppStore(Path(tmp))

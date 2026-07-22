@@ -11,7 +11,10 @@ import type {
   CoursesResponse,
   IndexJob,
   IndexResult,
+  MasteryResponse,
+  MasteryState,
   SaveConfigResponse,
+  SaveMasteryResponse,
   SaveStudyPlanResponse,
   StudyPlan,
   StudyPlanItem,
@@ -52,6 +55,9 @@ export const useCourseStore = defineStore('course', () => {
   const dashboard = ref<CourseDashboard | null>(null)
   const dashboardLoading = ref(false)
   const dashboardRequestId = ref(0)
+  const mastery = ref<MasteryState | null>(null)
+  const masteryLoading = ref(false)
+  const masteryRequestId = ref(0)
 
   const activeCourse = computed(() =>
     courses.value.find((course) => course.id === activeCourseId.value) ?? null,
@@ -69,6 +75,7 @@ export const useCourseStore = defineStore('course', () => {
       contextVersion.value += 1
       resetStudyPlan()
       resetDashboard()
+      resetMastery()
     }
   }
 
@@ -145,6 +152,7 @@ export const useCourseStore = defineStore('course', () => {
     resetIndexState()
     resetStudyPlan()
     resetDashboard()
+    resetMastery()
     activeCourseId.value = nextId
     contextVersion.value += 1
   }
@@ -163,6 +171,7 @@ export const useCourseStore = defineStore('course', () => {
         resetIndexState()
         resetStudyPlan()
         resetDashboard()
+        resetMastery()
         resetConfigStatus()
         config.value = {
           ...(config.value ?? {}),
@@ -254,6 +263,12 @@ export const useCourseStore = defineStore('course', () => {
     dashboardLoading.value = false
   }
 
+  function resetMastery() {
+    masteryRequestId.value += 1
+    mastery.value = null
+    masteryLoading.value = false
+  }
+
   function resetConfigStatus() {
     configStatusRequestId.value += 1
     configStatus.value = null
@@ -341,6 +356,32 @@ export const useCourseStore = defineStore('course', () => {
     })
   }
 
+  function loadMastery() {
+    const courseId = activeCourseId.value
+    if (courseId === null) {
+      resetMastery()
+      return
+    }
+    const requestId = ++masteryRequestId.value
+    const requestedRootVersion = rootVersion.value
+    masteryLoading.value = true
+    return trackRequest(async () => {
+      try {
+        const result = await getJson<MasteryResponse>(
+          `/api/courses/${encodeURIComponent(courseId)}/mastery`,
+        )
+        if (isCurrentMasteryRequest(courseId, requestedRootVersion, requestId)) {
+          mastery.value = result.mastery
+        }
+        return result.mastery
+      } finally {
+        if (isCurrentMasteryRequest(courseId, requestedRootVersion, requestId)) {
+          masteryLoading.value = false
+        }
+      }
+    })
+  }
+
   function addStudyPlanItem(title: string, kind: StudyPlanItem['kind'] = 'read') {
     const courseId = activeCourseId.value
     if (courseId === null || !title.trim()) return
@@ -385,6 +426,22 @@ export const useCourseStore = defineStore('course', () => {
     return updateStudyPlanItem(item, { status: nextStatus })
   }
 
+  function updateMastery(body: unknown) {
+    const courseId = activeCourseId.value
+    if (courseId === null) return
+    const requestedRootVersion = rootVersion.value
+    return trackRequest(async () => {
+      const result = await postJson<SaveMasteryResponse>(
+        `/api/courses/${encodeURIComponent(courseId)}/mastery`,
+        body,
+      )
+      if (activeCourseId.value === courseId && rootVersion.value === requestedRootVersion) {
+        mastery.value = result.mastery
+      }
+      return result.mastery
+    })
+  }
+
   function isCurrentPlanRequest(courseId: string, requestedRootVersion: number, requestId: number) {
     return activeCourseId.value === courseId &&
       rootVersion.value === requestedRootVersion &&
@@ -395,6 +452,12 @@ export const useCourseStore = defineStore('course', () => {
     return activeCourseId.value === courseId &&
       rootVersion.value === requestedRootVersion &&
       requestId === dashboardRequestId.value
+  }
+
+  function isCurrentMasteryRequest(courseId: string, requestedRootVersion: number, requestId: number) {
+    return activeCourseId.value === courseId &&
+      rootVersion.value === requestedRootVersion &&
+      requestId === masteryRequestId.value
   }
 
   return {
@@ -423,6 +486,9 @@ export const useCourseStore = defineStore('course', () => {
     dashboard,
     dashboardLoading,
     dashboardRequestId,
+    mastery,
+    masteryLoading,
+    masteryRequestId,
     activeCourse,
     applyCourses,
     loadConfig,
@@ -434,8 +500,10 @@ export const useCourseStore = defineStore('course', () => {
     indexActiveCourse,
     loadStudyPlan,
     loadDashboard,
+    loadMastery,
     addStudyPlanItem,
     updateStudyPlanItem,
     cycleStudyPlanItem,
+    updateMastery,
   }
 })

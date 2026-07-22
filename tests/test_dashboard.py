@@ -49,12 +49,36 @@ class CourseDashboardTest(unittest.TestCase):
                     "created_at": "2026-07-18 08:00:00",
                 },
             ],
+            mastery_state={
+                "schema_version": 1,
+                "knowledge_points": [
+                    {"id": "kp-page-table", "title": "页表地址转换"},
+                    {"id": "kp-tlb", "title": "TLB"},
+                ],
+                "mastery": {
+                    "kp-page-table": {
+                        "score": 35,
+                        "level": "weak",
+                        "next_review_at": "2026-07-21 09:00:00",
+                        "wrong_count": 2,
+                    },
+                    "kp-tlb": {
+                        "score": 82,
+                        "level": "mastered",
+                        "next_review_at": "2026-07-28 09:00:00",
+                    },
+                },
+                "mistakes": [
+                    {"point_id": "kp-page-table", "question": "页表如何转换？", "status": "open"}
+                ],
+            },
             index_stats={
                 "indexed_files": 2,
                 "total_chunks": 12,
                 "schema_version": 2,
                 "tokenizer_version": "zh_ngrams_v2",
             },
+            timestamp="2026-07-22 10:00:00",
         )
 
         self.assertEqual(dashboard["course"]["name"], "操作系统")
@@ -63,6 +87,12 @@ class CourseDashboardTest(unittest.TestCase):
         self.assertEqual(dashboard["learning_progress"]["completed_minutes"], 30)
         self.assertEqual(dashboard["learning_progress"]["next_item_id"], 2)
         self.assertEqual([item["id"] for item in dashboard["review_queue"]], [2, 3])
+        self.assertEqual(dashboard["mastery"]["average_score"], 58)
+        self.assertEqual(dashboard["mastery"]["weak_count"], 1)
+        self.assertEqual(dashboard["mastery"]["mastered_count"], 1)
+        self.assertEqual(dashboard["mastery"]["due_review_count"], 1)
+        self.assertEqual(dashboard["mastery"]["open_mistake_count"], 1)
+        self.assertEqual(dashboard["mastery"]["weakest_points"][0]["title"], "页表地址转换")
 
     def test_dashboard_reports_materials_and_generated_artifacts(self):
         dashboard = build_course_dashboard(
@@ -102,6 +132,7 @@ class CourseDashboardTest(unittest.TestCase):
         self.assertEqual(dashboard["learning_progress"]["progress_percent"], 0)
         self.assertEqual(dashboard["materials"]["file_count"], 0)
         self.assertEqual(dashboard["review_queue"], [])
+        self.assertEqual(dashboard["mastery"]["tracked_count"], 0)
         self.assertEqual(dashboard["generated_artifacts"]["total"], 0)
         self.assertEqual(dashboard["recent_activity"], [])
 

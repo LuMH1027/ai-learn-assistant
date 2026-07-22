@@ -24,6 +24,7 @@ const nextPlanItem = computed(() =>
   course.studyPlan?.items.find((item) => item.id === course.studyPlan?.stats.next_item_id) ?? null,
 )
 const dashboardReviewItems = computed(() => course.dashboard?.review_queue.slice(0, 2) ?? [])
+const masteryWeakItems = computed(() => course.dashboard?.mastery?.weakest_points.slice(0, 2) ?? [])
 const latestDashboardActivity = computed(() => course.dashboard?.recent_activity[0] ?? null)
 const healthItems = computed(() => {
   const preferred = ['ai', 'rag_index', 'vector', 'material_root', 'data_dir', 'telemetry', 'backup']
@@ -179,13 +180,16 @@ function onDrop(event: DragEvent) {
           <span><strong>{{ course.dashboard.learning_progress.progress_percent }}%</strong>进度</span>
           <span><strong>{{ course.dashboard.materials.indexed_files }}/{{ course.dashboard.materials.file_count }}</strong>资料</span>
           <span><strong>{{ course.dashboard.materials.indexed_chunks }}</strong>片段</span>
-          <span><strong>{{ course.dashboard.generated_artifacts.total }}</strong>生成</span>
+          <span><strong>{{ course.dashboard.mastery?.average_score ?? 0 }}</strong>掌握</span>
         </div>
         <p v-if="course.dashboard.learning_progress.next_item_title" class="dashboard-line">
           下一步：{{ course.dashboard.learning_progress.next_item_title }}
         </p>
         <p v-if="dashboardReviewItems.length > 0" class="dashboard-line">
           待复习：{{ dashboardReviewItems.map((item) => item.title).join('、') }}
+        </p>
+        <p v-if="masteryWeakItems.length > 0" class="dashboard-line">
+          薄弱点：{{ masteryWeakItems.map((item) => `${item.title} ${item.score}`).join('、') }}
         </p>
         <p v-if="latestDashboardActivity" class="dashboard-line">
           最近：{{ activityLabel(latestDashboardActivity.type) }} · {{ latestDashboardActivity.title }}

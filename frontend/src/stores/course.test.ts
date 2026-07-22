@@ -9,6 +9,8 @@ import type {
   CoursesResponse,
   IndexJob,
   IndexResult,
+  MasteryState,
+  SaveMasteryResponse,
   SaveConfigResponse,
   SaveStudyPlanResponse,
   StudyPlan,
@@ -159,6 +161,37 @@ function dashboard(progress = 25): CourseDashboard {
       estimated_minutes: 40,
       source_file_name: '复习题.txt',
     }],
+    mastery: {
+      knowledge_point_count: 2,
+      tracked_count: 2,
+      average_score: 58,
+      weak_count: 1,
+      building_count: 0,
+      familiar_count: 1,
+      mastered_count: 0,
+      due_review_count: 1,
+      open_mistake_count: 1,
+      weakest_points: [{
+        id: 'kp-page-table',
+        type: 'weak_point',
+        title: '页表地址转换',
+        score: 35,
+        level: 'weak',
+        attempts: 2,
+        wrong_count: 2,
+        next_review_at: '2026-07-22 10:00:00',
+      }],
+      due_reviews: [{
+        id: 'kp-page-table',
+        type: 'mastery_review',
+        title: '页表地址转换',
+        score: 35,
+        level: 'weak',
+        attempts: 2,
+        wrong_count: 2,
+        next_review_at: '2026-07-22 10:00:00',
+      }],
+    },
     generated_artifacts: {
       total: 2,
       summaries: 1,
@@ -170,6 +203,39 @@ function dashboard(progress = 25): CourseDashboard {
         created_at: '2026-07-21 10:00:00',
       },
     },
+  }
+}
+
+function masteryState(score = 35): MasteryState {
+  return {
+    schema_version: 1,
+    knowledge_points: [{
+      id: 'kp-page-table',
+      title: '页表地址转换',
+      aliases: [],
+      source_refs: [],
+      created_at: '2026-07-21 10:00:00',
+      updated_at: '2026-07-21 10:00:00',
+    }],
+    mastery: {
+      'kp-page-table': {
+        point_id: 'kp-page-table',
+        score,
+        level: score < 40 ? 'weak' : 'familiar',
+        attempts: 1,
+        correct_count: score >= 40 ? 1 : 0,
+        wrong_count: score < 40 ? 1 : 0,
+        streak: score >= 40 ? 1 : 0,
+        last_result: score >= 40 ? 'correct' : 'wrong',
+        last_answered_at: '2026-07-21 10:00:00',
+        next_review_at: '2026-07-22 10:00:00',
+        review_interval_days: 1,
+        updated_at: '2026-07-21 10:00:00',
+      },
+    },
+    mistakes: [],
+    created_at: '2026-07-21 10:00:00',
+    updated_at: '2026-07-21 10:00:00',
   }
 }
 
@@ -674,6 +740,35 @@ describe('course store', () => {
     expect(store.dashboardLoading).toBe(false)
   })
 
+  it('loads and updates the active course mastery state', async () => {
+    api.getJson.mockResolvedValue({ mastery: masteryState(35) })
+    api.postJson.mockResolvedValue({
+      ok: true,
+      mastery: masteryState(65),
+    } satisfies SaveMasteryResponse)
+    const store = useCourseStore()
+    store.courses = [course('a')]
+    store.selectCourse('a')
+
+    await store.loadMastery()
+    await store.updateMastery({
+      answer_result: {
+        point_id: 'kp-page-table',
+        correct: true,
+      },
+    })
+
+    expect(api.getJson).toHaveBeenCalledWith('/api/courses/a/mastery')
+    expect(api.postJson).toHaveBeenCalledWith('/api/courses/a/mastery', {
+      answer_result: {
+        point_id: 'kp-page-table',
+        correct: true,
+      },
+    })
+    expect(store.mastery?.mastery['kp-page-table']?.score).toBe(65)
+    expect(store.masteryLoading).toBe(false)
+  })
+
   it('drops a stale study plan response after switching courses', async () => {
     const oldPlan = deferred<{ plan: StudyPlan }>()
     api.getJson.mockReturnValue(oldPlan.promise)
@@ -706,6 +801,23 @@ describe('course store', () => {
     expect(store.activeCourseId).toBe('b')
     expect(store.dashboard).toBeNull()
     expect(store.dashboardLoading).toBe(false)
+  })
+
+  it('drops a stale mastery response after switching courses', async () => {
+    const oldMastery = deferred<{ mastery: MasteryState }>()
+    api.getJson.mockReturnValue(oldMastery.promise)
+    const store = useCourseStore()
+    store.courses = [course('a'), course('b')]
+    store.selectCourse('a')
+
+    const pending = store.loadMastery()
+    store.selectCourse('b')
+    oldMastery.resolve({ mastery: masteryState(35) })
+    await pending
+
+    expect(store.activeCourseId).toBe('b')
+    expect(store.mastery).toBeNull()
+    expect(store.masteryLoading).toBe(false)
   })
 
   it('updates study plan status and applies returned stats', async () => {
