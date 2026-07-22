@@ -20,6 +20,11 @@ DEFAULT_CONFIG = {
         "embedding_batch_size": 32,
         "embedding_max_retries": 2,
         "embedding_retry_delay": 1.0,
+        "rerank_model": "",
+        "rerank_base_url": "",
+        "rerank_api_key": "",
+        "rerank_timeout": 30,
+        "rerank_top_n": 12,
     },
     "web_search": {
         "enabled": False,

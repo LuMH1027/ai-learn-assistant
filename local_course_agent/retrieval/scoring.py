@@ -10,10 +10,17 @@ from local_course_agent.retrieval.query import (
     query_phrases,
     semantic_features,
 )
+from local_course_agent.retrieval.rerankers import apply_external_rerank
 from local_course_agent.retrieval.selection import reciprocal_rank_fusion
 
 
-def rank_candidates(chunks: Sequence[Dict], query: str, query_tokens: Sequence[str], limit: int) -> List[Dict]:
+def rank_candidates(
+    chunks: Sequence[Dict],
+    query: str,
+    query_tokens: Sequence[str],
+    limit: int,
+    reranker=None,
+) -> List[Dict]:
     query_counter = Counter(query_tokens)
     bm25_ranking = bm25_rank(chunks, query_counter)
     phrases = query_phrases(query)
@@ -44,6 +51,12 @@ def rank_candidates(chunks: Sequence[Dict], query: str, query_tokens: Sequence[s
             phrases=phrases,
             normalized_query=query,
         )
+    candidates = apply_external_rerank(
+        candidates,
+        query=query,
+        reranker=reranker,
+        top_n=max(limit * 3, limit),
+    )
     candidates.sort(key=lambda item: (item.get("local_rerank_score", 0), item.get("rrf_score", 0)), reverse=True)
     return candidates
 

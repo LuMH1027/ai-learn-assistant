@@ -19,6 +19,13 @@ from local_course_agent.retrieval.scoring import (
     retrieval_trace,
     semantic_score,
 )
+from local_course_agent.retrieval.rerankers import (
+    NoopReranker,
+    RerankRequestError,
+    SiliconFlowReranker,
+    apply_external_rerank,
+    create_reranker,
+)
 from local_course_agent.retrieval.selection import (
     compact_sentence,
     neighbor_context,
@@ -36,6 +43,11 @@ __all__ = [
     "QUERY_STOP_TOKENS",
     "bm25_rank",
     "compact_sentence",
+    "NoopReranker",
+    "RerankRequestError",
+    "SiliconFlowReranker",
+    "apply_external_rerank",
+    "create_reranker",
     "expand_query_tokens",
     "indexable_chunk_text",
     "local_rerank_score",

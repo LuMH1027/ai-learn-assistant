@@ -20,6 +20,7 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.chunking",
             "local_course_agent.retrieval.query",
             "local_course_agent.retrieval.ranking",
+            "local_course_agent.retrieval.rerankers",
             "local_course_agent.retrieval.scoring",
             "local_course_agent.retrieval.selection",
             "local_course_agent.retrieval.vector_index",

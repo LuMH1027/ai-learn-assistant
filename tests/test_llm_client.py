@@ -99,7 +99,7 @@ class LlmPromptTest(unittest.TestCase):
         client = OpenAICompatibleClient(
             base_url="https://api.siliconflow.cn/v1",
             api_key="test-key",
-            model="Pro/moonshotai/Kimi-K2.6",
+            model="Qwen/Qwen3.5-35B-A3B",
         )
         fake_response = mock.Mock()
         fake_response.__enter__ = mock.Mock(return_value=fake_response)
@@ -118,7 +118,7 @@ class LlmPromptTest(unittest.TestCase):
         client = OpenAICompatibleClient(
             base_url="https://api.siliconflow.cn/v1",
             api_key="test-key",
-            model="Pro/moonshotai/Kimi-K2.6",
+            model="Qwen/Qwen3.5-35B-A3B",
         )
         fake_response = mock.Mock()
         fake_response.__enter__ = mock.Mock(return_value=fake_response)

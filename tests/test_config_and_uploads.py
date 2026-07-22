@@ -23,7 +23,7 @@ class ConfigAndUploadsTest(unittest.TestCase):
                 "ai": {
                     "base_url": "https://api.siliconflow.cn/v1",
                     "api_key": "test-key",
-                    "model": "Pro/moonshotai/Kimi-K2.6",
+                    "model": "Qwen/Qwen3.5-35B-A3B",
                 },
             }
         )
@@ -31,7 +31,8 @@ class ConfigAndUploadsTest(unittest.TestCase):
         self.assertEqual(config["root_folder"], "D:/Study")
         self.assertEqual(config["ai"]["provider"], "openai_compatible")
         self.assertEqual(config["ai"]["base_url"], "https://api.siliconflow.cn/v1")
-        self.assertEqual(config["ai"]["model"], "Pro/moonshotai/Kimi-K2.6")
+        self.assertEqual(config["ai"]["model"], "Qwen/Qwen3.5-35B-A3B")
+        self.assertIn("rerank_model", config["ai"])
         self.assertTrue(config["mineru"]["auto"])
         self.assertFalse(config["web_search"]["enabled"])
         self.assertEqual(config["web_search"]["provider"], "mcp")
