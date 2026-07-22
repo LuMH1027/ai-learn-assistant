@@ -37,7 +37,7 @@ def embedding_model_metadata(model: EmbeddingModel) -> Dict[str, Any]:
 
 
 def default_model_for_saved_index(model_info: Mapping[str, Any], dimensions: int) -> EmbeddingModel:
-    from local_course_agent.retrieval.embeddings.providers import FakeEmbeddingModel
+    from local_course_agent.retrieval.embeddings.fake import FakeEmbeddingModel
 
     model_id = str(model_info.get("type") or "")
     if not model_id or model_id == FakeEmbeddingModel.model_id:

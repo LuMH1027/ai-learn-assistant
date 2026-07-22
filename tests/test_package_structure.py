@@ -62,7 +62,10 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.query",
             "local_course_agent.retrieval.ranking",
             "local_course_agent.retrieval.reranking",
+            "local_course_agent.retrieval.reranking.adapter",
             "local_course_agent.retrieval.reranking.documents",
+            "local_course_agent.retrieval.reranking.fallback",
+            "local_course_agent.retrieval.reranking.protocol",
             "local_course_agent.retrieval.reranking.providers",
             "local_course_agent.retrieval.scoring",
             "local_course_agent.retrieval.selection",
@@ -89,7 +92,11 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.conversation_context.turns",
             "local_course_agent.retrieval.embeddings",
             "local_course_agent.retrieval.embeddings.config",
+            "local_course_agent.retrieval.embeddings.fake",
             "local_course_agent.retrieval.embeddings.models",
+            "local_course_agent.retrieval.embeddings.openai",
+            "local_course_agent.retrieval.embeddings.openai_client",
+            "local_course_agent.retrieval.embeddings.openai_payloads",
             "local_course_agent.retrieval.embeddings.providers",
             "local_course_agent.retrieval.embeddings.utils",
             "local_course_agent.retrieval.evaluation",
@@ -107,6 +114,10 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.evaluation.demo_baseline",
             "local_course_agent.evaluation.demo_fixtures",
             "local_course_agent.evaluation.gates",
+            "local_course_agent.evaluation.gates.chatflow",
+            "local_course_agent.evaluation.gates.fakes",
+            "local_course_agent.evaluation.gates.results",
+            "local_course_agent.evaluation.gates.summary",
             "local_course_agent.evaluation.quality",
             "local_course_agent.evaluation.quality.chatflow",
             "local_course_agent.evaluation.quality.common",
@@ -295,6 +306,32 @@ class PackageStructureTest(unittest.TestCase):
 
         self.assertTrue(implementation.exists())
         self.assertTrue(compat_exports.exists())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 12)
+
+    def test_retrieval_reranking_package_entry_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "retrieval" / "reranking" / "__init__.py"
+
+        self.assertTrue(facade.with_name("adapter.py").exists())
+        self.assertTrue(facade.with_name("protocol.py").exists())
+        self.assertTrue(facade.with_name("fallback.py").exists())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 45)
+
+    def test_retrieval_embedding_providers_facade_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "retrieval" / "embeddings" / "providers.py"
+
+        self.assertTrue(facade.with_name("fake.py").exists())
+        self.assertTrue(facade.with_name("openai.py").exists())
+        self.assertTrue(facade.with_name("openai_client.py").exists())
+        self.assertTrue(facade.with_name("openai_payloads.py").exists())
+        self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 12)
+
+    def test_evaluation_gates_entry_stays_thin(self):
+        facade = Path(__file__).resolve().parents[1] / "local_course_agent" / "evaluation" / "gates" / "__init__.py"
+
+        self.assertTrue(facade.with_name("chatflow.py").exists())
+        self.assertTrue(facade.with_name("summary.py").exists())
+        self.assertTrue(facade.with_name("fakes.py").exists())
+        self.assertTrue(facade.with_name("results.py").exists())
         self.assertLessEqual(len(facade.read_text(encoding="utf-8").splitlines()), 12)
 
     def test_api_chat_package_entry_stays_thin(self):

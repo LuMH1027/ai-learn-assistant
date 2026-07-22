@@ -39,8 +39,8 @@
 `retrieval`：
 
 - `retrieval/rag/`：课程知识库编排、chunk store、检索搜索、答案合成和本地学习产物；`CourseKnowledgeBase` 位于 `knowledge_base.py`，`retrieval.rag` 只做兼容导出。
-- `retrieval/embeddings/`：embedding 配置、模型协议、provider 和向量工具。
-- `retrieval/reranking/`：候选重排协议、fallback、provider adapter 和候选文本转换。
+- `retrieval/embeddings/`：embedding 配置、模型协议、fake fallback、OpenAI-compatible provider、HTTP client、payload parser 和向量工具。
+- `retrieval/reranking/`：候选重排协议、fallback、provider adapter、外部 provider 和候选文本转换，入口只做兼容导出。
 - `retrieval/vector/`：向量索引构建、持久化、融合和数学工具。
 - `retrieval/citations/`：引用检查与后处理。
 - `retrieval/conversation_context/`：追问信号识别、历史轮次压缩、编号引用抽取和检索查询改写。
@@ -48,7 +48,8 @@
 
 `evaluation`：
 
-- `evaluation/quality/`：ChatFlow 和 Summary 质量 gate 及通用汇总工具。
+- `evaluation/gates/`：RAG demo baseline 的 ChatFlow gate、Summary gate、eval-only 替身和结果适配。
+- `evaluation/quality/`：ChatFlow 和 Summary payload 质量检查及通用汇总工具。
 - `evaluation/rag_quality.py`：旧入口兼容门面，只做 re-export。
 
 `ops`：
