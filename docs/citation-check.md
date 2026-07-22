@@ -1,6 +1,6 @@
 # Citation Check
 
-`local_course_agent.retrieval.citation_check` provides a lightweight post-generation check for grounded answers. It is intentionally independent from the current RAG and LLM flow, so it can be merged and tested before wiring it into `server.py`.
+`local_course_agent.retrieval.citation_check` provides the compatibility facade for a lightweight post-generation check for grounded answers. The implementation lives under `local_course_agent.retrieval.citations`, split into schema, label mapping, tokenization, checking, and postprocess adapters.
 
 ## Goal
 
