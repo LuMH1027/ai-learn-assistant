@@ -1,6 +1,6 @@
 # RAG 评测集与回归报告
 
-本评测框架用于本地验证课程 RAG 检索与最终回答质量，不接入服务端接口，也不改变线上问答链路。它直接读取 `data/indexes/<course_id>.json`，对一组样例问题执行检索问答，并统计引用命中率、检索质量、答案关键术语覆盖、禁用词命中和引用支撑情况。
+本评测框架用于本地验证课程 RAG 检索、真实 ChatFlow 编排结构与摘要产物质量，不接入 HTTP 服务，也不改变线上问答链路。普通用例直接读取 `data/indexes/<course_id>.json`，对一组样例问题执行检索问答，并统计引用命中率、检索质量、答案关键术语覆盖、禁用词命中和引用支撑情况。`--demo-baseline` 会额外跑真实 `ChatFlow.run()` 和摘要 pipeline 的本地质量门禁。
 
 ## 用例格式
 
@@ -56,6 +56,16 @@ python3 scripts/rag_eval.py --cases path/to/rag-cases.json --format json --outpu
 
 如果所有用例通过，脚本返回退出码 `0`；只要有用例失败，返回退出码 `1`，方便接入 CI 或本地回归检查。
 
+内置 demo baseline 会自动索引 `sample_materials`，并在原有 retrieval case 之外追加两组 gate：
+
+```bash
+python3 scripts/rag_eval.py --demo-baseline --index-dir /tmp/course-rag-demo-index --output /tmp/course-rag-eval.md
+```
+
+- ChatFlow gate：直接实例化 `ChatFlow.run()`，检查返回 payload 是否包含 `trace`、`retrieval_trace.contextual_query`、`citation_check`、`llm_status`、`web_search_status` 和 telemetry stage；其中包含一条追问用例，用来验证 contextual follow-up trace。
+- Summary gate：分别验证服务层 fallback 摘要和 map-reduce 摘要 pipeline。服务层用本地禁用 LLM 配置验证 `summary_method = extractive`、`fallback_reason` 和引用 quote 覆盖；map-reduce 使用标准库 stub client，不访问外部模型，验证 `summary_method = map_reduce`、`evidence_groups`、`map_summaries` 和证据标签覆盖。
+- `quality_gate_passed`：demo baseline 的总门禁，要求 retrieval cases、ChatFlow cases 和 summary cases 全部通过。脚本退出码会使用这个字段。
+
 ## 统计指标
 
 报告包含：
@@ -69,6 +79,9 @@ python3 scripts/rag_eval.py --cases path/to/rag-cases.json --format json --outpu
 - `answer_term_pass_rate`：满足答案术语覆盖要求的用例比例。
 - `citation_support_pass_rate`：满足 `max_unsupported_claims` 的用例比例。
 - `forbidden_term_pass_rate`：没有命中禁用词的用例比例。
+- `chatflow_structure_pass_rate`：ChatFlow payload 结构门禁通过率，仅 demo baseline 输出。
+- `summary_pipeline_pass_rate`：摘要 pipeline 产物质量门禁通过率，仅 demo baseline 输出。
+- `quality_gate_passed`：最终门禁是否通过。普通用例等价于 retrieval pass；demo baseline 会合并 ChatFlow 和 summary gates。
 - `quality_counts`：`none`、`partial`、`sufficient` 分布。
 
 每条用例会列出返回文件、缺失的期望文件、检索质量、top score、缺失答案术语、禁用词命中和未支撑断言数量。未设置答案级约束的旧用例仍按原有检索指标通过；新增字段后会进入最终答案质量判断。

@@ -12,6 +12,7 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.api.http",
             "local_course_agent.api.router",
             "local_course_agent.api.telemetry",
+            "local_course_agent.evaluation.rag_quality",
             "local_course_agent.retrieval.rag",
             "local_course_agent.retrieval.chunking",
             "local_course_agent.retrieval.ranking",

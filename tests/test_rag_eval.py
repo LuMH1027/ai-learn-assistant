@@ -3,14 +3,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from local_course_agent.evaluation.rag_quality import evaluate_chatflow_payload, evaluate_summary_payload
 from local_course_agent.retrieval.rag import CourseKnowledgeBase
 from local_course_agent.retrieval.rag_eval import (
     demo_eval_cases,
     index_sample_materials,
     load_eval_cases,
     render_markdown_report,
+    run_chatflow_structure_eval,
     run_demo_baseline,
     run_rag_eval,
+    run_summary_pipeline_eval,
     sample_eval_cases,
 )
 
@@ -227,17 +230,92 @@ class RagEvalTest(unittest.TestCase):
             self.assertEqual(report["summary"]["total_cases"], 6)
             self.assertIn("citation_hit_rate", report["summary"])
             self.assertIn("quality_distribution", report["summary"])
+            self.assertIn("chatflow_eval", report)
+            self.assertIn("summary_eval", report)
+            self.assertEqual(report["chatflow_eval"]["summary"]["passed_cases"], 3)
+            self.assertEqual(report["summary_eval"]["summary"]["passed_cases"], 4)
+            self.assertTrue(report["summary"]["quality_gate_passed"])
             self.assertIn("# RAG Eval Baseline Report", markdown)
             self.assertIn("## Baseline", markdown)
+            self.assertIn("## ChatFlow Structure Eval", markdown)
+            self.assertIn("## Summary Pipeline Eval", markdown)
             self.assertIn("Indexed files: 4", markdown)
             self.assertIn("Citation hit rate:", markdown)
             self.assertIn("Quality distribution:", markdown)
+
+    def test_chatflow_structure_eval_runs_real_orchestration_and_follow_up_trace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = _indexed_demo_kb(tmp)
+
+            report = run_chatflow_structure_eval(kb)
+
+            self.assertEqual(report["summary"]["total_cases"], 3)
+            self.assertEqual(report["summary"]["passed_cases"], 3)
+            follow_up = next(item for item in report["cases"] if item["id"] == "chatflow-context-follow-up")
+            self.assertTrue(follow_up["metrics"]["contextual_query_used"])
+            self.assertIn(follow_up["metrics"]["llm_status"], {"disabled", "fallback", "used"})
+            self.assertIn(follow_up["metrics"]["web_search_status"], {"skipped", "disabled", "used", "empty"})
+
+    def test_summary_pipeline_eval_checks_service_fallback_and_map_reduce_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kb = _indexed_demo_kb(tmp)
+
+            report = run_summary_pipeline_eval(kb)
+
+            self.assertEqual(report["summary"]["total_cases"], 4)
+            self.assertEqual(report["summary"]["passed_cases"], 4)
+            methods = {item["summary_method"] for item in report["cases"]}
+            self.assertEqual(methods, {"extractive", "map_reduce"})
+            for item in report["cases"]:
+                self.assertEqual(item["failed_checks"], [])
+
+    def test_quality_helpers_reject_missing_chatflow_and_summary_fields(self):
+        chat_quality = evaluate_chatflow_payload(
+            {
+                "answer": "TLB 能缓存页表项。[L1]",
+                "citations": [{"quote": "TLB 能缓存页表项。"}],
+                "llm_status": "unknown",
+            }
+        )
+        summary_quality = evaluate_summary_payload(
+            {
+                "content": "课程复习摘要",
+                "citations": [{"file_name": "教材.md", "quote": ""}],
+                "llm_status": "used",
+                "summary_method": "map_reduce",
+                "evidence_groups": [],
+                "map_summaries": [],
+            },
+            expected_method="map_reduce",
+        )
+
+        self.assertFalse(chat_quality["passed"])
+        self.assertIn("chatflow_web_status_known", {item["name"] for item in chat_quality["failed_checks"]})
+        self.assertFalse(summary_quality["passed"])
+        self.assertIn("summary_map_reduce_evidence_groups", {item["name"] for item in summary_quality["failed_checks"]})
 
 
 def _write_cases(tmp: str, cases):
     path = Path(tmp) / "cases.json"
     path.write_text(json.dumps(cases, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+def _indexed_demo_kb(tmp: str):
+    kb = CourseKnowledgeBase(Path(tmp) / "indexes")
+    kb.index_text(
+        "demo-operating-system",
+        "os-book",
+        "README.md",
+        "页表记录虚拟页到物理页框的映射，用于地址转换。TLB 缓存常用页表项，减少访问页表的次数。",
+    )
+    kb.index_text(
+        "demo-data-structures",
+        "ds-stack-queue",
+        "栈和队列.md",
+        "栈是后进先出结构，适合函数调用和括号匹配。队列是先进先出结构，适合任务调度和广度优先搜索。",
+    )
+    return kb
 
 
 if __name__ == "__main__":

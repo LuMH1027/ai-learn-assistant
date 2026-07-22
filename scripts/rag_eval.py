@@ -21,7 +21,7 @@ from local_course_agent.retrieval.rag_eval import (  # noqa: E402
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Run local RAG retrieval evaluation cases.")
+    parser = argparse.ArgumentParser(description="Run local RAG, ChatFlow, and summary quality evaluation cases.")
     parser.add_argument("--index-dir", default="data/indexes", help="Directory containing course index JSON files.")
     parser.add_argument("--cases", help="JSON file with eval cases. Uses sample cases when omitted.")
     parser.add_argument(
@@ -51,6 +51,10 @@ def main(argv=None) -> int:
                     expected_files=case.expected_files,
                     min_quality=case.min_quality,
                     tags=case.tags,
+                    expected_terms=case.expected_terms,
+                    forbidden_terms=case.forbidden_terms,
+                    min_answer_term_rate=case.min_answer_term_rate,
+                    max_unsupported_claims=case.max_unsupported_claims,
                 )
                 for case in cases
             ]
@@ -64,7 +68,8 @@ def main(argv=None) -> int:
         Path(args.output).write_text(content, encoding="utf-8")
     else:
         print(content, end="")
-    return 0 if report["summary"]["passed_cases"] == report["summary"]["total_cases"] else 1
+    retrieval_passed = report["summary"]["passed_cases"] == report["summary"]["total_cases"]
+    return 0 if report["summary"].get("quality_gate_passed", retrieval_passed) else 1
 
 
 if __name__ == "__main__":
