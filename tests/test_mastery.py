@@ -8,8 +8,8 @@ from local_course_agent.learning.mastery import (
     review_suggestion,
     upsert_knowledge_point,
 )
-from local_course_agent.learning.mastery_policy import score_delta
-from local_course_agent.learning.mastery_schema import normalize_state
+from local_course_agent.learning.mastery.policy import score_delta
+from local_course_agent.learning.mastery.schema import normalize_state
 
 
 class MasteryModelTest(unittest.TestCase):

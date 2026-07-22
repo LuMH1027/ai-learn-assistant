@@ -20,9 +20,9 @@ from local_course_agent.learning.summary import (
     run_map_reduce_summary,
     summary_citation_from_chunk,
 )
-from local_course_agent.learning.summary_prompts import format_evidence_block
-from local_course_agent.learning.summary_runner import map_reduce_fallback_payload
-from local_course_agent.learning.summary_schema import compact_summary_text
+from local_course_agent.learning.summary.prompts import format_evidence_block
+from local_course_agent.learning.summary.runner import map_reduce_fallback_payload
+from local_course_agent.learning.summary.schema import compact_summary_text
 
 
 class StubSummaryClient:

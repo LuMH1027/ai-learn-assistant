@@ -7,9 +7,9 @@ from local_course_agent.config import (
     SILICONFLOW_EMBEDDING_MODEL,
     resolve_siliconflow_api_key,
 )
-from local_course_agent.retrieval.embedding_models import EmbeddingModel
-from local_course_agent.retrieval.embedding_providers import FakeEmbeddingModel, OpenAICompatibleEmbeddingModel
-from local_course_agent.retrieval.embedding_utils import (
+from local_course_agent.retrieval.embeddings.models import EmbeddingModel
+from local_course_agent.retrieval.embeddings.providers import FakeEmbeddingModel, OpenAICompatibleEmbeddingModel
+from local_course_agent.retrieval.embeddings.utils import (
     DEFAULT_DIMENSIONS,
     DEFAULT_EMBEDDING_BATCH_SIZE,
     DEFAULT_EMBEDDING_MAX_RETRIES,

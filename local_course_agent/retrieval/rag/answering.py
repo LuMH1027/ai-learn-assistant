@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from local_course_agent.retrieval.rag_artifacts import citation_from_chunk, summarize_evidence
+from local_course_agent.retrieval.rag.artifacts import citation_from_chunk, summarize_evidence
 from local_course_agent.retrieval.ranking import retrieval_quality, retrieval_trace
 
 

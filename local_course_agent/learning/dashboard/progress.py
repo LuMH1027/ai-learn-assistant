@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from local_course_agent.learning.dashboard_utils import int_value, status_rank
+from local_course_agent.learning.dashboard.utils import int_value, status_rank
 
 
 def learning_progress(study_plan: list[dict]) -> dict:

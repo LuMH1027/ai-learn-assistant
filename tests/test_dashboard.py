@@ -1,8 +1,8 @@
 import unittest
 
 from local_course_agent.learning.dashboard import build_course_dashboard
-from local_course_agent.learning.dashboard_materials import materials_stats, split_course_files
-from local_course_agent.learning.dashboard_progress import review_queue
+from local_course_agent.learning.dashboard.materials import materials_stats, split_course_files
+from local_course_agent.learning.dashboard.progress import review_queue
 
 
 class CourseDashboardTest(unittest.TestCase):

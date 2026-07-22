@@ -4,7 +4,7 @@ from unittest import mock
 
 from local_course_agent.retrieval import query, ranking, scoring, selection
 from local_course_agent.retrieval.chunking import tokenize
-from local_course_agent.retrieval.rerankers import SiliconFlowReranker, apply_external_rerank, create_reranker
+from local_course_agent.retrieval.reranking import SiliconFlowReranker, apply_external_rerank, create_reranker
 
 
 class RetrievalRankingStructureTest(unittest.TestCase):

@@ -25,16 +25,18 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.web.policy",
             "local_course_agent.web.quality",
             "local_course_agent.retrieval.rag",
+            "local_course_agent.retrieval.rag.answering",
+            "local_course_agent.retrieval.rag.artifacts",
+            "local_course_agent.retrieval.rag.indexing",
+            "local_course_agent.retrieval.rag.search",
+            "local_course_agent.retrieval.rag.store",
+            "local_course_agent.retrieval.rag.vector_cache",
             "local_course_agent.retrieval.chunking",
-            "local_course_agent.retrieval.indexing",
-            "local_course_agent.retrieval.knowledge_store",
             "local_course_agent.retrieval.query",
-            "local_course_agent.retrieval.rag_answering",
-            "local_course_agent.retrieval.rag_artifacts",
-            "local_course_agent.retrieval.rag_retrieval",
             "local_course_agent.retrieval.ranking",
-            "local_course_agent.retrieval.rerankers",
             "local_course_agent.retrieval.reranking",
+            "local_course_agent.retrieval.reranking.documents",
+            "local_course_agent.retrieval.reranking.providers",
             "local_course_agent.retrieval.scoring",
             "local_course_agent.retrieval.selection",
             "local_course_agent.retrieval.vector.builders",
@@ -43,7 +45,6 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.vector.merge",
             "local_course_agent.retrieval.vector.persistence",
             "local_course_agent.retrieval.vector.schema",
-            "local_course_agent.retrieval.vector_cache",
             "local_course_agent.retrieval.vector_index",
             "local_course_agent.retrieval.citation_check",
             "local_course_agent.retrieval.citations",
@@ -53,12 +54,13 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.citations.schema",
             "local_course_agent.retrieval.citations.tokenization",
             "local_course_agent.retrieval.conversation_context",
-            "local_course_agent.retrieval.embedding_config",
-            "local_course_agent.retrieval.embedding_models",
-            "local_course_agent.retrieval.embedding_providers",
-            "local_course_agent.retrieval.embedding_utils",
             "local_course_agent.retrieval.embeddings",
-            "local_course_agent.retrieval.rag_eval",
+            "local_course_agent.retrieval.embeddings.config",
+            "local_course_agent.retrieval.embeddings.models",
+            "local_course_agent.retrieval.embeddings.providers",
+            "local_course_agent.retrieval.embeddings.utils",
+            "local_course_agent.retrieval.evaluation",
+            "local_course_agent.retrieval.evaluation.rag",
             "local_course_agent.storage.codecs",
             "local_course_agent.storage.memory",
             "local_course_agent.storage.migration",
@@ -75,18 +77,18 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.learning.artifacts",
             "local_course_agent.learning.files",
             "local_course_agent.learning.summary",
-            "local_course_agent.learning.summary_schema",
-            "local_course_agent.learning.summary_prompts",
-            "local_course_agent.learning.summary_runner",
+            "local_course_agent.learning.summary.schema",
+            "local_course_agent.learning.summary.prompts",
+            "local_course_agent.learning.summary.runner",
             "local_course_agent.learning.dashboard",
-            "local_course_agent.learning.dashboard_activity",
-            "local_course_agent.learning.dashboard_mastery",
-            "local_course_agent.learning.dashboard_materials",
-            "local_course_agent.learning.dashboard_progress",
-            "local_course_agent.learning.dashboard_utils",
+            "local_course_agent.learning.dashboard.activity",
+            "local_course_agent.learning.dashboard.mastery",
+            "local_course_agent.learning.dashboard.materials",
+            "local_course_agent.learning.dashboard.progress",
+            "local_course_agent.learning.dashboard.utils",
             "local_course_agent.learning.mastery",
-            "local_course_agent.learning.mastery_schema",
-            "local_course_agent.learning.mastery_policy",
+            "local_course_agent.learning.mastery.schema",
+            "local_course_agent.learning.mastery.policy",
             "local_course_agent.ingestion.parser_quality",
             "local_course_agent.ops.backup",
             "local_course_agent.ops.config_status",
@@ -130,3 +132,41 @@ class PackageStructureTest(unittest.TestCase):
             self.assertFalse((package_dir / f"{module_name}.py").exists(), module_name)
             with self.assertRaises(ModuleNotFoundError, msg=module_name):
                 importlib.import_module(f"local_course_agent.{module_name}")
+
+    def test_learning_domains_do_not_regrow_flat_helpers(self):
+        learning_dir = Path(__file__).resolve().parents[1] / "local_course_agent" / "learning"
+        flat_helpers = [
+            "dashboard_activity.py",
+            "dashboard_mastery.py",
+            "dashboard_materials.py",
+            "dashboard_progress.py",
+            "dashboard_utils.py",
+            "summary_schema.py",
+            "summary_prompts.py",
+            "summary_runner.py",
+            "mastery_schema.py",
+            "mastery_policy.py",
+        ]
+
+        for filename in flat_helpers:
+            self.assertFalse((learning_dir / filename).exists(), filename)
+
+    def test_retrieval_domains_do_not_regrow_flat_helpers(self):
+        retrieval_dir = Path(__file__).resolve().parents[1] / "local_course_agent" / "retrieval"
+        flat_helpers = [
+            "indexing.py",
+            "knowledge_store.py",
+            "rag_answering.py",
+            "rag_artifacts.py",
+            "rag_retrieval.py",
+            "vector_cache.py",
+            "embedding_config.py",
+            "embedding_models.py",
+            "embedding_providers.py",
+            "embedding_utils.py",
+            "rerankers.py",
+            "rag_eval.py",
+        ]
+
+        for filename in flat_helpers:
+            self.assertFalse((retrieval_dir / filename).exists(), filename)

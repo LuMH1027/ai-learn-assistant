@@ -2,6 +2,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping, Protocol, Sequence, runtime_checkable
 
+from local_course_agent.retrieval.reranking.documents import candidate_text
+from local_course_agent.retrieval.reranking.providers import (
+    DEFAULT_RERANK_TIMEOUT,
+    DEFAULT_RERANK_TOP_N,
+    NoopReranker,
+    RerankRequestError,
+    Reranker,
+    SiliconFlowReranker,
+    apply_external_rerank,
+    create_reranker,
+    parse_rerank_results,
+)
+
 
 @runtime_checkable
 class CandidateReranker(Protocol):
@@ -100,9 +113,18 @@ def _apply_provider_style_reranker(reranker: Any, *, query: str, documents: Sequ
     return by_index[:top_n] or list(documents)[:top_n]
 
 
-def candidate_text(candidate: Mapping[str, Any]) -> str:
-    section = str(candidate.get("section_title") or "").strip()
-    file_name = str(candidate.get("file_name") or "").strip()
-    text = str(candidate.get("context_text") or candidate.get("text") or "").strip()
-    prefix = " ".join(part for part in (file_name, section) if part)
-    return f"{prefix}\n{text}".strip()
+__all__ = [
+    "CandidateReranker",
+    "LocalRerankFallback",
+    "apply_reranker",
+    "candidate_text",
+    "DEFAULT_RERANK_TIMEOUT",
+    "DEFAULT_RERANK_TOP_N",
+    "NoopReranker",
+    "RerankRequestError",
+    "Reranker",
+    "SiliconFlowReranker",
+    "apply_external_rerank",
+    "create_reranker",
+    "parse_rerank_results",
+]

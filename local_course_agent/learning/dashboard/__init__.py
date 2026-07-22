@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from local_course_agent.learning.dashboard_activity import file_activity, recent_activity
-from local_course_agent.learning.dashboard_mastery import mastery_item_summary, mastery_summary
-from local_course_agent.learning.dashboard_materials import (
+from local_course_agent.learning.dashboard.activity import file_activity, recent_activity
+from local_course_agent.learning.dashboard.mastery import mastery_item_summary, mastery_summary
+from local_course_agent.learning.dashboard.materials import (
     GENERATED_FOLDER,
     generated_artifacts,
     is_generated_file,
@@ -10,13 +10,13 @@ from local_course_agent.learning.dashboard_materials import (
     materials_stats,
     split_course_files,
 )
-from local_course_agent.learning.dashboard_progress import (
+from local_course_agent.learning.dashboard.progress import (
     learning_progress,
     next_plan_item,
     plan_item_summary,
     review_queue,
 )
-from local_course_agent.learning.dashboard_utils import compact, int_value, is_due, status_rank, strip_sort_key, time_key
+from local_course_agent.learning.dashboard.utils import compact, int_value, is_due, status_rank, strip_sort_key, time_key
 
 
 def build_course_dashboard(

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from local_course_agent.retrieval.rag import CourseKnowledgeBase
-from local_course_agent.retrieval.rag_eval import RagEvalCase
+from local_course_agent.retrieval.evaluation import RagEvalCase
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

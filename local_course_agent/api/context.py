@@ -7,7 +7,7 @@ from typing import Any
 from local_course_agent.config import load_config
 from local_course_agent.learning.service import CourseIndexJobs
 from local_course_agent.retrieval.rag import CourseKnowledgeBase
-from local_course_agent.retrieval.rerankers import create_reranker
+from local_course_agent.retrieval.reranking import create_reranker
 from local_course_agent.scanner import CourseCatalogCache
 from local_course_agent.store import AppStore
 

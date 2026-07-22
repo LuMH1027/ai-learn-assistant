@@ -9,21 +9,21 @@ from local_course_agent.retrieval.chunking import (
     split_text,
     tokenize,
 )
-from local_course_agent.retrieval.indexing import append_text_chunks, build_document_chunks
-from local_course_agent.retrieval.knowledge_store import (
+from local_course_agent.retrieval.rag.indexing import append_text_chunks, build_document_chunks
+from local_course_agent.retrieval.rag.store import (
     GENERATED_ARTIFACT_RE,
     INDEX_SCHEMA_VERSION,
     KnowledgeChunkStore,
     atomic_write_text,
 )
-from local_course_agent.retrieval.rag_answering import grounded_answer, no_basis_answer
-from local_course_agent.retrieval.rag_artifacts import (
+from local_course_agent.retrieval.rag.answering import grounded_answer, no_basis_answer
+from local_course_agent.retrieval.rag.artifacts import (
     citation_from_chunk,
     generate_quiz_from_chunks,
     generate_summary_from_chunks,
     summarize_evidence,
 )
-from local_course_agent.retrieval.rag_retrieval import search_course_chunks
+from local_course_agent.retrieval.rag.search import search_course_chunks
 from local_course_agent.retrieval.ranking import (
     compact_sentence,
     pick_keyword,
@@ -32,7 +32,7 @@ from local_course_agent.retrieval.ranking import (
     retrieval_trace,
 )
 from local_course_agent.retrieval.reranking import CandidateReranker, LocalRerankFallback, apply_reranker
-from local_course_agent.retrieval.vector_cache import RagVectorCache
+from local_course_agent.retrieval.rag.vector_cache import RagVectorCache
 from local_course_agent.retrieval.vector_index import (
     VectorIndex,
     build_vector_index_from_chunks,

@@ -7,8 +7,8 @@ import urllib.error
 import urllib.request
 from typing import Iterable, List, Mapping, Sequence
 
-from local_course_agent.retrieval.embedding_models import EmbeddingRequestError
-from local_course_agent.retrieval.embedding_utils import (
+from local_course_agent.retrieval.embeddings.models import EmbeddingRequestError
+from local_course_agent.retrieval.embeddings.utils import (
     DEFAULT_DIMENSIONS,
     DEFAULT_EMBEDDING_BATCH_SIZE,
     DEFAULT_EMBEDDING_MAX_RETRIES,

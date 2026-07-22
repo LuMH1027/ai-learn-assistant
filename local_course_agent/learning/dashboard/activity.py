@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from local_course_agent.learning.dashboard_utils import compact, strip_sort_key, time_key
+from local_course_agent.learning.dashboard.utils import compact, strip_sort_key, time_key
 
 
 def recent_activity(

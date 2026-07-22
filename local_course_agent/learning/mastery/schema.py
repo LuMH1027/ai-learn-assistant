@@ -4,7 +4,7 @@ from copy import deepcopy
 from hashlib import sha1
 from typing import Any
 
-from local_course_agent.learning.mastery_policy import (
+from local_course_agent.learning.mastery.policy import (
     DEFAULT_MASTERY_SCORE,
     clamp_score,
     mastery_level,

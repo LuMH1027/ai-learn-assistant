@@ -13,22 +13,22 @@
 
 ## 模块边界
 
-实现已从单文件拆成三层，`local_course_agent/learning/summary.py` 只作为兼容门面保留旧 import：
+实现已从单文件拆成三层，`local_course_agent/learning/summary/` 是兼容入口和内部实现包：
 
-- `local_course_agent/learning/summary_schema.py`：定义 `SummaryEvidence`、`EvidenceGroup`、`MapSummary`，负责 evidence normalize/group、dict round-trip、citation payload 和文本压缩。
-- `local_course_agent/learning/summary_prompts.py`：负责 map/reduce prompt 构造，以及 evidence/map-summary block formatting。
-- `local_course_agent/learning/summary_runner.py`：负责 `run_map_reduce_summary()` 状态机、LLM client 协议、高层 service adapter 和 fallback payload。
-- `local_course_agent/learning/summary.py`：re-export 旧符号，保证 `from local_course_agent.learning.summary import ...` 继续可用。
+- `local_course_agent/learning/summary/schema.py`：定义 `SummaryEvidence`、`EvidenceGroup`、`MapSummary`，负责 evidence normalize/group、dict round-trip、citation payload 和文本压缩。
+- `local_course_agent/learning/summary/prompts.py`：负责 map/reduce prompt 构造，以及 evidence/map-summary block formatting。
+- `local_course_agent/learning/summary/runner.py`：负责 `run_map_reduce_summary()` 状态机、LLM client 协议、高层 service adapter 和 fallback payload。
+- `local_course_agent/learning/summary/__init__.py`：re-export 旧符号，保证 `from local_course_agent.learning.summary import ...` 继续可用。
 
 兼容入口仍暴露以下核心函数：
 
-- `summary_schema.normalize_summary_evidence(chunks)`：把 RAG chunk/citation 字典规范化为 `SummaryEvidence`。
-- `summary_schema.group_evidence_by_section(evidence)`：按文件和章节聚合 evidence。
-- `summary_prompts.build_map_prompt(course_name, group)`：生成单个章节的 map prompt。
-- `summary_prompts.build_reduce_prompt(course_name, map_summaries)`：生成课程总摘要 reduce prompt。
-- `summary_schema.build_summary_pipeline(chunks)`：返回纯字典结构，方便后续 API 集成和调试。
-- `summary_runner.run_map_reduce_summary(chunks, llm_client, course_name=...)`：用注入的 LLM client 执行 map-reduce。
-- `summary_runner.generate_map_reduce_course_summary(kb, course_id, course_name, ai_config, create_client)`：面向学习产物服务的高层适配函数，从 `kb.summary_chunks()` 取证据、创建 LLM client、返回可直接用于摘要接口的 payload。
+- `summary.schema.normalize_summary_evidence(chunks)`：把 RAG chunk/citation 字典规范化为 `SummaryEvidence`。
+- `summary.schema.group_evidence_by_section(evidence)`：按文件和章节聚合 evidence。
+- `summary.prompts.build_map_prompt(course_name, group)`：生成单个章节的 map prompt。
+- `summary.prompts.build_reduce_prompt(course_name, map_summaries)`：生成课程总摘要 reduce prompt。
+- `summary.schema.build_summary_pipeline(chunks)`：返回纯字典结构，方便后续 API 集成和调试。
+- `summary.runner.run_map_reduce_summary(chunks, llm_client, course_name=...)`：用注入的 LLM client 执行 map-reduce。
+- `summary.runner.generate_map_reduce_course_summary(kb, course_id, course_name, ai_config, create_client)`：面向学习产物服务的高层适配函数，从 `kb.summary_chunks()` 取证据、创建 LLM client、返回可直接用于摘要接口的 payload。
 
 `run_map_reduce_summary` 不读写文件，不读取配置，不创建网络 client。调用方需要传入满足以下协议的 client：
 

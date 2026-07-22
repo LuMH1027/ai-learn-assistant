@@ -19,7 +19,7 @@ from local_course_agent.retrieval.scoring import (
     retrieval_trace,
     semantic_score,
 )
-from local_course_agent.retrieval.rerankers import (
+from local_course_agent.retrieval.reranking import (
     NoopReranker,
     RerankRequestError,
     SiliconFlowReranker,

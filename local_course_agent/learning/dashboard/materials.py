@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from local_course_agent.learning.dashboard_activity import file_activity
-from local_course_agent.learning.dashboard_utils import int_value, strip_sort_key
+from local_course_agent.learning.dashboard.activity import file_activity
+from local_course_agent.learning.dashboard.utils import int_value, strip_sort_key
 
 
 GENERATED_FOLDER = "AI生成"

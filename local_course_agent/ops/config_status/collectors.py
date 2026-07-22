@@ -9,7 +9,7 @@ from local_course_agent.llm import create_llm_client
 from local_course_agent.ops.backup import collect_backup_entries
 from local_course_agent.ops.config_status.filesystem import data_dir_status, material_root_status
 from local_course_agent.ops.config_status.model import capability
-from local_course_agent.retrieval.rerankers import NoopReranker, create_reranker
+from local_course_agent.retrieval.reranking import NoopReranker, create_reranker
 from local_course_agent.retrieval.vector_index import create_embedding_model
 from local_course_agent.web_search import create_web_search_client
 

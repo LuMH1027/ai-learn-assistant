@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional, Protocol, Sequence
 
-from local_course_agent.learning.summary_prompts import build_map_prompt, build_reduce_prompt
-from local_course_agent.learning.summary_schema import (
+from local_course_agent.learning.summary.prompts import build_map_prompt, build_reduce_prompt
+from local_course_agent.learning.summary.schema import (
     MapSummary,
     build_summary_pipeline,
     evidence_group_from_dict,

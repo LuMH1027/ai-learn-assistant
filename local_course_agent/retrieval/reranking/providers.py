@@ -10,6 +10,7 @@ from local_course_agent.config import (
     SILICONFLOW_RERANK_MODEL,
     resolve_siliconflow_api_key,
 )
+from local_course_agent.retrieval.reranking.documents import candidate_text
 
 
 DEFAULT_RERANK_TOP_N = 12
@@ -153,14 +154,6 @@ def parse_rerank_results(payload: Mapping[str, Any]) -> List[Dict[str, Any]]:
             raise RerankRequestError("rerank response schema error: missing index or score")
         parsed.append({"index": int(index), "score": float(score), "document": item.get("document")})
     return parsed
-
-
-def candidate_text(candidate: Mapping[str, Any]) -> str:
-    section = str(candidate.get("section_title") or "").strip()
-    file_name = str(candidate.get("file_name") or "").strip()
-    text = str(candidate.get("context_text") or candidate.get("text") or "").strip()
-    prefix = " ".join(part for part in (file_name, section) if part)
-    return f"{prefix}\n{text}".strip()
 
 
 def _config_int(config: Mapping[str, Any], keys: Sequence[str], default: int) -> int:

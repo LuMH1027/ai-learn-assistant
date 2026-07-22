@@ -12,7 +12,7 @@ from local_course_agent.evaluation.demo_fixtures import (
 )
 from local_course_agent.evaluation.gates import run_chatflow_structure_eval, run_summary_pipeline_eval
 from local_course_agent.retrieval.rag import CourseKnowledgeBase
-from local_course_agent.retrieval.rag_eval import run_rag_eval
+from local_course_agent.retrieval.evaluation import run_rag_eval
 
 
 def run_demo_baseline(

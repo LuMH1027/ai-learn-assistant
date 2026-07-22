@@ -10,7 +10,7 @@ from local_course_agent.retrieval.query import (
     query_phrases,
     semantic_features,
 )
-from local_course_agent.retrieval.rerankers import apply_external_rerank
+from local_course_agent.retrieval.reranking import apply_external_rerank
 from local_course_agent.retrieval.selection import reciprocal_rank_fusion
 
 

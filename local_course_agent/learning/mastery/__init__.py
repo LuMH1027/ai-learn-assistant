@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from local_course_agent.learning.mastery_policy import (
+from local_course_agent.learning.mastery.policy import (
     DEFAULT_MASTERY_SCORE,
     DIFFICULTY_WEIGHTS,
     MAX_MASTERY_SCORE,
@@ -14,7 +14,7 @@ from local_course_agent.learning.mastery_policy import (
     review_suggestion,
     score_delta,
 )
-from local_course_agent.learning.mastery_schema import (
+from local_course_agent.learning.mastery.schema import (
     SCHEMA_VERSION,
     clean_text,
     create_knowledge_point,

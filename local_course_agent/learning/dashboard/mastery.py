@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from local_course_agent.learning.dashboard_utils import int_value, is_due
+from local_course_agent.learning.dashboard.utils import int_value, is_due
 from local_course_agent.learning.mastery import normalize_state
 
 

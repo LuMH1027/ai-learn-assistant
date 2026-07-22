@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from local_course_agent.learning.summary_prompts import (
+from local_course_agent.learning.summary.prompts import (
     build_map_prompt,
     build_reduce_prompt,
     format_evidence_block,
     format_map_summary_block,
 )
-from local_course_agent.learning.summary_runner import (
+from local_course_agent.learning.summary.runner import (
     EMPTY_SUMMARY_MESSAGE,
     CourseSummaryKnowledgeBase,
     SummaryLLMClient,
@@ -15,7 +15,7 @@ from local_course_agent.learning.summary_runner import (
     map_reduce_fallback_payload,
     run_map_reduce_summary,
 )
-from local_course_agent.learning.summary_schema import (
+from local_course_agent.learning.summary.schema import (
     EvidenceGroup,
     MapSummary,
     SummaryEvidence,
