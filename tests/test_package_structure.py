@@ -12,7 +12,11 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.api.http",
             "local_course_agent.api.router",
             "local_course_agent.api.telemetry",
+            "local_course_agent.evaluation.demo_baseline",
+            "local_course_agent.evaluation.demo_fixtures",
+            "local_course_agent.evaluation.gates",
             "local_course_agent.evaluation.rag_quality",
+            "local_course_agent.evaluation.reports",
             "local_course_agent.retrieval.rag",
             "local_course_agent.retrieval.chunking",
             "local_course_agent.retrieval.ranking",
@@ -29,10 +33,15 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.learning.summary",
             "local_course_agent.learning.dashboard",
             "local_course_agent.learning.mastery",
+            "local_course_agent.learning.mastery_schema",
+            "local_course_agent.learning.mastery_policy",
             "local_course_agent.ingestion.parser_quality",
             "local_course_agent.ops.backup",
             "local_course_agent.ops.config_status",
             "local_course_agent.ops.telemetry",
+            "local_course_agent.ops.telemetry_core",
+            "local_course_agent.ops.telemetry_recorders",
+            "local_course_agent.ops.telemetry_utils",
         ]
 
         for module_name in expected_modules:
