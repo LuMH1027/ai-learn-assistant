@@ -2,14 +2,27 @@ import unittest
 
 from local_course_agent.learning.summary import (
     EMPTY_SUMMARY_MESSAGE,
+    EvidenceGroup,
+    MapSummary,
+    SummaryEvidence,
     build_map_prompt,
     build_reduce_prompt,
     build_summary_pipeline,
+    evidence_group_from_dict,
+    evidence_group_to_dict,
+    evidence_item_from_dict,
+    evidence_item_to_dict,
     generate_map_reduce_course_summary,
     group_evidence_by_section,
+    map_summary_from_dict,
+    map_summary_to_dict,
     normalize_summary_evidence,
     run_map_reduce_summary,
+    summary_citation_from_chunk,
 )
+from local_course_agent.learning.summary_prompts import format_evidence_block
+from local_course_agent.learning.summary_runner import map_reduce_fallback_payload
+from local_course_agent.learning.summary_schema import compact_summary_text
 
 
 class StubSummaryClient:
@@ -191,6 +204,66 @@ class SummaryPipelineTest(unittest.TestCase):
 
         self.assertEqual(pipeline["groups"][0]["title"], "二叉树")
         self.assertEqual(pipeline["groups"][0]["evidence"][0]["label"], "S1")
+
+    def test_schema_round_trips_and_direct_modules_are_importable(self):
+        evidence = SummaryEvidence(
+            label="S9",
+            file_id="db",
+            file_name="数据库.md",
+            file_path="/course/db.md",
+            section_title="事务",
+            material_type="讲义",
+            page=8,
+            chunk_index=3,
+            text="事务的隔离级别影响并发异常。",
+        )
+        evidence_dict = evidence_item_to_dict(evidence)
+        self.assertEqual(evidence_item_from_dict(evidence_dict), evidence)
+
+        group = EvidenceGroup(
+            group_id="G2",
+            file_id="db",
+            file_name="数据库.md",
+            section_title="事务",
+            material_type="讲义",
+            evidence=(evidence,),
+        )
+        self.assertEqual(evidence_group_from_dict(evidence_group_to_dict(group)), group)
+
+        summary = MapSummary(
+            group_id="G2",
+            title="事务",
+            file_name="数据库.md",
+            section_title="事务",
+            content="## 章节要点\n- 隔离级别影响并发异常。[S9]",
+            evidence_labels=("S9",),
+        )
+        self.assertEqual(map_summary_from_dict(map_summary_to_dict(summary)), summary)
+        self.assertIn("[S9]", format_evidence_block(evidence))
+        self.assertEqual(compact_summary_text("a  b\nc", 10), "a b c")
+
+        citation = summary_citation_from_chunk(
+            {
+                "file_id": "db",
+                "file_name": "数据库.md",
+                "file_path": "/course/db.md",
+                "page": 8,
+                "chunk_index": 3,
+                "context_text": "事务需要隔离性。",
+            }
+        )
+        self.assertEqual(citation["location"], "第 8 页")
+
+    def test_runner_fallback_payload_is_explicit(self):
+        payload = map_reduce_fallback_payload(
+            status="summary_error",
+            reason="map_reduce_failed: boom",
+            citations=[{"file_id": "db"}],
+        )
+
+        self.assertEqual(payload["status"], "summary_error")
+        self.assertTrue(payload["fallback_needed"])
+        self.assertEqual(payload["citations"], [{"file_id": "db"}])
 
     def test_generate_map_reduce_course_summary_uses_kb_and_client_factory(self):
         kb = FakeSummaryKnowledgeBase(
