@@ -1,6 +1,8 @@
 import unittest
 
 from local_course_agent.learning.dashboard import build_course_dashboard
+from local_course_agent.learning.dashboard_materials import materials_stats, split_course_files
+from local_course_agent.learning.dashboard_progress import review_queue
 
 
 class CourseDashboardTest(unittest.TestCase):
@@ -135,6 +137,21 @@ class CourseDashboardTest(unittest.TestCase):
         self.assertEqual(dashboard["mastery"]["tracked_count"], 0)
         self.assertEqual(dashboard["generated_artifacts"]["total"], 0)
         self.assertEqual(dashboard["recent_activity"], [])
+
+    def test_projection_modules_are_independently_callable(self):
+        material_files, generated_files = split_course_files(_course_fixture())
+        review_items = review_queue(
+            [
+                {"id": 1, "title": "已完成", "status": "done", "kind": "read"},
+                {"id": 2, "title": "进行中", "status": "doing", "kind": "practice"},
+                {"id": 3, "title": "复习", "status": "todo", "kind": "review"},
+            ]
+        )
+
+        self.assertEqual(len(material_files), 3)
+        self.assertEqual(len(generated_files), 3)
+        self.assertEqual(materials_stats(material_files, generated_files, {})["by_extension"], {".md": 1, ".pdf": 1, ".txt": 1})
+        self.assertEqual([item["id"] for item in review_items], [2, 3])
 
 
 def _course_fixture():
