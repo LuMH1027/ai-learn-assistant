@@ -17,11 +17,12 @@
 
 - `api/chat/`：聊天编排、阶段上下文和 LLM 答案生成，入口为 `api.chat`。
 - `api/server/`：HTTP handler、routes 和 chat streaming adapter。
-- `api/course.py`：课程 API 服务入口；如果继续增长，应按 course 子域拆包。
+- `api/course/`：课程 API 索引、产物、上传、dashboard、mastery 和学习计划适配，入口为 `api.course`。
 
 `learning`：
 
 - `learning/dashboard/`：课程概览投影，入口为 `learning.dashboard`。
+- `learning/indexing/`：课程索引构建、文档抽取、进度事件和后台任务快照。
 - `learning/summary/`：LLM 课程摘要 pipeline，入口为 `learning.summary`。
 - `learning/mastery/`：掌握度与错题模型，入口为 `learning.mastery`。
 - `learning/service.py`：课程学习服务的协调入口，不能继续吸收 dashboard/summary/mastery 内部细节。
@@ -43,6 +44,7 @@
 `ops`：
 
 - `ops/config_status/`：配置能力检查、文件系统检查和 capability payload。
+- `ops/backup/`：备份收集、归档、恢复和 archive 安全校验。
 - `ops/telemetry/`：telemetry recorder、recorders 和 payload 工具，入口为 `ops.telemetry`。
 
 ## 禁止回流
@@ -61,6 +63,9 @@
 - `retrieval/vector_cache.py`
 - `api/chat_generation.py`
 - `api/chat_steps.py`
+- `api/course.py`
+- `learning/indexing.py`
+- `ops/backup.py`
 - `ops/telemetry_core.py`
 - `ops/telemetry_recorders.py`
 - `ops/telemetry_utils.py`

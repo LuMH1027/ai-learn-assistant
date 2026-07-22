@@ -3,9 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from local_course_agent.learning import artifacts as _artifacts
-from local_course_agent.learning import indexing as _indexing
 from local_course_agent.learning import study_plan as _study_plan
 from local_course_agent.learning.files import iter_files, save_study_artifact, should_index_course_file
+from local_course_agent.learning.indexing import (
+    CourseIndexJobs as _BaseCourseIndexJobs,
+    build_course_index as _build_course_index,
+    emit_progress as _emit_progress,
+    index_job_file_payload as _index_job_file_payload,
+    timestamp_now as _timestamp_now,
+)
 from local_course_agent.llm import create_llm_client
 from local_course_agent.parser import extract_text
 
@@ -13,7 +19,7 @@ PLAN_FILE_LIMIT = _study_plan.PLAN_FILE_LIMIT
 
 
 def build_course_index(kb, course: dict, course_id: str, mineru_config=None, progress_callback=None) -> dict:
-    return _indexing.build_course_index(
+    return _build_course_index(
         kb,
         course,
         course_id,
@@ -24,14 +30,14 @@ def build_course_index(kb, course: dict, course_id: str, mineru_config=None, pro
 
 
 def emit_progress(progress_callback, **changes) -> None:
-    return _indexing.emit_progress(progress_callback, **changes)
+    return _emit_progress(progress_callback, **changes)
 
 
 def index_job_file_payload(file_node: dict) -> dict:
-    return _indexing.index_job_file_payload(file_node)
+    return _index_job_file_payload(file_node)
 
 
-class CourseIndexJobs(_indexing.CourseIndexJobs):
+class CourseIndexJobs(_BaseCourseIndexJobs):
     def __init__(self, kb, max_workers: int = 1, snapshot_path: Path | str | None = Path("data/index_jobs.json")):
         super().__init__(
             kb,
@@ -42,7 +48,7 @@ class CourseIndexJobs(_indexing.CourseIndexJobs):
 
 
 def timestamp_now() -> str:
-    return _indexing.timestamp_now()
+    return _timestamp_now()
 
 
 def create_study_artifact(

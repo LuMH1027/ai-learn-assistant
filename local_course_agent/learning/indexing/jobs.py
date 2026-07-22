@@ -7,107 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from local_course_agent.ingestion.parser_quality import evaluate_parser_quality
-from local_course_agent.learning.files import iter_files, should_index_course_file
-from local_course_agent.parser import extract_text
-
-
-def build_course_index(
-    kb,
-    course: dict,
-    course_id: str,
-    mineru_config=None,
-    progress_callback=None,
-    extract_text_fn=extract_text,
-    parser_quality_fn=evaluate_parser_quality,
-) -> dict:
-    indexed_files = 0
-    documents = []
-    quality_files = []
-    quality_counts = {"ok": 0, "warning": 0, "failed": 0}
-    indexable_files = [
-        file_node
-        for file_node in iter_files(course.get("children", []))
-        if should_index_course_file(course["path"], Path(file_node["path"]))
-    ]
-    emit_progress(
-        progress_callback,
-        total_files=len(indexable_files),
-        processed_files=0,
-        progress=0,
-        current_file=None,
-    )
-    for file_node in indexable_files:
-        path = Path(file_node["path"])
-        current_file = index_job_file_payload(file_node)
-        emit_progress(progress_callback, current_file=current_file)
-        try:
-            pages = extract_text_fn(path, mineru_config=mineru_config or {})
-        except Exception as exc:
-            emit_progress(
-                progress_callback,
-                error_file={**current_file, "error": str(exc)},
-                current_file=current_file,
-            )
-            raise
-        quality = parser_quality_fn(pages)
-        status = quality.get("status", "failed")
-        quality_counts[status] = quality_counts.get(status, 0) + 1
-        quality_files.append(
-            {
-                "file_id": file_node["id"],
-                "file_name": file_node["name"],
-                "path": str(path),
-                "status": status,
-                "warnings": quality.get("warnings", []),
-                "score": quality.get("score", 0.0),
-            }
-        )
-        documents.append(
-            {
-                "file_id": file_node["id"],
-                "file_name": file_node["name"],
-                "path": str(path),
-                "pages": pages,
-            }
-        )
-        indexed_files += 1
-        emit_progress(
-            progress_callback,
-            processed_files=indexed_files,
-            progress=round((indexed_files / len(indexable_files)) * 100) if indexable_files else 100,
-            current_file=current_file,
-        )
-    indexed_chunks = kb.rebuild_course(course_id, documents)
-    emit_progress(
-        progress_callback,
-        processed_files=indexed_files,
-        progress=100,
-        current_file=None,
-    )
-    return {
-        "ok": True,
-        "indexed_files": indexed_files,
-        "total_chunks": indexed_chunks,
-        "parser_quality": {
-            "files": quality_files,
-            "counts": quality_counts,
-        },
-    }
-
-
-def emit_progress(progress_callback, **changes) -> None:
-    if not progress_callback:
-        return
-    progress_callback(changes)
-
-
-def index_job_file_payload(file_node: dict) -> dict:
-    return {
-        "file_id": file_node.get("id"),
-        "file_name": file_node.get("name", ""),
-        "path": str(file_node.get("path", "")),
-    }
+from local_course_agent.learning.indexing.builder import build_course_index
 
 
 class CourseIndexJobs:
@@ -171,7 +71,14 @@ class CourseIndexJobs:
         except Exception as exc:
             self._update(job_id, status="failed", error=str(exc), finished_at=timestamp_now(), current_file=None)
             return
-        self._update(job_id, status="succeeded", result=result, progress=100, finished_at=timestamp_now(), current_file=None)
+        self._update(
+            job_id,
+            status="succeeded",
+            result=result,
+            progress=100,
+            finished_at=timestamp_now(),
+            current_file=None,
+        )
 
     def _update(self, job_id: str, **changes) -> None:
         with self._lock:
