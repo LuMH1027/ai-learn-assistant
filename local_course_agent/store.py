@@ -10,11 +10,11 @@ from local_course_agent.learning.mastery import (
     normalize_state,
     upsert_knowledge_point,
 )
-from local_course_agent.store_codecs import atomic_write_text, read_json, write_json, write_text
-from local_course_agent.store_memory import memory_topic, parse_memory_items, update_memory_text
-from local_course_agent.store_migration import migrate_legacy_sqlite
-from local_course_agent.store_paths import CourseStorePaths, safe_course_id
-from local_course_agent.store_study_plan import normalize_study_plan_item, now_text
+from local_course_agent.storage.codecs import atomic_write_text, read_json, write_json, write_text
+from local_course_agent.storage.memory import memory_topic, parse_memory_items, update_memory_text
+from local_course_agent.storage.migration import migrate_legacy_sqlite
+from local_course_agent.storage.paths import CourseStorePaths, safe_course_id
+from local_course_agent.storage.study_plan import normalize_study_plan_item, now_text
 
 __all__ = [
     "AppStore",

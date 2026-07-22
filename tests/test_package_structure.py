@@ -7,6 +7,7 @@ class PackageStructureTest(unittest.TestCase):
     def test_feature_modules_live_in_domain_packages(self):
         expected_modules = [
             "local_course_agent.api.chat",
+            "local_course_agent.api.chat_generation",
             "local_course_agent.api.chat_steps",
             "local_course_agent.api.context",
             "local_course_agent.api.course",
@@ -24,8 +25,17 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.retrieval.vector_index",
             "local_course_agent.retrieval.citation_check",
             "local_course_agent.retrieval.conversation_context",
+            "local_course_agent.retrieval.embedding_config",
+            "local_course_agent.retrieval.embedding_models",
+            "local_course_agent.retrieval.embedding_providers",
+            "local_course_agent.retrieval.embedding_utils",
             "local_course_agent.retrieval.embeddings",
             "local_course_agent.retrieval.rag_eval",
+            "local_course_agent.storage.codecs",
+            "local_course_agent.storage.memory",
+            "local_course_agent.storage.migration",
+            "local_course_agent.storage.paths",
+            "local_course_agent.storage.study_plan",
             "local_course_agent.evaluation.demo_baseline",
             "local_course_agent.evaluation.demo_fixtures",
             "local_course_agent.evaluation.gates",
@@ -73,6 +83,11 @@ class PackageStructureTest(unittest.TestCase):
             "backup",
             "config_status",
             "telemetry",
+            "store_codecs",
+            "store_memory",
+            "store_migration",
+            "store_paths",
+            "store_study_plan",
         ]
 
         for module_name in legacy_modules:

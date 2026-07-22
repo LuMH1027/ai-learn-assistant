@@ -4,8 +4,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from local_course_agent.store_codecs import write_json, write_text
-from local_course_agent.store_paths import CourseStorePaths
+from local_course_agent.storage.codecs import write_json, write_text
+from local_course_agent.storage.paths import CourseStorePaths
 
 
 def migrate_legacy_sqlite(data_dir: Path, paths: CourseStorePaths) -> None:
