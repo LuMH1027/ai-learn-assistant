@@ -20,7 +20,7 @@ def extract_text(path: Path, mineru_config=None) -> List[Dict]:
         return [
             {
                 "page": None,
-                "text": f"图片文件已保存：{path.name}。如果当前 Kimi 模型支持视觉输入，聊天时会直接读取截图内容。",
+                "text": f"图片文件已保存：{path.name}。如果当前配置的模型支持视觉输入，聊天时会直接读取截图内容。",
             }
         ]
     if suffix == ".pdf":

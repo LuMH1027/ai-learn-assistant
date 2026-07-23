@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from unittest import mock
 
-from local_course_agent.config import normalize_config, resolve_server_settings, resolve_siliconflow_api_key
+from local_course_agent.config import normalize_ai_config, normalize_config, resolve_server_settings, resolve_siliconflow_api_key
 from local_course_agent.ops.config_status import build_config_status
 from local_course_agent.ops.config_status.collectors import (
     ai_generation_status,
@@ -82,14 +82,22 @@ class ConfigAndUploadsTest(unittest.TestCase):
         self.assertEqual(config["ai"]["provider"], "openai_compatible")
         self.assertEqual(config["ai"]["base_url"], "https://api.siliconflow.cn/v1")
         self.assertEqual(config["ai"]["model"], "Qwen/Qwen3.5-35B-A3B")
-        self.assertEqual(config["ai"]["embedding_model"], "Qwen/Qwen3-VL-Embedding-8B")
-        self.assertEqual(config["ai"]["embedding_base_url"], "https://api.siliconflow.cn/v1")
-        self.assertEqual(config["ai"]["rerank_model"], "Qwen/Qwen3-Reranker-8B")
-        self.assertEqual(config["ai"]["rerank_base_url"], "https://api.siliconflow.cn/v1")
+        self.assertEqual(config["ai"]["embedding_model"], "")
+        self.assertEqual(config["ai"]["embedding_base_url"], "")
+        self.assertEqual(config["ai"]["rerank_model"], "")
+        self.assertEqual(config["ai"]["rerank_base_url"], "")
         self.assertIn("rerank_model", config["ai"])
         self.assertTrue(config["mineru"]["auto"])
         self.assertFalse(config["web_search"]["enabled"])
         self.assertEqual(config["web_search"]["provider"], "mcp")
+
+    def test_normalize_ai_config_accepts_full_config_or_ai_section(self):
+        full_config = {"ai": {"base_url": "https://llm.example/v1", "model": "course-chat"}}
+        ai_section = {"base_url": "https://llm.example/v1", "model": "course-chat"}
+
+        self.assertEqual(normalize_ai_config(full_config), normalize_ai_config(ai_section))
+        self.assertEqual(normalize_ai_config(full_config)["model"], "course-chat")
+        self.assertEqual(normalize_ai_config(full_config)["embedding_model"], "")
 
     def test_normalize_config_keeps_web_search_settings(self):
         config = normalize_config({
@@ -129,6 +137,8 @@ class ConfigAndUploadsTest(unittest.TestCase):
                         "base_url": "https://llm.example/v1",
                         "api_key": "secret-token",
                         "model": "course-model",
+                        "embedding_model": "embedding-model",
+                        "rerank_model": "rerank-model",
                     },
                     "web_search": {
                         "enabled": True,
@@ -152,10 +162,10 @@ class ConfigAndUploadsTest(unittest.TestCase):
         self.assertTrue(by_key["ai"]["enabled"])
         self.assertTrue(by_key["web_search"]["enabled"])
         self.assertEqual(by_key["rag_index"]["total_chunks"], 1)
-        self.assertEqual(by_key["vector"]["model"], "openai-compatible:Qwen/Qwen3-VL-Embedding-8B")
+        self.assertEqual(by_key["vector"]["model"], "openai-compatible:embedding-model")
         self.assertEqual(by_key["vector"]["provider"], "openai_compatible")
         self.assertTrue(by_key["rerank"]["enabled"])
-        self.assertEqual(by_key["rerank"]["model"], "siliconflow-rerank:Qwen/Qwen3-Reranker-8B")
+        self.assertEqual(by_key["rerank"]["model"], "siliconflow-rerank:rerank-model")
 
     def test_config_status_marks_missing_root_and_ai_configuration(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,7 +180,7 @@ class ConfigAndUploadsTest(unittest.TestCase):
         self.assertEqual(by_key["material_root"]["status"], "warning")
         self.assertIn("root_folder", by_key["material_root"]["missing"])
         self.assertEqual(by_key["ai"]["status"], "warning")
-        self.assertEqual(by_key["ai"]["missing"], ["api_key"])
+        self.assertEqual(by_key["ai"]["missing"], ["base_url", "api_key", "model"])
 
     def test_siliconflow_key_can_resolve_from_env_reference(self):
         with mock.patch.dict(os.environ, {"SILICONFLOW_API_KEY": "env-secret"}):

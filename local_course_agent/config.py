@@ -6,10 +6,6 @@ from pathlib import Path
 from typing import Dict
 
 
-SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
-SILICONFLOW_CHAT_MODEL = "Qwen/Qwen3.5-35B-A3B"
-SILICONFLOW_EMBEDDING_MODEL = "Qwen/Qwen3-VL-Embedding-8B"
-SILICONFLOW_RERANK_MODEL = "Qwen/Qwen3-Reranker-8B"
 SILICONFLOW_API_KEY_ENV = "SILICONFLOW_API_KEY"
 
 
@@ -21,19 +17,19 @@ DEFAULT_CONFIG = {
     "root_folder": "",
     "ai": {
         "provider": "openai_compatible",
-        "base_url": SILICONFLOW_BASE_URL,
+        "base_url": "",
         "api_key": "",
-        "model": SILICONFLOW_CHAT_MODEL,
-        "embedding_model": SILICONFLOW_EMBEDDING_MODEL,
+        "model": "",
+        "embedding_model": "",
         "embedding_dimensions": "",
-        "embedding_base_url": SILICONFLOW_BASE_URL,
+        "embedding_base_url": "",
         "embedding_api_key": "",
         "embedding_timeout": 30,
         "embedding_batch_size": 32,
         "embedding_max_retries": 2,
         "embedding_retry_delay": 1.0,
-        "rerank_model": SILICONFLOW_RERANK_MODEL,
-        "rerank_base_url": SILICONFLOW_BASE_URL,
+        "rerank_model": "",
+        "rerank_base_url": "",
         "rerank_api_key": "",
         "rerank_timeout": 30,
         "rerank_top_n": 12,
@@ -81,6 +77,13 @@ def normalize_config(raw: Dict) -> Dict:
     if raw.get("mineru_command"):
         config["mineru"]["command"] = raw["mineru_command"]
     return config
+
+
+def normalize_ai_config(raw: Dict | None) -> Dict:
+    raw = dict(raw or {})
+    if isinstance(raw.get("ai"), dict):
+        raw = dict(raw["ai"])
+    return normalize_config({"ai": raw})["ai"]
 
 
 def load_config(path: Path) -> Dict:

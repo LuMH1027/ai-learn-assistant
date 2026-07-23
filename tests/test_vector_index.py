@@ -312,14 +312,11 @@ class VectorIndexTest(unittest.TestCase):
         self.assertEqual(model.dimensions, 3)
         self.assertEqual(model.batch_size, 32)
 
-    def test_create_embedding_model_uses_siliconflow_defaults_with_env_key(self):
+    def test_create_embedding_model_uses_local_fallback_without_configured_model(self):
         with mock.patch.dict(os.environ, {"SILICONFLOW_API_KEY": "env-secret"}):
             model = create_embedding_model({})
 
-        self.assertIsInstance(model, OpenAICompatibleEmbeddingModel)
-        self.assertEqual(model.base_url, "https://api.siliconflow.cn/v1")
-        self.assertEqual(model.api_key, "env-secret")
-        self.assertEqual(model.model, "Qwen/Qwen3-VL-Embedding-8B")
+        self.assertIsInstance(model, FakeEmbeddingModel)
 
     def test_create_embedding_model_passes_embedding_reliability_config(self):
         model = create_embedding_model(

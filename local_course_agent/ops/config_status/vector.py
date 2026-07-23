@@ -14,7 +14,7 @@ def vector_status(index_dir: Path, ai_config: Mapping) -> Dict:
     detail = (
         "已配置真实 embedding provider，可用于持久向量索引和混合检索。"
         if real_provider
-        else "使用本地确定性 embedding，可离线运行；配置 SiliconFlow key 后可启用真实 embedding。"
+        else "使用本地确定性 embedding，可离线运行；在 data/config.json 中配置 embedding 后可启用真实 embedding。"
     )
     if vector_files:
         detail = f"{detail} 检测到 {len(vector_files)} 个持久化向量索引。"

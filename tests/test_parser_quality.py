@@ -38,7 +38,7 @@ class ParserQualityTest(unittest.TestCase):
 
     def test_detects_image_placeholder(self):
         report = evaluate_parser_quality(
-            [{"page": None, "text": "图片文件已保存：diagram.png。如果当前 Kimi 模型支持视觉输入，聊天时会直接读取截图内容。"}]
+            [{"page": None, "text": "图片文件已保存：diagram.png。如果当前配置的模型支持视觉输入，聊天时会直接读取截图内容。"}]
         )
 
         codes = [warning["code"] for warning in report["warnings"]]

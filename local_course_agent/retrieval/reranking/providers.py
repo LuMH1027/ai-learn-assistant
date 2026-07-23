@@ -5,11 +5,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Mapping, Protocol, Sequence
 
-from local_course_agent.config import (
-    SILICONFLOW_BASE_URL,
-    SILICONFLOW_RERANK_MODEL,
-    resolve_siliconflow_api_key,
-)
+from local_course_agent.config import normalize_ai_config, resolve_siliconflow_api_key
 from local_course_agent.retrieval.reranking.documents import candidate_text
 
 
@@ -90,10 +86,10 @@ class SiliconFlowReranker:
 
 
 def create_reranker(config: Mapping[str, Any] | None = None) -> Reranker:
-    config = dict(config or {})
-    model = str(config.get("rerank_model") or SILICONFLOW_RERANK_MODEL).strip()
+    config = normalize_ai_config(dict(config or {}))
+    model = str(config.get("rerank_model") or "").strip()
     api_key = resolve_siliconflow_api_key(config.get("rerank_api_key"), config.get("api_key"))
-    base_url = str(config.get("rerank_base_url") or config.get("base_url") or SILICONFLOW_BASE_URL).strip()
+    base_url = str(config.get("rerank_base_url") or config.get("base_url") or "").strip()
     if model and api_key and base_url:
         return SiliconFlowReranker(
             base_url=base_url,
