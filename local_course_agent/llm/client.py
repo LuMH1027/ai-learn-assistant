@@ -4,7 +4,7 @@ import json
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from local_course_agent.llm.images import image_to_data_url
 
@@ -16,11 +16,19 @@ class LLMRequestError(RuntimeError):
 class OpenAICompatibleClient:
     max_retries = 5
 
-    def __init__(self, base_url: str, api_key: str, model: str, timeout: int = 60):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        timeout: int = 60,
+        retry_callback: Optional[Callable[[int, int, Exception], None]] = None,
+    ):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        self.retry_callback = retry_callback
 
     def enabled(self) -> bool:
         return bool(self.base_url and self.api_key and self.model)
@@ -130,6 +138,7 @@ class OpenAICompatibleClient:
                     break
                 if attempt >= self.max_retries:
                     break
+                self._notify_retry(attempt + 1, exc)
         raise LLMRequestError(f"LLM 流式调用失败，已重试 {self.max_retries} 次：{last_error}")
 
     def _open_json_with_retries(self, request: urllib.request.Request, timeout: int) -> Dict:
@@ -142,4 +151,10 @@ class OpenAICompatibleClient:
                 last_error = exc
                 if attempt >= self.max_retries:
                     break
+                self._notify_retry(attempt + 1, exc)
         raise LLMRequestError(f"LLM 调用失败，已重试 {self.max_retries} 次：{last_error}")
+
+    def _notify_retry(self, next_attempt: int, exc: Exception) -> None:
+        if self.retry_callback is None:
+            return
+        self.retry_callback(next_attempt, self.max_retries, exc)

@@ -81,6 +81,7 @@ class ChatFlow:
 
         self.context.store.add_message(course_id, "user", question)
         config = self.context.config
+        ai_config = self._ai_config_with_retry_status(config.get("ai", {}))
         result = {
             "answer": "",
             "citations": [],
@@ -105,7 +106,7 @@ class ChatFlow:
                     previous_messages=previous_messages,
                     has_attachments=bool(uploads),
                     observations=observations,
-                    ai_config=config.get("ai", {}),
+                    ai_config=ai_config,
                 )
             final_status = step.llm_status
             final_reason = step.reason
@@ -209,6 +210,16 @@ class ChatFlow:
             "web_search_status": web_status,
             "telemetry": compact_telemetry_payload(telemetry),
         }
+
+    def _ai_config_with_retry_status(self, ai_config: dict) -> dict:
+        def retry_status(next_attempt: int, max_retries: int, exc: Exception) -> None:
+            self.emit({
+                "type": "status",
+                "stage": "llm_retry",
+                "detail": f"连接中断，正在重试 {next_attempt}/{max_retries}…",
+            })
+
+        return {**(ai_config or {}), "__retry_callback__": retry_status}
 
 
 def summarize_course_observation(result: dict) -> str:

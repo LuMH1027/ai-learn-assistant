@@ -145,10 +145,14 @@ class LlmPromptTest(unittest.TestCase):
         self.assertEqual(urlopen.call_args.kwargs["timeout"], 5)
 
     def test_openai_compatible_client_retries_before_success(self):
+        retry_events = []
         client = OpenAICompatibleClient(
             base_url="https://api.siliconflow.cn/v1",
             api_key="test-key",
             model="Qwen/Qwen3.5-35B-A3B",
+            retry_callback=lambda next_attempt, max_retries, exc: retry_events.append(
+                (next_attempt, max_retries, str(exc))
+            ),
         )
         fake_response = mock.Mock()
         fake_response.__enter__ = mock.Mock(return_value=fake_response)
@@ -163,6 +167,15 @@ class LlmPromptTest(unittest.TestCase):
 
         self.assertEqual(result, "answer")
         self.assertEqual(urlopen.call_count, 5)
+        self.assertEqual(
+            retry_events,
+            [
+                (2, 5, "temporary"),
+                (3, 5, "temporary"),
+                (4, 5, "temporary"),
+                (5, 5, "temporary"),
+            ],
+        )
 
     def test_openai_compatible_client_raises_after_five_failures(self):
         client = OpenAICompatibleClient(
@@ -187,6 +200,18 @@ class LlmPromptTest(unittest.TestCase):
         self.assertEqual(client.base_url, "")
         self.assertEqual(client.api_key, "env-secret")
         self.assertEqual(client.model, "")
+
+    def test_create_llm_client_preserves_internal_retry_callback(self):
+        callback = lambda *_args: None
+
+        client = create_llm_client({
+            "base_url": "https://api.siliconflow.cn/v1",
+            "api_key": "test-key",
+            "model": "course-model",
+            "__retry_callback__": callback,
+        })
+
+        self.assertIs(client.retry_callback, callback)
 
     def test_openai_compatible_client_sends_images_as_content_parts(self):
         client = OpenAICompatibleClient(
