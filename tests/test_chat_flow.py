@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from local_course_agent.api.chat import ChatFlow
-from local_course_agent.api.chat.generation import ChatAnswerGenerator, ToolDecision
+from local_course_agent.api.chat.generation import AgentStep, ChatAnswerGenerator
 from local_course_agent.api.chat.steps import (
     build_attachment_context,
     build_retrieval_context,
@@ -136,11 +136,9 @@ class ChatFlowTelemetryTest(unittest.TestCase):
             emit=lambda _event: None,
             index_uploads=lambda _course_id, _uploads: ("TLB 附件内容", []),
             retrieve_web=lambda _question, _result, _config, allow_web=True: ([], "skipped"),
-            decide_tools=lambda *args, **kwargs: ToolDecision(
-                use_course_materials=True,
-                reason="test",
-                llm_status="used",
-            ),
+            plan_step=lambda *args, **kwargs: AgentStep(action="course_search", query="TLB 附件内容", reason="test", llm_status="used")
+            if not kwargs.get("observations")
+            else AgentStep(action="final", answer="已总结：请阅读并总结我拖入的文件。 [L1]", reason="done", llm_status="used"),
             synthesize=lambda question, _result, image_paths=None, ai_config=None: (
                 f"已总结：{question.splitlines()[0]} [L1]",
                 "used",
@@ -171,8 +169,9 @@ class ChatFlowTelemetryTest(unittest.TestCase):
             emit=lambda _event: None,
             index_uploads=lambda _course_id, _uploads: ("", []),
             retrieve_web=lambda *args, **kwargs: web_calls.append((args, kwargs)) or ([], "used"),
-            decide_tools=lambda *args, **kwargs: ToolDecision(
-                direct_answer="我在。",
+            plan_step=lambda *args, **kwargs: AgentStep(
+                action="final",
+                answer="我在。",
                 reason="test",
                 llm_status="disabled",
             ),
@@ -182,7 +181,7 @@ class ChatFlowTelemetryTest(unittest.TestCase):
 
         self.assertEqual(kb.calls, [])
         self.assertEqual(web_calls, [])
-        self.assertEqual(payload["retrieval_trace"], {"skipped": True, "decision": "direct_answer"})
+        self.assertEqual(payload["retrieval_trace"]["decision"], "react_pending")
         self.assertEqual(payload["web_search_status"], "skipped")
         self.assertEqual("我在。", payload["answer"])
         retrieval_step = next(step for step in store.messages[-1]["trace"] if step["label"] == "检索")
@@ -215,10 +214,17 @@ class ChatFlowTelemetryTest(unittest.TestCase):
                 ],
                 "used",
             ),
-            decide_tools=lambda *args, **kwargs: ToolDecision(
-                use_course_materials=True,
-                use_web_search=True,
+            plan_step=lambda *args, **kwargs: AgentStep(
+                action="course_and_web_search",
+                query="解释 TLB",
                 reason="test",
+                llm_status="used",
+            )
+            if not kwargs.get("observations")
+            else AgentStep(
+                action="final",
+                answer="TLB 能缓存页表项，减少访存次数。[L1]",
+                reason="done",
                 llm_status="used",
             ),
             synthesize=lambda _question, _result, image_paths=None, ai_config=None: (

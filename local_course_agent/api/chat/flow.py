@@ -15,7 +15,7 @@ from local_course_agent.api.telemetry import (
 
 from . import steps as chat_steps
 from .errors import ChatFlowError
-from .generation import ChatAnswerGenerator, adapt_answer_by_mode, decide_tool_use
+from .generation import ChatAnswerGenerator, adapt_answer_by_mode, plan_agent_step
 from .llm_adapter import synthesize_answer, synthesize_answer_stream
 from .uploads import index_chat_uploads
 from .web import retrieve_web_sources
@@ -31,7 +31,7 @@ class ChatFlow:
         stream_format: str | None = None,
         index_uploads=None,
         retrieve_web=None,
-        decide_tools=None,
+        plan_step=None,
         synthesize=None,
         synthesize_stream=None,
     ):
@@ -43,7 +43,7 @@ class ChatFlow:
             lambda course_id, uploads: index_chat_uploads(self.context, self.data_dir, course_id, uploads)
         )
         self.retrieve_web = retrieve_web or retrieve_web_sources
-        self.decide_tools = decide_tools or decide_tool_use
+        self.plan_step = plan_step or plan_agent_step
         self.answer_generator = ChatAnswerGenerator(
             emit=emit,
             stream_format=stream_format,
@@ -81,82 +81,87 @@ class ChatFlow:
 
         self.context.store.add_message(course_id, "user", question)
         config = self.context.config
-        self.emit({"type": "status", "stage": "thinking", "detail": "正在判断是否需要课程资料或联网…"})
-        with telemetry.span("model-tool-decision", stage="llm", attributes={"course_id": course_id}):
-            tool_decision = self.decide_tools(
-                question,
-                course_name=course.get("name", ""),
-                previous_messages=previous_messages,
-                has_attachments=bool(uploads),
-                ai_config=config.get("ai", {}),
-            )
+        result = {
+            "answer": "",
+            "citations": [],
+            "retrieval_quality": "skipped",
+            "retrieval_trace": {"skipped": True, "decision": "react_pending"},
+        }
+        web_sources, web_status = [], "skipped"
+        observations = []
+        final_answer = ""
+        final_status = "disabled"
+        final_reason = ""
+        needs_clarification = False
+        course_searched = False
+        web_searched = False
 
-        if tool_decision.needs_clarification:
-            needs_clarification = True
-            result = {
-                "answer": "",
-                "citations": [],
-                "retrieval_quality": "skipped",
-                "retrieval_trace": {"skipped": True, "decision": "clarify"},
-            }
-        elif tool_decision.direct_answer:
-            return self._run_direct_reply(course_id, course, question, mode, telemetry, tool_decision)
-        elif tool_decision.use_course_materials:
-            self.emit({"type": "status", "stage": "retrieval", "detail": "正在检索课程资料…"})
-            with telemetry.span(
-                "course-retrieval",
-                stage="retrieval",
-                attributes={"course_id": course_id, "model_decided": True},
-            ):
-                result = self.context.kb.answer(course_id, retrieval.search_question)
-            record_chat_retrieval_result(telemetry, result)
-        else:
-            result = {
-                "answer": "",
-                "citations": [],
-                "retrieval_quality": "skipped",
-                "retrieval_trace": {"skipped": True, "decision": "model_skipped_course_search"},
-            }
-
-        needs_clarification = tool_decision.needs_clarification
-        if needs_clarification:
-            self.emit({"type": "status", "stage": "clarification", "detail": "问题信息不足，正在请求补充…"})
-            web_sources, web_status = [], "clarification"
-        elif not tool_decision.use_web_search:
-            web_sources, web_status = [], "skipped"
-        else:
-            self.emit({"type": "status", "stage": "web", "detail": "正在联网补充资料…"})
-            with telemetry.span("web-search", stage="web", attributes={"allow_web": not uploads, "model_decided": True}):
-                web_sources, web_status = self.retrieve_web(
+        for turn in range(3):
+            self.emit({"type": "status", "stage": "thinking", "detail": "正在思考下一步…"})
+            with telemetry.span("react-step", stage="llm", attributes={"course_id": course_id, "turn": turn + 1}):
+                step = self.plan_step(
                     question,
-                    result,
-                    config.get("web_search", {}),
-                    allow_web=not uploads,
-                    force_search=True,
+                    course_name=course.get("name", ""),
+                    previous_messages=previous_messages,
+                    has_attachments=bool(uploads),
+                    observations=observations,
+                    ai_config=config.get("ai", {}),
                 )
+            final_status = step.llm_status
+            final_reason = step.reason
+
+            if step.action == "final":
+                final_answer = step.answer
+                break
+            if step.action == "clarify":
+                final_answer = step.answer
+                needs_clarification = True
+                final_status = "skipped"
+                web_status = "clarification"
+                break
+
+            wants_course = step.action in {"course_search", "course_and_web_search"}
+            wants_web = step.action in {"web_search", "course_and_web_search"}
+            if wants_course and not course_searched:
+                self.emit({"type": "status", "stage": "retrieval", "detail": "正在检索课程资料…"})
+                course_query = (
+                    retrieval.search_question
+                    if retrieval.contextual_query.is_follow_up or attachment.has_content
+                    else step.query or retrieval.search_question
+                )
+                with telemetry.span(
+                    "course-retrieval",
+                    stage="retrieval",
+                    attributes={"course_id": course_id, "react_turn": turn + 1},
+                ):
+                    result = self.context.kb.answer(course_id, course_query)
+                record_chat_retrieval_result(telemetry, result)
+                course_searched = True
+                observations.append({"action": "course_search", "summary": summarize_course_observation(result)})
+            if wants_web and not web_searched:
+                self.emit({"type": "status", "stage": "web", "detail": "正在联网补充资料…"})
+                with telemetry.span("web-search", stage="web", attributes={"allow_web": not uploads, "react_turn": turn + 1}):
+                    web_sources, web_status = self.retrieve_web(
+                        step.query or question,
+                        result,
+                        config.get("web_search", {}),
+                        allow_web=not uploads,
+                        force_search=True,
+                    )
+                web_searched = True
+                observations.append({"action": "web_search", "summary": summarize_web_observation(web_sources, web_status)})
+            if (wants_course and course_searched) or (wants_web and web_searched):
+                continue
+            final_answer = "我没有拿到新的可用工具结果，请换一种问法或稍后重试。"
+            break
         record_web_result(telemetry, web_status, web_sources, allow_web=not uploads)
 
         sources = chat_steps.build_source_context(result, web_sources, needs_clarification)
 
-        self.emit({"type": "status", "stage": "generation", "detail": "正在生成回答…"})
-        with telemetry.span(
-            "llm-answer",
-            stage="llm",
-            attributes={"mode": mode, "image_count": len(attachment.image_paths)},
-        ):
-            answer, llm_status = self.answer_generator.generate(
-                mode=mode,
-                needs_clarification=needs_clarification,
-                search_question=retrieval.search_question,
-                combined_result=sources.combined_result,
-                image_paths=attachment.image_paths,
-                ai_config=config.get("ai", {}),
-            )
-        record_chat_llm_result(
-            telemetry,
-            llm_status=llm_status,
-            fallback_reason="clarification" if needs_clarification else None,
-        )
+        answer = adapt_answer_by_mode(mode, final_answer or sources.combined_result.get("answer", ""))
+        self.answer_generator._emit_delta(answer)
+        llm_status = final_status
+        record_chat_llm_result(telemetry, llm_status=llm_status, fallback_reason="clarification" if needs_clarification else None)
         memory = (
             self.context.store.get_memory(course_id)
             if needs_clarification
@@ -180,9 +185,10 @@ class ChatFlow:
             llm_status=llm_status,
             web_status=web_status,
             web_source_count=len(sources.web_sources),
+            retrieval_skipped=not course_searched,
         )
         trace.insert(2, chat_steps.contextual_query_step(retrieval.contextual_query))
-        trace.insert(3, {"label": "判断", "status": "ok", "detail": tool_decision.reason or "模型自主决定可用能力"})
+        trace.insert(3, {"label": "ReAct", "status": "ok", "detail": final_reason or "模型完成 ReAct 推理"})
         self.context.store.add_message(course_id, "assistant", answer, sources.citations, trace=trace)
         return {
             "answer": answer,
@@ -198,41 +204,19 @@ class ChatFlow:
             "telemetry": compact_telemetry_payload(telemetry),
         }
 
-    def _run_direct_reply(
-        self,
-        course_id: str,
-        course: dict,
-        question: str,
-        mode: str,
-        telemetry: TelemetryRecorder,
-        tool_decision,
-    ) -> dict:
-        answer = adapt_answer_by_mode(mode, tool_decision.direct_answer)
-        self.answer_generator._emit_delta(answer)
-        record_chat_llm_result(telemetry, llm_status=tool_decision.llm_status, fallback_reason="direct_answer")
-        trace = build_agent_trace(
-            course_name=course.get("name", ""),
-            question=question,
-            has_attachments=False,
-            citation_count=0,
-            memory_updated=False,
-            llm_status=tool_decision.llm_status,
-            web_status="skipped",
-            web_source_count=0,
-            retrieval_skipped=True,
-        )
-        trace.insert(2, {"label": "判断", "status": "ok", "detail": tool_decision.reason or "模型直接回答，未请求工具"})
-        self.context.store.add_message(course_id, "assistant", answer, [], trace=trace)
-        return {
-            "answer": answer,
-            "citations": [],
-            "memory": self.context.store.get_memory(course_id),
-            "mode": mode,
-            "trace": trace,
-            "retrieval_trace": {"skipped": True, "decision": "direct_answer"},
-            "citation_check": {"status": "skipped", "unsupported_count": 0, "claims_checked": 0},
-            "unsupported_claims": [],
-            "llm_status": tool_decision.llm_status,
-            "web_search_status": "skipped",
-            "telemetry": compact_telemetry_payload(telemetry),
-        }
+
+def summarize_course_observation(result: dict) -> str:
+    citations = result.get("citations", [])[:3]
+    lines = [str(result.get("answer") or "")[:900]]
+    for index, citation in enumerate(citations, start=1):
+        lines.append(f"[L{index}] {citation.get('file_name', '课程资料')}：{str(citation.get('quote', ''))[:280]}")
+    return "\n".join(line for line in lines if line)
+
+
+def summarize_web_observation(web_sources: list, status: str) -> str:
+    if not web_sources:
+        return f"联网状态：{status}，没有可引用网页。"
+    lines = []
+    for index, source in enumerate(web_sources[:3], start=1):
+        lines.append(f"[W{index}] {source.get('file_name', '网页')}：{str(source.get('quote', ''))[:280]}")
+    return "\n".join(lines)

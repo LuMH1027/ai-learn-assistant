@@ -16,13 +16,15 @@ LIGHT_FALLBACK_ANSWER = "我在。"
 
 
 @dataclass(frozen=True)
-class ToolDecision:
-    direct_answer: str = ""
-    use_course_materials: bool = False
-    use_web_search: bool = False
-    needs_clarification: bool = False
+class AgentStep:
+    action: str = "final"
+    answer: str = ""
+    query: str = ""
     reason: str = ""
     llm_status: str = "disabled"
+
+
+AGENT_ACTIONS = {"final", "course_search", "web_search", "course_and_web_search", "clarify"}
 
 
 def emit_stream_text(text: str, emit, paced=False, delay=0.016) -> None:
@@ -33,34 +35,43 @@ def emit_stream_text(text: str, emit, paced=False, delay=0.016) -> None:
             time.sleep(delay)
 
 
-def decide_tool_use(
+def plan_agent_step(
     question: str,
     *,
     course_name: str = "",
     previous_messages: Sequence[Mapping] | None = None,
     has_attachments: bool = False,
+    observations: Sequence[Mapping] | None = None,
     ai_config=None,
     llm_client_factory=create_llm_client,
-) -> ToolDecision:
+) -> AgentStep:
     client = llm_client_factory(ai_config or {})
-    prompt = build_tool_decision_prompt(question, course_name, previous_messages or [], has_attachments)
-    generated = generate_tool_decision(client, prompt)
-    parsed = parse_tool_decision(generated or "")
+    prompt = build_react_prompt(
+        question,
+        course_name,
+        previous_messages or [],
+        has_attachments,
+        observations or [],
+    )
+    generated = generate_agent_step(client, prompt)
+    parsed = parse_agent_step(generated or "")
     if parsed:
-        return ToolDecision(**parsed, llm_status="used")
-    return fallback_tool_decision(
+        return AgentStep(**parsed, llm_status="used")
+    return fallback_agent_step(
         question,
         has_attachments=has_attachments,
         has_previous_messages=bool(previous_messages),
+        has_observations=bool(observations),
         llm_enabled=client.enabled(),
     )
 
 
-def build_tool_decision_prompt(
+def build_react_prompt(
     question: str,
     course_name: str,
     previous_messages: Sequence[Mapping],
     has_attachments: bool,
+    observations: Sequence[Mapping],
 ) -> str:
     recent = []
     for message in previous_messages[-3:]:
@@ -70,44 +81,50 @@ def build_tool_decision_prompt(
             recent.append(f"{role}: {content[:160]}")
     history = "\n".join(recent) or "无"
     attachment_hint = "有，附件内容会进入课程检索上下文。" if has_attachments else "无"
+    observation_lines = []
+    for item in observations[-4:]:
+        observation_lines.append(
+            f"{item.get('action', 'tool')}：{str(item.get('summary', ''))[:900]}"
+        )
+    observation_text = "\n\n".join(observation_lines) or "无"
     return (
-        "你是本地课程学习助手的工具调度与回答模型。请在同一次判断中决定是否需要工具；"
-        "不要因为系统有工具就默认调用工具，也不要为了展示能力而搜索。\n\n"
-        "可用能力：\n"
-        "1. direct_answer：不调用任何工具，直接用模型常识或简短闲聊回答。适合你好、确认、改写、普通概念、无需课程依据的问题。\n"
-        "2. course_search：检索当前课程资料。适合用户要求讲课程内容、问当前资料里的概念/题目/引用/附件，或需要结合前文课程上下文。\n"
-        "3. web_search：联网补充。只在用户明确要求最新信息、外部资料、竞品、官网、论文、新闻、当前版本，"
-        "或课程资料明显不可能覆盖的现实信息时使用；不要把网页搜索当成默认步骤。\n"
-        "4. clarify：问题缺少必要对象，例如只有编号、代词但前文无法指代清楚、题目不完整。此时直接请用户补充，不要猜。\n\n"
-        "判断原则：\n"
-        "- 闲聊和简单确认应 direct_answer，回答要短。\n"
-        "- 讲解课程内容时可以 course_search，但不需要 web_search；讲解可以慢一点、有层次。\n"
-        "- 如果问题可用通用知识回答且用户没有要求课程依据，可以 direct_answer。\n"
-        "- 如果同时需要课程与外部材料，可以同时请求 course_search 和 web_search。\n"
-        "- 你只输出 JSON，不要输出 Markdown 或额外文字。\n\n"
+        "你是本地课程学习 Agent，按 ReAct 工作：先根据问题和已有 observation 决定下一步 action，"
+        "必要时调用工具，资料足够时直接 final。不要预先固定要不要工具，也不要为了展示能力而调用工具。\n\n"
+        "可用 action：\n"
+        "- final：直接给最终回答。适合闲聊、简单问题、或已有 observation 足够时。\n"
+        "- course_search：检索当前课程资料。适合讲课程内容、题目、附件、引用或前文课程追问。\n"
+        "- web_search：联网补充。只在用户明确要最新、竞品、官网、论文、新闻、当前版本等外部信息时使用。\n"
+        "- course_and_web_search：同一问题同时需要课程资料和外部资料时使用。\n"
+        "- clarify：问题缺少必要对象，不能可靠定位。\n\n"
+        "要求：\n"
+        "- 闲聊和普通短问题直接 final，1-3 句话。\n"
+        "- 讲课程内容优先 course_search，不默认联网。\n"
+        "- 已有课程/网页 observation 时，优先基于 observation final，不要重复调用同一工具。\n"
+        "- final 中引用课程结论可写 [L1]、网页结论可写 [W1]；没有 observation 不要伪造引用。\n"
+        "- 只输出 JSON，不要输出 Markdown 代码块或额外文字。\n\n"
         "JSON 格式：\n"
         "{"
-        "\"direct_answer\":\"如果不需要工具，在这里给最终回答；需要工具则为空\","
-        "\"use_course_materials\":false,"
-        "\"use_web_search\":false,"
-        "\"needs_clarification\":false,"
+        "\"action\":\"final\","
+        "\"answer\":\"action 为 final/clarify 时填写给用户的文本，否则为空\","
+        "\"query\":\"调用搜索工具时填写搜索问题，否则为空\","
         "\"reason\":\"一句话说明判断，40字以内\""
         "}\n\n"
         f"当前课程：{course_name or '未命名课程'}\n"
         f"是否有附件：{attachment_hint}\n"
         f"最近对话：\n{history}\n\n"
+        f"已有 observation：\n{observation_text}\n\n"
         f"用户问题：\n{question}"
     )
 
 
-def generate_tool_decision(client, prompt: str) -> str | None:
+def generate_agent_step(client, prompt: str) -> str | None:
     try:
-        return client.generate(prompt, max_tokens=220, timeout=12)
+        return client.generate(prompt, max_tokens=900, timeout=45)
     except TypeError:
         return client.generate(prompt)
 
 
-def parse_tool_decision(text: str) -> dict | None:
+def parse_agent_step(text: str) -> dict | None:
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         return None
@@ -115,64 +132,64 @@ def parse_tool_decision(text: str) -> dict | None:
         payload = json.loads(match.group(0))
     except json.JSONDecodeError:
         return None
-    direct_answer = str(payload.get("direct_answer") or "").strip()
-    use_course = bool(payload.get("use_course_materials"))
-    use_web = bool(payload.get("use_web_search"))
-    needs_clarification = bool(payload.get("needs_clarification"))
+    action = str(payload.get("action") or "").strip().lower()
+    if action not in AGENT_ACTIONS:
+        return None
+    answer = str(payload.get("answer") or "").strip()
+    query = str(payload.get("query") or "").strip()
     reason = str(payload.get("reason") or "").strip()[:240]
-    if needs_clarification:
-        return {
-            "direct_answer": "",
-            "use_course_materials": False,
-            "use_web_search": False,
-            "needs_clarification": True,
-            "reason": reason,
-        }
-    if direct_answer:
-        return {
-            "direct_answer": direct_answer,
-            "use_course_materials": False,
-            "use_web_search": False,
-            "needs_clarification": False,
-            "reason": reason,
-        }
+    if action in {"final", "clarify"} and not answer:
+        return None
+    if action in {"course_search", "web_search", "course_and_web_search"} and not query:
+        query = ""
     return {
-        "direct_answer": "",
-        "use_course_materials": use_course,
-        "use_web_search": use_web,
-        "needs_clarification": False,
+        "action": action,
+        "answer": answer,
+        "query": query,
         "reason": reason,
     }
 
 
-def fallback_tool_decision(
+def fallback_agent_step(
     question: str,
     *,
     has_attachments: bool,
     has_previous_messages: bool = False,
+    has_observations: bool = False,
     llm_enabled: bool,
-) -> ToolDecision:
+) -> AgentStep:
     normalized = question.strip()
+    if has_observations:
+        return AgentStep(
+            action="final",
+            answer="我已拿到可用资料，但当前模型没有成功生成最终回答。请稍后重试，或换一个更具体的问题。",
+            reason="模型不可用，已有 observation 但无法生成。",
+            llm_status="fallback" if llm_enabled else "disabled",
+        )
     if re.fullmatch(r"[\d一二三四五六七八九十]+[\.。]?", normalized):
-        return ToolDecision(
-            needs_clarification=True,
+        return AgentStep(
+            action="clarify",
+            answer=CLARIFICATION_ANSWER,
             reason="模型不可用，纯编号问题缺少可定位的题目。",
             llm_status="fallback" if llm_enabled else "disabled",
         )
     if has_previous_messages:
-        return ToolDecision(
-            use_course_materials=True,
+        return AgentStep(
+            action="course_search",
+            query=question,
             reason="模型不可用，追问场景本地降级为课程检索。",
             llm_status="fallback" if llm_enabled else "disabled",
         )
     if not has_attachments and len(normalized) <= 8:
-        return ToolDecision(
-            direct_answer=LIGHT_FALLBACK_ANSWER,
+        return AgentStep(
+            action="final",
+            answer=LIGHT_FALLBACK_ANSWER,
             reason="模型不可用，本地降级为短答。",
             llm_status="fallback" if llm_enabled else "disabled",
         )
-    return ToolDecision(
-        use_course_materials=True,
+    return AgentStep(
+        action="course_search",
+        query=question,
         reason="模型不可用，本地降级为课程检索。",
         llm_status="fallback" if llm_enabled else "disabled",
     )
