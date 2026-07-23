@@ -5,6 +5,7 @@ import type {
   ArtifactResult,
   ChatResult,
   ChatStreamEvent,
+  Conversation,
   ClearCourseMemoryResponse,
   Course,
   CoursesResponse,
@@ -52,6 +53,18 @@ function note(id: number, title: string) {
 
 function course(id: string, fileCount = 0): Course {
   return { id, name: id, path: `/courses/${id}`, children: [], file_count: fileCount }
+}
+
+function conversation(id: string): Conversation {
+  return {
+    id,
+    title: id,
+    created_at: '2026-07-16T00:00:00Z',
+    updated_at: '2026-07-16T00:00:00Z',
+    last_read_at: '2026-07-16T00:00:00Z',
+    message_count: 0,
+    unread_count: 0,
+  }
 }
 
 describe('chat store', () => {
@@ -157,9 +170,15 @@ describe('chat store', () => {
     expect(store.messages[1]?.stream_status).toBe('正在发送…')
     await emit({ type: 'status', stage: 'retrieval', detail: '正在检索课程资料…' })
     expect(store.messages[1]?.stream_status).toBe('正在检索课程资料…')
+    await emit({ type: 'status', stage: 'llm_retry', detail: 'LLM 调用失败 1/5，正在重试第 2 次…' })
+    expect(store.messages[1]?.stream_status).toBe('LLM 调用失败 1/5，正在重试第 2 次…')
+    expect(store.messages[1]?.stream_thoughts).toEqual(['LLM 调用失败 1/5，正在重试第 2 次…'])
     await emit({ type: 'thought', action: 'course_search', detail: '需要课程资料', query: '页表' })
     expect(store.messages[1]?.stream_status).toBe('需要课程资料')
-    expect(store.messages[1]?.stream_thoughts).toEqual(['course_search：需要课程资料 · 页表'])
+    expect(store.messages[1]?.stream_thoughts).toEqual([
+      'LLM 调用失败 1/5，正在重试第 2 次…',
+      'course_search：需要课程资料 · 页表',
+    ])
     await emit({ type: 'delta', delta: '答' })
     expect(store.messages[1]?.content).toBe('答')
     await emit({ type: 'delta', delta: '案' })
@@ -231,6 +250,138 @@ describe('chat store', () => {
     expect(store.error).toBeNull()
     expect(store.messages[1]?.content).toBe('已生成')
     expect(store.messages[1]?.streaming).toBe(false)
+  })
+
+  it('keeps streaming output attached to its conversation after switching away', async () => {
+    const writes = new Map<string, ReturnType<typeof deferred<void>>>()
+    const emitters = new Map<string, (event: ChatStreamEvent) => Promise<void>>()
+    api.postJsonStream.mockImplementation((_path: string, body: { conversation_id: string }, onEvent: (event: ChatStreamEvent) => Promise<void>) => {
+      const write = deferred<void>()
+      writes.set(body.conversation_id, write)
+      emitters.set(body.conversation_id, onEvent)
+      return write.promise
+    })
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    store.conversations = [conversation('first'), conversation('second')]
+    store.activeConversationId = 'first'
+
+    const first = store.send('first question')
+    store.activeConversationId = 'second'
+    const second = store.send('second question')
+
+    await emitters.get('first')!({ type: 'delta', delta: '甲' })
+    expect(store.messages.map((item) => item.content)).toEqual(['second question', ''])
+    store.activeConversationId = 'first'
+    expect(store.messages[1]?.content).toBe('甲')
+
+    await emitters.get('second')!({ type: 'done', result: { answer: '乙', citations: [], memory: '', mode: 'answer', trace: [] } })
+    writes.get('second')!.resolve()
+    await second
+    await emitters.get('first')!({ type: 'done', result: { answer: '甲', citations: [], memory: '', mode: 'answer', trace: [] } })
+    writes.get('first')!.resolve()
+    await first
+
+    expect(api.postJsonStream).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps streaming thoughts when switching back through selectConversation', async () => {
+    let emit!: (event: ChatStreamEvent) => Promise<void>
+    api.getJson.mockResolvedValue({ messages: [message('persisted history')] } satisfies MessagesResponse)
+    api.postJson.mockResolvedValue({ conversations: [conversation('first'), conversation('second')] })
+    api.postJsonStream.mockImplementation((_path: string, _body: unknown, onEvent: (event: ChatStreamEvent) => Promise<void>) => {
+      emit = onEvent
+      return new Promise<void>(() => undefined)
+    })
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    store.conversations = [conversation('first'), conversation('second')]
+    store.activeConversationId = 'first'
+    store.send('first question')
+    await emit({ type: 'thought', action: 'course_search', detail: '正在查资料', query: '页表' })
+
+    store.selectConversation('second')
+    await store.loadMessages('second')
+    store.selectConversation('first')
+
+    expect(store.messages[1]?.stream_thoughts).toEqual(['course_search：正在查资料 · 页表'])
+    expect(store.messages[1]?.streaming).toBe(true)
+  })
+
+  it('stops one conversation without aborting another running conversation', async () => {
+    const signals = new Map<string, AbortSignal>()
+    api.postJsonStream.mockImplementation((_path: string, body: { conversation_id: string }, _onEvent: unknown, signal: AbortSignal) => {
+      signals.set(body.conversation_id, signal)
+      return new Promise<void>((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })
+    })
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    store.conversations = [conversation('first'), conversation('second')]
+    store.activeConversationId = 'first'
+    const first = store.send('first question')
+    store.activeConversationId = 'second'
+    const second = store.send('second question')
+
+    store.stop('first')
+    await first
+
+    expect(signals.get('first')?.aborted).toBe(true)
+    expect(signals.get('second')?.aborted).toBe(false)
+    expect(store.isConversationStreaming('first')).toBe(false)
+    expect(store.isConversationStreaming('second')).toBe(true)
+
+    store.stop('second')
+    await second
+  })
+
+  it('keeps drafts and pending attachments scoped per conversation', () => {
+    const firstFile = new File(['a'], 'first.txt')
+    const secondFile = new File(['b'], 'second.txt')
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    store.conversations = [conversation('first'), conversation('second')]
+    store.activeConversationId = 'first'
+    store.draft = 'first draft'
+    store.pendingFiles = [firstFile]
+
+    store.activeConversationId = 'second'
+    store.draft = 'second draft'
+    store.pendingFiles = [secondFile]
+
+    store.activeConversationId = 'first'
+    expect(store.draft).toBe('first draft')
+    expect(store.pendingFiles.map((file) => file.name)).toEqual(['first.txt'])
+    store.activeConversationId = 'second'
+    expect(store.draft).toBe('second draft')
+    expect(store.pendingFiles.map((file) => file.name)).toEqual(['second.txt'])
+  })
+
+  it('navigates user message history per conversation and restores the current draft', () => {
+    const store = useChatStore()
+    store.beginCourse('a', 1)
+    store.conversations = [conversation('first'), conversation('second')]
+    store.activeConversationId = 'first'
+    store.messages = [
+      { role: 'user', content: '第一问', citations: [], trace: [], created_at: '2026-07-16T00:00:00Z' },
+      message('answer'),
+      { role: 'user', content: '第二问', citations: [], trace: [], created_at: '2026-07-16T00:01:00Z' },
+    ]
+    store.draft = '正在输入'
+
+    expect(store.navigateDraftHistory('previous')).toBe(true)
+    expect(store.draft).toBe('第二问')
+    expect(store.navigateDraftHistory('previous')).toBe(true)
+    expect(store.draft).toBe('第一问')
+    expect(store.navigateDraftHistory('next')).toBe(true)
+    expect(store.draft).toBe('第二问')
+    expect(store.navigateDraftHistory('next')).toBe(true)
+    expect(store.draft).toBe('正在输入')
+
+    store.activeConversationId = 'second'
+    expect(store.navigateDraftHistory('previous')).toBe(false)
+    expect(store.draft).toBe('')
   })
 
   it('sends attachments as FormData and clears them after taking the request snapshot', async () => {

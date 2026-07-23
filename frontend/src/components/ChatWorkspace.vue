@@ -19,7 +19,6 @@ const chat = useChatStore()
 const course = useCourseStore()
 const layout = useLayoutStore()
 const preview = usePreviewStore()
-const question = ref('')
 const chatPicker = ref<HTMLInputElement | null>(null)
 const messagesPanel = ref<HTMLElement | null>(null)
 const busy = computed(() => chat.busy.chat || chat.busy.summary || chat.busy.quiz || chat.busy.memory)
@@ -66,18 +65,35 @@ function clearMemory() {
 }
 
 async function send() {
-  const value = question.value
+  const value = chat.draft
   const result = chat.send(value)
   if (result) {
-    question.value = ''
+    chat.draft = ''
     await result.catch(() => undefined)
   }
 }
 
 function onComposerKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Enter' || event.shiftKey) return
-  event.preventDefault()
-  void send()
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    void send()
+    return
+  }
+  if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && shouldNavigateHistory(event)) {
+    const direction = event.key === 'ArrowUp' ? 'previous' : 'next'
+    if (chat.navigateDraftHistory(direction)) event.preventDefault()
+  }
+}
+
+function shouldNavigateHistory(event: KeyboardEvent) {
+  if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return false
+  const target = event.target
+  if (!(target instanceof HTMLTextAreaElement)) return false
+  if (target.selectionStart !== target.selectionEnd) return false
+  const beforeCursor = target.value.slice(0, target.selectionStart)
+  const afterCursor = target.value.slice(target.selectionEnd)
+  if (event.key === 'ArrowUp') return !beforeCursor.includes('\n')
+  return !afterCursor.includes('\n')
 }
 
 function attach(files: File[]) {
@@ -192,7 +208,7 @@ function assistantMarkdown(content: string) {
       <label for="course-question">课程问题</label>
       <textarea
         id="course-question"
-        v-model="question"
+        v-model="chat.draft"
         aria-label="课程问题"
         placeholder="围绕当前课程资料提问…"
         @keydown="onComposerKeydown"
@@ -203,7 +219,7 @@ function assistantMarkdown(content: string) {
         class="stop-button"
         aria-label="停止回答"
         title="停止回答"
-        @click="chat.stop"
+        @click="chat.stop()"
       >
         ■
       </button>

@@ -22,6 +22,20 @@ import { useCourseStore } from './course'
 type StudyArtifact = 'summary' | 'quiz'
 const STREAM_RENDER_DELAY_MS = 16
 
+interface ConversationRuntime {
+  messages: Message[]
+  draft: string
+  historyCursor: number | null
+  historyScratch: string
+  pendingFiles: File[]
+  error: string | null
+  messagesRequestToken: number
+  mutationEpoch: number
+  chatRequestToken: number
+  isStreaming: boolean
+  abortController: AbortController | null
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
@@ -42,24 +56,106 @@ function displayUnits(text: string) {
 export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
   const activeConversationId = ref<string | null>(null)
-  const messages = ref<Message[]>([])
+  const conversationRuntime = reactive<Record<string, ConversationRuntime>>({})
   const notes = ref<Note[]>([])
   const mode = ref<StudyMode>('answer')
-  const pendingFiles = ref<File[]>([])
-  const busy = reactive({ chat: false, summary: false, quiz: false, note: false, memory: false })
-  const error = ref<string | null>(null)
+  const busy = reactive({
+    get chat() {
+      return activeConversationId.value === null ? false : isConversationStreaming(activeConversationId.value)
+    },
+    set chat(value: boolean) {
+      const conversationId = activeConversationId.value
+      if (conversationId === null) return
+      runtimeFor(conversationId).isStreaming = value
+    },
+    summary: false,
+    quiz: false,
+    note: false,
+    memory: false,
+  })
   const courseId = ref<string | null>(null)
   const contextVersion = ref(0)
   const notesMutationEpoch = ref(0)
 
-  let messagesRequestToken = 0
   let conversationsRequestToken = 0
   let notesRequestToken = 0
-  let chatRequestToken = 0
   let artifactRequestToken = 0
   let noteRequestToken = 0
   let memoryRequestToken = 0
-  let chatAbortController: AbortController | null = null
+
+  function runtimeFor(conversationId: string) {
+    conversationRuntime[conversationId] ??= {
+      messages: [],
+      draft: '',
+      historyCursor: null,
+      historyScratch: '',
+      pendingFiles: [],
+      error: null,
+      messagesRequestToken: 0,
+      mutationEpoch: 0,
+      chatRequestToken: 0,
+      isStreaming: false,
+      abortController: null,
+    }
+    return conversationRuntime[conversationId]!
+  }
+
+  function activeRuntime() {
+    return activeConversationId.value === null ? null : runtimeFor(activeConversationId.value)
+  }
+
+  function resetRuntime() {
+    for (const item of Object.values(conversationRuntime)) item.abortController?.abort()
+    for (const key of Object.keys(conversationRuntime)) delete conversationRuntime[key]
+  }
+
+  const messages = computed({
+    get() {
+      return activeRuntime()?.messages ?? []
+    },
+    set(value: Message[]) {
+      const runtime = activeRuntime()
+      if (runtime) {
+        runtime.messages = value
+        runtime.mutationEpoch += 1
+        runtime.messagesRequestToken += 1
+      }
+    },
+  })
+
+  const pendingFiles = computed({
+    get() {
+      return activeRuntime()?.pendingFiles ?? []
+    },
+    set(value: File[]) {
+      const runtime = activeRuntime()
+      if (runtime) runtime.pendingFiles = value
+    },
+  })
+
+  const draft = computed({
+    get() {
+      return activeRuntime()?.draft ?? ''
+    },
+    set(value: string) {
+      const runtime = activeRuntime()
+      if (runtime) {
+        runtime.draft = value
+        runtime.historyCursor = null
+        runtime.historyScratch = ''
+      }
+    },
+  })
+
+  const error = computed({
+    get() {
+      return activeRuntime()?.error ?? null
+    },
+    set(value: string | null) {
+      const runtime = activeRuntime()
+      if (runtime) runtime.error = value
+    },
+  })
 
   function isCurrentContext(id: string | null, version: number) {
     return courseId.value === id && contextVersion.value === version
@@ -67,6 +163,45 @@ export const useChatStore = defineStore('chat', () => {
 
   function isCurrentConversation(id: string | null, version: number, conversationId: string | null) {
     return isCurrentContext(id, version) && activeConversationId.value === conversationId
+  }
+
+  function isConversationStreaming(conversationId: string | null) {
+    return conversationId === null ? false : conversationRuntime[conversationId]?.isStreaming === true
+  }
+
+  function userMessageHistory(runtime: ConversationRuntime) {
+    return runtime.messages
+      .filter((message) => message.role === 'user' && message.content.trim().length > 0)
+      .map((message) => message.content)
+  }
+
+  function navigateDraftHistory(direction: 'previous' | 'next') {
+    const runtime = activeRuntime()
+    if (!runtime) return false
+    const history = userMessageHistory(runtime)
+    if (history.length === 0) return false
+
+    if (direction === 'previous') {
+      if (runtime.historyCursor === null) {
+        runtime.historyScratch = runtime.draft
+        runtime.historyCursor = history.length - 1
+      } else {
+        runtime.historyCursor = Math.max(0, runtime.historyCursor - 1)
+      }
+      runtime.draft = history[runtime.historyCursor]
+      return true
+    }
+
+    if (runtime.historyCursor === null) return false
+    if (runtime.historyCursor < history.length - 1) {
+      runtime.historyCursor += 1
+      runtime.draft = history[runtime.historyCursor]
+    } else {
+      runtime.historyCursor = null
+      runtime.draft = runtime.historyScratch
+      runtime.historyScratch = ''
+    }
+    return true
   }
 
   const activeConversation = computed(() =>
@@ -77,32 +212,26 @@ export const useChatStore = defineStore('chat', () => {
       created_at: '',
       updated_at: '',
       last_read_at: '',
-      message_count: messages.value.length,
+      message_count: runtimeFor(activeConversationId.value).messages.length,
       unread_count: 0,
     } : null),
   )
 
   function beginCourse(id: string | null, version: number) {
-    chatAbortController?.abort()
-    chatAbortController = null
+    resetRuntime()
     courseId.value = id
     contextVersion.value = version
     notesMutationEpoch.value = 0
     conversations.value = []
     activeConversationId.value = id === null ? null : 'default'
-    messages.value = []
     notes.value = []
-    pendingFiles.value = []
     error.value = null
-    busy.chat = false
     busy.summary = false
     busy.quiz = false
     busy.note = false
     busy.memory = false
     conversationsRequestToken += 1
-    messagesRequestToken += 1
     notesRequestToken += 1
-    chatRequestToken += 1
     artifactRequestToken += 1
     noteRequestToken += 1
     memoryRequestToken += 1
@@ -119,20 +248,23 @@ export const useChatStore = defineStore('chat', () => {
     return `${conversationPath(id, conversationId)}/${action}`
   }
 
-  function applyConversations(next: Conversation[], preferredId?: string | null) {
+  function applyConversations(next: Conversation[], preferredId?: string | null, forcePreferred = false) {
     if (!Array.isArray(next)) return activeConversationId.value
     conversations.value = next
     if (next.length === 0) {
       activeConversationId.value = null
-      messages.value = []
       return null
     }
     const preferred = preferredId && next.some((item) => item.id === preferredId) ? preferredId : null
     const current = activeConversationId.value && next.some((item) => item.id === activeConversationId.value)
       ? activeConversationId.value
       : null
-    activeConversationId.value = preferred ?? current ?? next[0]!.id
+    activeConversationId.value = forcePreferred ? preferred ?? current ?? next[0]!.id : current ?? preferred ?? next[0]!.id
     return activeConversationId.value
+  }
+
+  function hasLocalMessages(conversationId: string | null) {
+    return conversationId !== null && (conversationRuntime[conversationId]?.messages.length ?? 0) > 0
   }
 
   function loadConversations(preferredId?: string | null) {
@@ -148,7 +280,7 @@ export const useChatStore = defineStore('chat', () => {
         )
         if (isCurrentContext(id, version) && token === conversationsRequestToken) {
           const selected = applyConversations(result.conversations, preferredId)
-          if (selected) await loadMessages()
+          if (selected && !hasLocalMessages(selected)) await loadMessages(selected)
         }
         return result
       } catch (cause) {
@@ -165,9 +297,11 @@ export const useChatStore = defineStore('chat', () => {
     const version = contextVersion.value
     if (id === null || conversationId === activeConversationId.value) return
     activeConversationId.value = conversationId
-    messages.value = []
-    messagesRequestToken += 1
-    void loadMessages()?.catch(() => undefined)
+    const runtime = runtimeFor(conversationId)
+    if (runtime.messages.length === 0) {
+      runtime.messagesRequestToken += 1
+      void loadMessages(conversationId)?.catch(() => undefined)
+    }
     void postJson<SaveConversationResponse>(`${conversationPath(id, conversationId)}/read`)
       .then((result) => {
         if (isCurrentConversation(id, version, conversationId)) conversations.value = result.conversations
@@ -185,8 +319,8 @@ export const useChatStore = defineStore('chat', () => {
         { title: '新对话' },
       )
       if (isCurrentContext(id, version)) {
-        applyConversations(result.conversations, result.conversation?.id)
-        messages.value = []
+        applyConversations(result.conversations, result.conversation?.id, true)
+        if (result.conversation?.id) runtimeFor(result.conversation.id).messages = []
       }
       return result
     })()
@@ -206,11 +340,14 @@ export const useChatStore = defineStore('chat', () => {
   function deleteConversation(conversationId: string) {
     const id = courseId.value
     const version = contextVersion.value
-    if (id === null || conversations.value.length <= 1) return
+    if (id === null || conversations.value.length <= 1 || isConversationStreaming(conversationId)) return
     return postJson<SaveConversationResponse>(`${conversationPath(id, conversationId)}/delete`)
       .then(async (result) => {
         if (isCurrentContext(id, version)) {
           const wasActive = activeConversationId.value === conversationId
+          const runtime = conversationRuntime[conversationId]
+          runtime?.abortController?.abort()
+          delete conversationRuntime[conversationId]
           const selected = applyConversations(result.conversations)
           if (wasActive && selected) await loadMessages()
         }
@@ -218,28 +355,38 @@ export const useChatStore = defineStore('chat', () => {
       })
   }
 
-  function loadMessages() {
+  function loadMessages(targetConversationId = activeConversationId.value) {
     const id = courseId.value
     const version = contextVersion.value
-    const conversationId = activeConversationId.value
+    const conversationId = targetConversationId
     if (id === null || conversationId === null) return
-    const token = ++messagesRequestToken
+    const runtime = runtimeFor(conversationId)
+    const token = ++runtime.messagesRequestToken
+    const requestedMutationEpoch = runtime.mutationEpoch
 
     return (async () => {
       try {
         const result = await getJson<MessagesResponse>(
           scopedCoursePath(id, conversationId, 'messages'),
         )
-        if (isCurrentConversation(id, version, conversationId) && token === messagesRequestToken) {
-          messages.value = result.messages
+        if (
+          isCurrentContext(id, version) &&
+          token === runtime.messagesRequestToken &&
+          requestedMutationEpoch === runtime.mutationEpoch
+        ) {
+          runtime.messages = result.messages
           conversations.value = conversations.value.map((item) =>
             item.id === conversationId ? { ...item, unread_count: 0 } : item,
           )
         }
         return result
       } catch (cause) {
-        if (isCurrentConversation(id, version, conversationId) && token === messagesRequestToken) {
-          error.value = errorMessage(cause)
+        if (
+          isCurrentContext(id, version) &&
+          token === runtime.messagesRequestToken &&
+          requestedMutationEpoch === runtime.mutationEpoch
+        ) {
+          runtime.error = errorMessage(cause)
         }
         throw cause
       }
@@ -284,23 +431,24 @@ export const useChatStore = defineStore('chat', () => {
     const version = contextVersion.value
     const conversationId = activeConversationId.value
     const normalizedQuestion = question.trim()
+    if (id === null || conversationId === null) return
+    const runtime = runtimeFor(conversationId)
     if (
-      id === null ||
-      conversationId === null ||
-      busy.chat ||
+      runtime.isStreaming ||
       busy.summary ||
       busy.quiz ||
-      (normalizedQuestion.length === 0 && pendingFiles.value.length === 0)
+      (normalizedQuestion.length === 0 && runtime.pendingFiles.length === 0)
     ) return
 
-    const files = [...pendingFiles.value]
-    pendingFiles.value = []
-    const token = ++chatRequestToken
+    const files = [...runtime.pendingFiles]
+    runtime.pendingFiles = []
+    const token = ++runtime.chatRequestToken
+    runtime.messagesRequestToken += 1
+    runtime.mutationEpoch += 1
     const controller = new AbortController()
-    chatAbortController = controller
-    busy.chat = true
-    error.value = null
-    messagesRequestToken += 1
+    runtime.abortController = controller
+    runtime.isStreaming = true
+    runtime.error = null
     const timestamp = new Date().toISOString()
     const userMessage: Message = {
       role: 'user',
@@ -319,17 +467,23 @@ export const useChatStore = defineStore('chat', () => {
       stream_status: '正在发送…',
       stream_thoughts: [],
     }
-    messages.value.push(userMessage, assistantMessage)
-    const streamingMessage = messages.value[messages.value.length - 1]!
+    runtime.messages.push(userMessage, assistantMessage)
+    const streamingMessage = runtime.messages[runtime.messages.length - 1]!
 
     return (async () => {
       try {
         let result: ChatResult | undefined
         const path = scopedCoursePath(id, conversationId, 'chat')
         const onEvent = async (event: ChatStreamEvent) => {
-          if (controller.signal.aborted || !isCurrentConversation(id, version, conversationId) || token !== chatRequestToken) return
+          if (controller.signal.aborted || !isCurrentContext(id, version) || token !== runtime.chatRequestToken) return
           if (event.type === 'status') {
             streamingMessage.stream_status = event.detail
+            if (event.stage === 'llm_retry') {
+              streamingMessage.stream_thoughts = [
+                ...(streamingMessage.stream_thoughts ?? []),
+                event.detail,
+              ]
+            }
           } else if (event.type === 'thought') {
             const query = event.query ? ` · ${event.query}` : ''
             streamingMessage.stream_status = event.detail
@@ -340,7 +494,7 @@ export const useChatStore = defineStore('chat', () => {
           } else if (event.type === 'delta') {
             streamingMessage.stream_status = '正在生成回答…'
             for (const unit of displayUnits(event.delta)) {
-              if (controller.signal.aborted || !isCurrentConversation(id, version, conversationId) || token !== chatRequestToken) return
+              if (controller.signal.aborted || !isCurrentContext(id, version) || token !== runtime.chatRequestToken) return
               streamingMessage.content += unit
               await waitForStreamPaint()
             }
@@ -374,40 +528,42 @@ export const useChatStore = defineStore('chat', () => {
         return result
       } catch (cause) {
         if (isAbortError(cause)) {
-          if (isCurrentContext(id, version) && token === chatRequestToken) {
+          if (isCurrentContext(id, version) && token === runtime.chatRequestToken) {
             streamingMessage.streaming = false
             streamingMessage.stream_status = ''
             if (!streamingMessage.content) streamingMessage.content = '已停止生成。'
           }
           return undefined
         }
-        if (isCurrentContext(id, version) && token === chatRequestToken) {
-          error.value = errorMessage(cause)
+        if (isCurrentContext(id, version) && token === runtime.chatRequestToken) {
+          runtime.error = errorMessage(cause)
           streamingMessage.streaming = false
           streamingMessage.stream_status = ''
           if (!streamingMessage.content) streamingMessage.content = '回答生成失败，请重试。'
         }
         throw cause
       } finally {
-        if (chatAbortController === controller) chatAbortController = null
-        if (isCurrentContext(id, version) && token === chatRequestToken) {
-          busy.chat = false
-          if (conversations.value.length > 0) void loadConversations(conversationId)?.catch(() => undefined)
+        if (runtime.abortController === controller) runtime.abortController = null
+        if (isCurrentContext(id, version) && token === runtime.chatRequestToken) {
+          runtime.isStreaming = false
+          if (conversations.value.length > 0) void loadConversations()?.catch(() => undefined)
         }
       }
     })()
   }
 
-  function stop() {
-    if (!busy.chat || !chatAbortController) return
-    chatAbortController.abort()
-    const latest = messages.value.at(-1)
+  function stop(conversationId = activeConversationId.value) {
+    if (conversationId === null) return
+    const runtime = conversationRuntime[conversationId]
+    if (!runtime?.isStreaming || !runtime.abortController) return
+    runtime.abortController.abort()
+    const latest = runtime.messages.at(-1)
     if (latest?.streaming) {
       latest.streaming = false
       latest.stream_status = ''
       if (!latest.content) latest.content = '已停止生成。'
     }
-    busy.chat = false
+    runtime.isStreaming = false
   }
 
   function generateArtifact(kind: StudyArtifact) {
@@ -427,7 +583,7 @@ export const useChatStore = defineStore('chat', () => {
         )
         await useCourseStore().loadCourses()
         if (isCurrentContext(id, version) && token === artifactRequestToken) {
-          await loadMessages()
+          await loadMessages(conversationId)
           if (conversations.value.length > 0) await loadConversations(conversationId)
         }
         return result
@@ -589,7 +745,9 @@ export const useChatStore = defineStore('chat', () => {
     const conversationId = activeConversationId.value
     if (id === null || conversationId === null || busy.chat || busy.summary || busy.quiz || busy.memory) return
     const token = ++memoryRequestToken
-    messagesRequestToken += 1
+    const runtime = runtimeFor(conversationId)
+    runtime.messagesRequestToken += 1
+    runtime.mutationEpoch += 1
     busy.memory = true
     error.value = null
 
@@ -599,10 +757,10 @@ export const useChatStore = defineStore('chat', () => {
           scopedCoursePath(id, conversationId, 'memory/clear'),
         )
         if (
-          isCurrentConversation(id, version, conversationId) &&
+          isCurrentContext(id, version) &&
           token === memoryRequestToken
         ) {
-          messages.value = result.messages
+          runtime.messages = result.messages
           if (conversations.value.length > 0) await loadConversations(conversationId)
         }
         return result
@@ -632,6 +790,7 @@ export const useChatStore = defineStore('chat', () => {
     activeConversation,
     notes,
     mode,
+    draft,
     pendingFiles,
     busy,
     error,
@@ -640,6 +799,8 @@ export const useChatStore = defineStore('chat', () => {
     notesMutationEpoch,
     beginCourse,
     isCurrentContext,
+    isConversationStreaming,
+    navigateDraftHistory,
     loadConversations,
     selectConversation,
     createConversation,

@@ -172,16 +172,17 @@ function onDropLeave(event: DragEvent) {
         >
           <span class="conversation-title">
             <span v-if="item.unread_count > 0" class="unread-dot" aria-label="有未读消息"></span>
+            <span v-if="chat.isConversationStreaming(item.id)" class="running-dot" aria-label="正在生成回答"></span>
             <span>{{ item.title }}</span>
           </span>
-          <span class="conversation-meta">{{ item.message_count }}</span>
+          <span class="conversation-meta">{{ chat.isConversationStreaming(item.id) ? '生成中' : item.message_count }}</span>
         </button>
         <button
           type="button"
           class="conversation-delete"
           aria-label="删除对话"
-          title="删除对话"
-          :disabled="chat.conversations.length <= 1"
+          :title="chat.isConversationStreaming(item.id) ? '回答生成中，不能删除' : '删除对话'"
+          :disabled="chat.conversations.length <= 1 || chat.isConversationStreaming(item.id)"
           @click.stop="deleteConversation(item.id, item.title)"
         >
           ×

@@ -543,6 +543,32 @@ describe('course workspace components', () => {
     expect(send).toHaveBeenCalledWith('什么是页表？')
   })
 
+  it('recalls previous user messages with ArrowUp and restores the draft with ArrowDown', async () => {
+    const { wrapper } = await mountWorkspace()
+    const chat = useChatStore()
+    chat.messages = [
+      { role: 'user', content: '第一问', citations: [], trace: [], created_at: '2026-07-16T00:00:00Z' },
+      answer,
+      { role: 'user', content: '第二问', citations: [], trace: [], created_at: '2026-07-16T00:01:00Z' },
+    ]
+    const composer = wrapper.get('textarea[aria-label="课程问题"]')
+    await composer.setValue('当前草稿')
+    const element = composer.element as HTMLTextAreaElement
+    element.setSelectionRange(element.value.length, element.value.length)
+
+    await composer.trigger('keydown', { key: 'ArrowUp' })
+    expect(chat.draft).toBe('第二问')
+    element.setSelectionRange(0, 0)
+    await composer.trigger('keydown', { key: 'ArrowUp' })
+    expect(chat.draft).toBe('第一问')
+    element.setSelectionRange(element.value.length, element.value.length)
+    await composer.trigger('keydown', { key: 'ArrowDown' })
+    expect(chat.draft).toBe('第二问')
+    element.setSelectionRange(element.value.length, element.value.length)
+    await composer.trigger('keydown', { key: 'ArrowDown' })
+    expect(chat.draft).toBe('当前草稿')
+  })
+
   it('keeps a preview mounted across close/reopen and exposes citation quote and page', async () => {
     const { wrapper } = await mountWorkspace()
     const citationButton = wrapper.get('button[data-citation-file="lesson.pdf"]')
