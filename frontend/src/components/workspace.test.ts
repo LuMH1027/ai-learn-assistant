@@ -624,10 +624,13 @@ describe('course workspace components', () => {
       created_at: '2026-07-16T02:00:00Z',
       streaming: true,
       stream_status: '正在生成回答…',
+      stream_thoughts: ['course_search：需要课程资料 · 页表'],
     }]
     await wrapper.vm.$nextTick()
 
     expect(wrapper.get('.stream-status').text()).toBe('正在生成回答…')
+    expect(wrapper.get('.thinking-panel').text()).toContain('当前思考')
+    expect(wrapper.get('.thinking-panel').text()).toContain('需要课程资料')
     expect(wrapper.get('.streaming-content').text()).toBe('正在形成')
   })
 

@@ -53,6 +53,7 @@ export interface Message {
   created_at: string
   streaming?: boolean
   stream_status?: string
+  stream_thoughts?: string[]
 }
 
 export interface Note {
@@ -413,6 +414,7 @@ export interface ChatResult {
 
 export type ChatStreamEvent =
   | { type: 'status'; stage: string; detail: string }
+  | { type: 'thought'; action: string; detail: string; query?: string }
   | { type: 'delta'; delta: string }
   | { type: 'done'; result: ChatResult }
   | { type: 'error'; error: string }

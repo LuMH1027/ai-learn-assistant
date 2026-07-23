@@ -174,6 +174,7 @@ export const useChatStore = defineStore('chat', () => {
       created_at: timestamp,
       streaming: true,
       stream_status: '正在发送…',
+      stream_thoughts: [],
     }
     messages.value.push(userMessage, assistantMessage)
     const streamingMessage = messages.value[messages.value.length - 1]!
@@ -186,6 +187,13 @@ export const useChatStore = defineStore('chat', () => {
           if (controller.signal.aborted || !isCurrentContext(id, version) || token !== chatRequestToken) return
           if (event.type === 'status') {
             streamingMessage.stream_status = event.detail
+          } else if (event.type === 'thought') {
+            const query = event.query ? ` · ${event.query}` : ''
+            streamingMessage.stream_status = event.detail
+            streamingMessage.stream_thoughts = [
+              ...(streamingMessage.stream_thoughts ?? []),
+              `${event.action}：${event.detail}${query}`,
+            ]
           } else if (event.type === 'delta') {
             streamingMessage.stream_status = '正在生成回答…'
             for (const unit of displayUnits(event.delta)) {

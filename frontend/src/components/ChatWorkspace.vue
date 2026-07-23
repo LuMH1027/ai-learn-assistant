@@ -144,6 +144,10 @@ function onDrop(event: DragEvent) {
     <section ref="messagesPanel" class="messages" aria-label="对话消息" aria-live="polite">
       <article v-for="(message, messageIndex) in chat.messages" :key="`${message.created_at}-${messageIndex}`" :class="message.role">
         <p v-if="message.streaming" class="stream-status" role="status">{{ message.stream_status }}</p>
+        <details v-if="message.stream_thoughts?.length" class="thinking-panel" :open="message.streaming">
+          <summary>当前思考</summary>
+          <p v-for="(thought, thoughtIndex) in message.stream_thoughts" :key="thoughtIndex">{{ thought }}</p>
+        </details>
         <p v-if="message.content" :class="{ 'streaming-content': message.streaming }">{{ message.content }}</p>
         <details v-if="message.trace.length">
           <summary>处理过程</summary>
@@ -205,6 +209,21 @@ button, select { min-height: 44px; }
 .stream-status { color: var(--muted); font-size: 12px; }
 .stream-status::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; }
 .streaming-content::after { content: '▋'; margin-left: 2px; color: var(--accent); animation: pulse .8s steps(2, end) infinite; }
+.thinking-panel {
+  margin: 0.35rem 0 0.5rem;
+  border-left: 2px solid var(--accent);
+  padding-left: 0.65rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.thinking-panel summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 650;
+}
+.thinking-panel p {
+  margin: 0.25rem 0 0;
+}
 .stop-button { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); color: var(--danger); }
 @keyframes pulse { 50% { opacity: .25; } }
 </style>

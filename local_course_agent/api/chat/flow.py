@@ -109,6 +109,12 @@ class ChatFlow:
                 )
             final_status = step.llm_status
             final_reason = step.reason
+            self.emit({
+                "type": "thought",
+                "action": step.action,
+                "detail": step.reason or react_action_label(step.action),
+                "query": step.query[:120] if step.query else "",
+            })
 
             if step.action == "final":
                 final_answer = step.answer
@@ -220,3 +226,14 @@ def summarize_web_observation(web_sources: list, status: str) -> str:
     for index, source in enumerate(web_sources[:3], start=1):
         lines.append(f"[W{index}] {source.get('file_name', '网页')}：{str(source.get('quote', ''))[:280]}")
     return "\n".join(lines)
+
+
+def react_action_label(action: str) -> str:
+    labels = {
+        "final": "直接回答",
+        "course_search": "检索课程资料",
+        "web_search": "联网搜索",
+        "course_and_web_search": "同时检索课程资料和联网资料",
+        "clarify": "请求补充信息",
+    }
+    return labels.get(action, action)
