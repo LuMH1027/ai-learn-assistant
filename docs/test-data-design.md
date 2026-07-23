@@ -6,9 +6,11 @@
 
 ```json
 {
-  "root_folder": "/Users/bytedance/course/test_materials"
+  "root_folder": "/absolute/path/to/course/test_materials"
 }
 ```
+
+`root_folder` 必须填写本机上的绝对路径；上面的值是占位示例，不要把个人目录写入提交材料。
 
 ## 覆盖矩阵
 
@@ -32,4 +34,3 @@
 7. 查询“FIFO 和 LRU 区别”应优先引用 `页面置换.md`，而不是数据结构课程中的 FIFO 队列说明。
 8. 查询“红黑树在哪里出现”应能定位 `第02章-树与查找.markdown`。
 9. 上传一个名为 `chapter.md` 的文件到 `05-上传冲突模拟` 时，预期保存为 `拖入资料/chapter-3.md`。
-

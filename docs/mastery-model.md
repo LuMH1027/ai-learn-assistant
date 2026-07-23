@@ -200,14 +200,14 @@ next_state = apply_answer_result(
 }
 ```
 
-前端课程概览使用该字段展示平均掌握分。`CourseSidebar.vue` 还渲染轻量“掌握度”区块，并在切换课程时同时读取完整 mastery state，直接展示：
+当前 Vue UI 不展示“课程概览”或“掌握度”操作区。以下接口和 Pinia actions 仍保留，可供测试、API 调用或未来界面复用：
 
 - `due_review_count` / `due_reviews`：待复习知识点数量与队列。
 - `open_mistake_count`：仍未订正的错题数量。
 - `weakest_points`：当前最薄弱知识点。
 - 未订正错题列表：题目、关联知识点、参考答案和用户作答。
 
-掌握度区块支持手动新增知识点。表单提交到既有 `POST /api/courses/<course_id>/mastery`：
+新增知识点时向 `POST /api/courses/<course_id>/mastery` 提交：
 
 ```json
 {
@@ -218,7 +218,7 @@ next_state = apply_answer_result(
 }
 ```
 
-掌握度区块中的“对 / 错”按钮会调用既有 `POST /api/courses/<course_id>/mastery`，仅提交：
+记录“对 / 错”时调用同一接口，仅提交：
 
 ```json
 {
@@ -231,13 +231,13 @@ next_state = apply_answer_result(
 
 请求成功后前端刷新 dashboard，让待复习数、未订正数和薄弱点回到后端汇总结果。
 
-未订正错题中的“订正”按钮会调用新增订正接口：
+订正错题时调用：
 
 ```text
 POST /api/courses/os/mastery/mistakes/mistake-xxxxxxxxxxxx/resolve
 ```
 
-请求成功后前端更新完整 mastery state 并刷新 dashboard，使错题列表和未订正数量同步。
+请求成功后调用方应重新读取 mastery 或 dashboard，以保持汇总数据一致。当前前端没有暴露这些操作入口。
 
 `difficulty` 支持：
 

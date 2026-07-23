@@ -1,8 +1,8 @@
 # Parser Quality Evaluation
 
 `local_course_agent.ingestion.parser_quality` provides a pure quality gate for text returned by `extract_text()`.
-It does not parse files, call OCR, or write state. The goal is to make parser health visible before
-PPTX, OCR, and richer document pipelines are wired into the main ingestion flow.
+It does not parse files, call OCR, or write state. The goal is to make parser health visible in the
+current ingestion flow and leave clear signals for future PPTX, OCR, and richer document pipelines.
 
 ## API
 

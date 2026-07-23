@@ -85,4 +85,5 @@ The post-processing adapter returns:
 - The checker uses sentence splitting and token overlap only.
 - Advice, questions, headings, and explicit generic-knowledge markers are treated as non-assertive.
 - Chinese tokenization is lightweight and based on characters plus bigrams.
-- Future integration can wire `postprocess_answer_with_citation_check()` into chat, summary, or generated artifact endpoints without changing the core checker.
+- `ChatFlow` calls the post-processing adapter after answer generation and before persistence. Chat responses expose `citation_check` and `unsupported_claims`, and telemetry records the citation-check stage.
+- Summary and other generated-artifact paths do not currently run this post-processing adapter.

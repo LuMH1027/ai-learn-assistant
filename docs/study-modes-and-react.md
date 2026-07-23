@@ -26,8 +26,22 @@
 3. Planner 只返回 `final`、`course_search`、`web_search`、`course_and_web_search` 或 `clarify`，以及查询词和原因。
 4. 工具调用结果进入 observation；如果 planner 再次请求已执行过的同类工具，流程停止重复调用并使用已有 observation。
 5. `clarify` 直接返回澄清问题。
-6. `final` 或达到最多三轮后，Responder 读取完整 evidence、最近对话和模式作答规则，生成最终回答并流式输出。
+6. `final` 或达到最多三轮后，Responder 读取完整 evidence、最近对话和模式作答规则，生成最终回答并流式输出。`final` 是 planner 的终止 action，不是最终答案本身。
 7. 模型不可用时走本地降级：答疑返回检索结果，启发提示返回方向和关键词，复习返回摘要、自测题和下一步动作。
+
+这里的“模型不可用”指未配置模型或 client 被禁用。已配置模型后的瞬时连接错误最多共尝试五次，界面会显示重试进度；持续失败会返回请求错误。流式生成已经收到 token 后不会重放，以免重复内容。
+
+## 对话与流事件
+
+planner 和 responder 只读取当前 `conversation_id` 的最近消息。所有正常问题都会先经过 planner；简单问题由 planner 返回 `final` 后进入 responder，不在 planner 前固定回复。切换到同一课程的另一个对话后，追问改写、提示披露层级和记忆都会重新以该对话为边界。
+
+流式接口可能发送：
+
+- `status`：附件、思考、检索、联网、最终 responder 调用或 `llm_retry` 阶段。
+- `thought`：planner 选择的 action、原因和可选查询词；前端显示在“当前思考”。
+- `delta`：回答增量，前端实时渲染 Markdown。
+- `error`：请求失败。
+- `done`：最终答案、引用、trace、mode 和 telemetry。
 
 ## 启发提示披露
 

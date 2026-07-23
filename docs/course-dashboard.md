@@ -8,7 +8,7 @@ The HTTP server exposes this aggregation through:
 GET /api/courses/:id/dashboard
 ```
 
-The route is read-only. It loads the course tree from `CTX.find_course`, messages/notes from `CTX.store`, estimates index stats from `data/indexes/:course_id.json`, and returns:
+The route is read-only. It loads the course tree from the current `AppContext.find_course`, messages/notes from `AppContext.store`, estimates index stats from `data/indexes/:course_id.json`, and returns:
 
 ```json
 {
@@ -68,10 +68,9 @@ Generated artifacts are detected from files under the `AI生成` folder. They ar
 
 Index stats support both the current object-shaped index payload and the legacy list-shaped payload. Missing or unreadable indexes report zero indexed files/chunks instead of failing the dashboard route.
 
-## Frontend Integration
+## Frontend Status
 
-The course store exposes `loadDashboard()` and keeps the latest payload in `course.dashboard`.
-The store calls:
+The Pinia course store still exposes `loadDashboard()` and keeps the latest payload in `course.dashboard` for API compatibility. It calls:
 
 ```http
 GET /api/courses/:id/dashboard
@@ -79,7 +78,7 @@ GET /api/courses/:id/dashboard
 
 and applies the response only when the selected course and root version still match the original request. Switching courses or changing the root clears the dashboard state.
 
-`CourseSidebar.vue` renders a compact "课程概览" section in the sidebar. It shows:
+The current `CourseSidebar.vue` does not call or render the dashboard. The visible sidebar contains courses, conversations, the current file tree, a compact configuration summary, and the upload drop zone. Therefore the following aggregation data is backend-only in the current UI:
 
 - indexed/source material count
 - indexed chunk count
@@ -87,4 +86,4 @@ and applies the response only when the selected course and root version still ma
 - a compact mastery block with due review count, open mistake count, weakest mastery points, and per-point correct/wrong actions
 - latest activity
 
-The sidebar triggers `loadDashboard()` when the active course changes and also provides a manual refresh button. It does not reimplement aggregation client-side; it only displays the backend payload. Mastery correct/wrong actions call the existing `course.updateMastery()` store action, which posts to `POST /api/courses/:id/mastery`, then refreshes the dashboard so the summary stays authoritative.
+The API and store actions remain available for tests or a future UI, but user and acceptance documentation must not describe a visible “课程概览” or mastery control area.

@@ -15,7 +15,7 @@
 
 `api`：
 
-- `api/chat/`：聊天编排、阶段上下文、附件 adapter、联网 adapter 和 LLM 答案生成；`api.chat` 只做兼容导出。
+- `api/chat/`：聊天编排、三模式策略、阶段上下文、附件 adapter、联网 adapter 和 LLM 答案生成；`api.chat` 只做兼容导出。
 - `api/server/`：HTTP handler、routes 和 chat streaming adapter。
 - `api/course/`：课程 API 索引、产物、上传、dashboard 和 mastery 适配，入口为 `api.course`。
 
@@ -35,6 +35,7 @@
 - `learning/summary/`：LLM 课程摘要 pipeline，按 `models`、`normalization`、`pipeline`、`serialization`、`citations`、`prompts`、`runner` 拆分，入口为 `learning.summary`。
 - `learning/mastery/`：掌握度与错题模型，按 `builders`、`normalization`、`policy`、`operations` 拆分，入口为 `learning.mastery`。
 - `learning/service.py`：课程学习服务的协调入口，不能继续吸收 dashboard/summary/mastery 内部细节。
+- `learning/study_plan.py`：保留的旧学习计划核心实现；当前没有公开 HTTP 路由或前端入口，不属于现行产品能力。
 
 `retrieval`：
 
@@ -60,7 +61,15 @@
 
 `store`：
 
-- `store/`：文件型状态存储，按 messages、memory、notes、mastery、locks 拆分，入口为 `store`。
+- `store/`：文件型状态存储，按 conversations、messages、memory、notes、mastery、legacy study plan 和 locks 拆分，入口为 `store`。
+
+`storage`：
+
+- `storage/`：路径、安全 ID、JSON/文本编码与旧 SQLite/单会话数据迁移。
+
+`web`：
+
+- `web/`：MCP Streamable HTTP 客户端、联网策略、结果规范化与质量过滤；`web_search.py` 是稳定门面。
 
 ## 禁止回流
 

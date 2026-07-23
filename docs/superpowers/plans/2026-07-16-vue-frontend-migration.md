@@ -1,5 +1,7 @@
 # Vue Frontend Migration Implementation Plan
 
+> Status: Implemented. The Vue migration is complete; unchecked boxes below are historical plan notation, not current outstanding work. See `frontend/` and `docs/使用说明.md` for the active implementation.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the native browser application with a tested Vue 3 + Vite + TypeScript + Pinia frontend while preserving the current UI, Python API, local data, and cross-platform startup experience.

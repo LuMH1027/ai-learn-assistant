@@ -4,8 +4,9 @@
 
 This module provides the dense retrieval side of the production hybrid RAG flow. Course indexing now writes a persistent `<course_id>.vector.json` file beside the lexical JSON index, and `CourseKnowledgeBase.search(..., strategy="hybrid")` loads that vector index before falling back to request-time rebuilds.
 
-The implementation is split across `local_course_agent/retrieval/embeddings.py`
-and `local_course_agent/retrieval/vector_index.py`:
+The implementation is split across `local_course_agent/retrieval/embeddings/`
+and `local_course_agent/retrieval/vector/`. `local_course_agent/retrieval/vector_index.py`
+is the compatibility facade:
 
 - `OpenAICompatibleEmbeddingModel`: real `/embeddings` client for OpenAI-compatible providers, with batching, retry, timeout, and diagnostic errors.
 - `create_embedding_model(config)`: selects a real embedding provider when `ai.embedding_model` is configured, otherwise uses the local fallback.

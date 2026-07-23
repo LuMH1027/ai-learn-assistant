@@ -231,9 +231,10 @@ provided, it is derived from prompt and completion tokens.
 
 ## Runtime integrations
 
-- ChatFlow: wraps attachment indexing, course retrieval, web search, answer
-  generation, and citation checking. The response keeps existing fields and adds
-  a compact `telemetry` object for request diagnostics.
+- ChatFlow: wraps attachment indexing, each ReAct planning step, course retrieval,
+  web search, answer generation, and citation checking. The response keeps existing
+  fields and adds a compact `telemetry` object for request diagnostics. Live
+  `status`/`thought` events are UI feedback and are not a persistent trace store.
 - Index jobs: expose durable job status through `GET /api/index-jobs/{job_id}`
   with progress, current file, timestamps, and per-file error details. Job
   snapshots are stored in `data/index_jobs.json`; interrupted queued/running

@@ -1,6 +1,6 @@
 # 章节级 Map-Reduce 摘要 Pipeline
 
-当前实现已通过 `local_course_agent.learning.artifacts.generate_course_summary()` 接入课程摘要接口，并由 `local_course_agent.learning.service.generate_course_summary()` 保持旧导入兼容。纯函数式 pipeline 仍保持不读写文件、不直接创建网络 client 的边界，由学习产物服务注入现有 OpenAI-compatible LLM client，并在失败时降级到 single prompt 或本地抽取式摘要。
+当前实现已通过 `local_course_agent.learning.artifacts.generate_course_summary()` 接入课程摘要接口，并由 `local_course_agent.learning.service.generate_course_summary()` 保持旧导入兼容。纯函数式 pipeline 仍保持不读写文件、不直接创建网络 client 的边界，由学习产物服务注入现有 OpenAI-compatible LLM client。未配置 client、空 evidence 或空模型结果可以降级到 single prompt 或本地抽取式摘要；已配置 provider 的持续网络异常会在重试后作为请求错误抛出。
 
 ## 目标
 

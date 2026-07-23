@@ -14,6 +14,8 @@ It is exposed through a small CLI script and intentionally remains separate from
 
 Runtime secrets such as `config.json`, SQLite files, uploads, caches, and unrelated files are excluded.
 
+Because all current conversation metadata, per-conversation messages/memory, notes, and mastery files live under `course_memory/**`, they are included. Chat attachments under `chat_uploads/` are not included.
+
 ## API
 
 ```python

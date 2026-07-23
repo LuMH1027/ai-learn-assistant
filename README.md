@@ -9,18 +9,18 @@
 - 自动识别本地课程目录与多级文件树。
 - 三栏工作区支持百分比拖动、紧凑侧栏和可关闭资料预览。
 - 在同一预览区阅读 PDF、图片、文本，以及经过排版渲染的 Markdown。
-- 每门课程独立构建知识库、会话、记忆和笔记。
+- 每门课程独立构建知识库并共享课程笔记；一门课程可创建多个彼此隔离的对话，每个对话拥有独立消息和记忆。
 - 支持答疑、启发提示和复习三种学习模式；旧客户端发送 `socratic` 或 `homework` 会兼容归一为启发提示。
-- 一键生成 LLM 课程摘要与本地练习题，并保存回课程目录；模型不可用时摘要会回退为本地抽取式摘要。
+- 一键生成 LLM 课程摘要与本地练习题，并保存回课程目录；未配置模型时摘要使用本地抽取式回退。
 - 回答附带来源文件、原文片段和 PDF 页码。
 - 检索采用标题感知切块、BM25、持久向量索引、多路 RRF 融合、本地 rerank、MMR 去重和相邻上下文扩展；配置 `ai.embedding_model` 后可使用 OpenAI-compatible embedding。
 - 回答前由已配置模型判断是否需要课程资料、联网搜索或直接短答；问候和普通闲聊不会触发 RAG 或搜索。
 - 学习模式会同时影响 ReAct 工具决策和最终作答策略，不再只是在答案前拼接固定前缀。
 - 回答优先使用课程资料；未检索到依据时，可由已配置模型明确标注后使用通用知识补充。
 - 明确需要外部资料、竞品、论文、官网或时效信息时，可按需调用 Web Search MCP，并显示可点击网页来源。
-- 对话从请求接收、课程检索、联网到模型生成全程流式反馈，模型文本按 token 增量显示。
+- 对话从 ReAct 思考、课程检索、联网到最终模型生成全程流式反馈；界面显示当前思考、最终模型调用状态、连接重试进度，并实时渲染增量 Markdown。
 - 支持课程资料上传和聊天临时附件。
-- 可选接入 OpenAI-compatible 模型、embedding、rerank、Web Search MCP 与 MinerU；未配置时会在配置健康区显示降级提示，并使用本地轻量能力。
+- 可选接入 OpenAI-compatible 模型、embedding、rerank、Web Search MCP 与 MinerU；侧栏底部显示压缩的配置健康摘要，未配置能力使用对应本地能力或保持关闭。
 
 ## 环境要求
 
@@ -130,11 +130,14 @@ local_course_agent/
 ├─ learning/    # 课程索引任务、摘要、dashboard、掌握度模型
 ├─ ingestion/   # 解析质量评估等资料入库前处理
 ├─ ops/         # 备份恢复、配置健康状态、遥测诊断
+├─ storage/     # 文件路径、编码和旧数据迁移
+├─ store/       # 对话、消息、记忆、笔记和掌握度存储
+├─ llm/         # OpenAI-compatible 客户端、配置、图片和 Prompt
+├─ parser/      # PDF、DOCX、文本和 MinerU 解析入口
+├─ web/         # MCP 联网协议、策略、质量与结果规范化
 ├─ server.py    # ThreadingHTTPServer 与 Handler glue
-├─ llm.py       # LLM 客户端与 Prompt
-├─ parser.py    # 文档解析入口
 ├─ scanner.py   # 本地课程目录扫描
-└─ store.py     # 文件型状态存储
+└─ uploads.py   # 课程资料和聊天附件落盘边界
 ```
 
 功能模块不再保留顶层兼容 alias。业务代码应直接导入子包路径，例如 `local_course_agent.retrieval.rag`、`local_course_agent.learning.summary`、`local_course_agent.ops.backup`。
@@ -236,22 +239,22 @@ copy data\config.example.json data\config.json
 
 项目实现 MCP `2025-06-18` Streamable HTTP 客户端，支持 JSON 与 SSE 响应。示例使用 [Exa 官方 Web Search MCP](https://exa.ai/docs/reference/exa-mcp)；免费额度可不填 key，超过限额后在 `api_key` 填写 Exa key。也可以替换成其他返回结构化 URL、标题和摘要的搜索 MCP。
 
-联网判断规则：本地检索证据充分且问题不要求最新信息时跳过联网；本地无结果、相关性不足、包含“最新/目前/联网”或明确年份时调用搜索。只向 MCP 发送学生问题，不发送课程片段或附件正文。处理过程会显示联网是否被跳过、未配置、无结果或失败。
+联网由最多三轮的 ReAct planner 决定。所有正常问题都会先经过 planner；planner 可以返回 `final`、澄清问题、检索课程资料、联网搜索或同时调用两类工具。`final` 表示 ReAct 阶段结束、无需工具，随后仍会进入最终 LLM responder 生成给用户看的自然语言答案。已有 observation 足够时不会重复调用相同工具；如果计划中的课程或网页工具已经命中可用证据，会直接交给 responder，避免再做一轮 planner。只向 MCP 发送搜索查询，不发送课程片段或附件正文。处理过程会显示联网是否被选择、未配置、无结果或失败。
 
-课程摘要使用已入库的代表性课程片段构造专用 Prompt，再调用 `ai` 中配置的 OpenAI-compatible 模型生成分层 Markdown 摘要。摘要要求只基于课程片段输出，并保留来源引用；如果未配置模型或模型调用失败，系统会自动使用本地抽取式摘要兜底。
+课程摘要使用已入库的代表性课程片段构造专用 Prompt，再调用 `ai` 中配置的 OpenAI-compatible 模型生成分层 Markdown 摘要。未配置模型时使用本地抽取式摘要；配置模型后的瞬时网络错误会重试，持续失败会作为请求错误显示，避免把连接故障伪装成正常模型结果。
 
-首次启动时，侧栏底部的“配置健康”会显示启动清单：设置资料根目录、构建课程知识库、可选配置大模型和真实 embedding。AI、真实 embedding、rerank、Web Search MCP 或 MinerU 未配置时，系统会明确显示对应降级提示。
+侧栏底部的“配置健康”显示资料目录、索引、向量和基础运行能力的压缩摘要。完整 capability payload 可通过 `GET /api/config/status` 查看；当前界面不逐项展开 rerank、Web Search MCP 或 MinerU 详情。
 
 不要提交真实 `data/config.json`。`.gitignore` 只允许提交 `data/config.example.json`。
 
 ## 使用流程
 
 1. 启动系统并设置资料根目录。
-2. 在左栏选择课程与文件。
-3. 构建当前课程知识库。
-4. 在中央对话区选择模式并提问。
+2. 在左栏选择课程，创建或切换对话并选择文件。
+3. 在设置菜单中构建当前课程知识库。
+4. 在中央对话区选择答疑、启发提示或复习模式并提问。
 5. 点击回答引用，在右栏核对原文和页码。
-6. 按需生成摘要、练习题或保存课程笔记。
+6. 按需生成摘要、练习题或保存课程笔记；“清空记忆”只清空当前对话。
 
 ## 数据位置
 
@@ -259,9 +262,12 @@ copy data\config.example.json data\config.json
 data/
 ├─ config.json
 ├─ course_memory/<course_id>/
-│  ├─ messages.json
-│  ├─ memory.md
-│  └─ notes.json
+│  ├─ conversations.json
+│  ├─ conversations/<conversation_id>/
+│  │  ├─ messages.json
+│  │  └─ memory.md
+│  ├─ notes.json
+│  └─ mastery.json
 ├─ chat_uploads/
 └─ indexes/
    ├─ <course_id>.json
@@ -272,6 +278,8 @@ data/
 
 检索索引会记录 schema/tokenizer 版本、章节标题、资料类型和来源路径，并在同目录保存持久向量索引；回答接口会返回检索 trace，便于核对命中片段、匹配词、分数和证据充分性。检索实现见 [`docs/rag-retrieval-strategy.md`](docs/rag-retrieval-strategy.md)，向量检索见 [`docs/vector-retrieval.md`](docs/vector-retrieval.md)，答案级评测见 [`docs/rag-eval.md`](docs/rag-eval.md)。
 
-课程摘要优先使用章节级 map-reduce LLM pipeline，失败时降级为 single prompt 或本地抽取式摘要；实现边界见 [`docs/summary-pipeline.md`](docs/summary-pipeline.md)。配置能力状态、内存遥测诊断和本地数据备份恢复分别见 [`docs/telemetry.md`](docs/telemetry.md) 与 [`docs/backup-and-migration.md`](docs/backup-and-migration.md)。
+课程摘要优先使用章节级 map-reduce LLM pipeline，未配置模型或返回空结果时可降级为 single prompt 或本地抽取式摘要；实现边界见 [`docs/summary-pipeline.md`](docs/summary-pipeline.md)。多对话存储、数据边界、配置能力状态、遥测诊断和备份恢复分别见 [`docs/conversations-and-storage.md`](docs/conversations-and-storage.md)、[`docs/security-and-data-boundaries.md`](docs/security-and-data-boundaries.md)、[`docs/telemetry.md`](docs/telemetry.md) 与 [`docs/backup-and-migration.md`](docs/backup-and-migration.md)。
 
 项目开发中遇到的 UI、异步状态、RAG、联网、流式传输、跨平台依赖和配置安全问题，以及对应解决过程，见 [`docs/开发问题与解决记录.md`](docs/开发问题与解决记录.md)。
+
+完整文档导航见 [`docs/index.md`](docs/index.md)。

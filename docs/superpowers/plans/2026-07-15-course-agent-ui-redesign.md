@@ -1,5 +1,7 @@
 # Course Agent UI Redesign Implementation Plan
 
+> Status: Superseded. This historical plan targets the removed native `web/index.html`, `app.js`, and `styles.css` frontend. Do not execute its unchecked tasks against the current Vue application.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the current decorative three-panel page with a Codex-inspired, light learning workspace whose percentage-based columns resize locally, whose preview can close, and whose existing course, chat, preview, upload, note, summary, and quiz workflows remain usable.

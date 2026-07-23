@@ -31,15 +31,15 @@
 
 该模块只负责生成检索查询，不保证回答正确性。最终答案仍必须由课程资料检索结果和引用约束决定。当前实现是规则型、确定性的，适合作为最小可合并切片；后续可以在不破坏接口的前提下接入 LLM 查询改写或课程术语表。
 
-## 聊天接口接入
+## ChatFlow 接入
 
-`server.chat()` 会在保存当前用户消息前读取历史消息，并调用：
+`local_course_agent.api.chat.flow.ChatFlow.run()` 会在保存当前用户消息前读取当前 `conversation_id` 的历史消息，并调用：
 
 ```python
 build_contextual_retrieval_query(question, previous_messages)
 ```
 
-保存到聊天记录的用户消息仍是原始 `question`。用于 `CTX.kb.answer(...)` 和后续 LLM grounded prompt 的输入是 `retrieval_query`；如果有聊天附件，附件文本会继续追加到这个检索查询后面。
+保存到聊天记录的用户消息仍是原始 `question`。用于 `AppContext.kb.answer(...)` 和后续 responder 的输入是 `retrieval_query`；如果有聊天附件，附件文本会继续追加到这个检索查询后面。不同对话之间不会共享追问上下文。
 
 响应中的 `retrieval_trace.contextual_query` 会包含：
 

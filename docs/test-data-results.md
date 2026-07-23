@@ -1,7 +1,9 @@
 # 测试数据测试结果
 
+> 状态：2026-07-23 的局部测试快照，仅覆盖下述扫描、解析和上传边界；当前全系统验证见 [`acceptance-report.md`](acceptance-report.md)。
+
 测试日期：2026-07-23  
-测试目录：`/Users/bytedance/course/test_materials`  
+测试目录：仓库内 `test_materials/`
 测试对象：本地课程 RAG Agent 测试资料集
 
 ## 总结
@@ -60,4 +62,3 @@ python3 -c 'from pathlib import Path; from local_course_agent.scanner import Cou
 ## 风险与后续建议
 
 本次验证未启动完整前后端服务，也未调用真实 LLM、Embedding、Rerank、MinerU 或 Web Search，因此未覆盖模型质量、联网搜索质量和前端视觉交互。若要做完整验收，建议将 `data/config.json` 的 `root_folder` 指向 `test_materials`，启动服务后补充浏览器端手工验证和 RAG 问答验证。
-
