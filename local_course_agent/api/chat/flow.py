@@ -165,6 +165,9 @@ class ChatFlow:
                 did_tool_work = True
                 observations.append({"action": "web_search", "summary": summarize_web_observation(web_sources, web_status)})
             if did_tool_work:
+                if planned_tools_are_complete_with_evidence(step.action, result, web_sources):
+                    final_reason = "已完成计划中的资料获取，直接交给最终 LLM 生成回答。"
+                    break
                 continue
             final_reason = final_reason or "已有 observation 足够，停止重复工具调用。"
             break
@@ -175,7 +178,8 @@ class ChatFlow:
             sources.combined_result["answer"] = clarification_answer
         elif planner_fallback_answer and not str(sources.combined_result.get("answer") or "").strip():
             sources.combined_result["answer"] = planner_fallback_answer
-
+        if not needs_clarification:
+            self.emit({"type": "status", "stage": "responder", "detail": "正在调用最终模型生成回答…"})
         answer, responder_status = self.answer_generator.generate(
             mode=mode,
             needs_clarification=needs_clarification,
@@ -231,10 +235,11 @@ class ChatFlow:
 
     def _ai_config_with_retry_status(self, ai_config: dict) -> dict:
         def retry_status(next_attempt: int, max_retries: int, exc: Exception) -> None:
+            failed_attempts = max(1, next_attempt - 1)
             self.emit({
                 "type": "status",
                 "stage": "llm_retry",
-                "detail": f"连接中断，正在重试 {next_attempt}/{max_retries}…",
+                "detail": f"LLM 调用失败 {failed_attempts}/{max_retries}，正在重试第 {next_attempt} 次…",
             })
 
         return {**(ai_config or {}), "__retry_callback__": retry_status}
@@ -286,6 +291,25 @@ def summarize_web_observation(web_sources: list, status: str) -> str:
     for index, source in enumerate(web_sources[:3], start=1):
         lines.append(f"[W{index}] {source.get('file_name', '网页')}：{str(source.get('quote', ''))[:280]}")
     return "\n".join(lines)
+
+
+def planned_tools_are_complete_with_evidence(action: str, result: dict, web_sources: list) -> bool:
+    if action == "course_search":
+        return course_result_has_answerable_evidence(result)
+    if action == "web_search":
+        return bool(web_sources)
+    if action == "course_and_web_search":
+        return course_result_has_answerable_evidence(result) or bool(web_sources)
+    return False
+
+
+def course_result_has_answerable_evidence(result: dict) -> bool:
+    if result.get("citations"):
+        return True
+    quality = str(result.get("retrieval_quality") or "").strip().lower()
+    if quality in {"sufficient", "partial"}:
+        return True
+    return False
 
 
 def react_action_label(action: str) -> str:

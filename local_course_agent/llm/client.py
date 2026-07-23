@@ -127,7 +127,10 @@ class OpenAICompatibleClient:
                         if data_text == "[DONE]":
                             return
                         data = json.loads(data_text)
-                        content = data.get("choices", [{}])[0].get("delta", {}).get("content")
+                        choices = data.get("choices") or []
+                        if not choices:
+                            continue
+                        content = choices[0].get("delta", {}).get("content")
                         if content:
                             emitted = True
                             yield content

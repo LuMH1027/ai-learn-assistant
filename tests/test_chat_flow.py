@@ -2,14 +2,16 @@ import json
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from local_course_agent.api.chat import ChatFlow
-from local_course_agent.api.chat.generation import AgentStep, ChatAnswerGenerator
+from local_course_agent.api.chat.generation import AgentStep, ChatAnswerGenerator, plan_agent_step, synthesize_answer_stream
 from local_course_agent.api.chat.steps import (
     build_attachment_context,
     build_retrieval_context,
     build_source_context,
 )
+from local_course_agent.llm.client import LLMRequestError
 
 
 class FakeStore:
@@ -153,12 +155,128 @@ class ChatFlowTelemetryTest(unittest.TestCase):
         self.assertIn("telemetry", payload)
         self.assertEqual(payload["citations"][0]["reference_label"], "L1")
 
-    def test_light_chat_uses_direct_model_without_retrieval_or_web(self):
+    def test_light_chat_uses_llm_responder_without_retrieval_or_web(self):
         store = FakeStore()
         kb = FakeKnowledgeBase()
         web_calls = []
+        synthesize_calls = []
         context = SimpleNamespace(
             config={"ai": {}, "web_search": {}},
+            find_course=lambda _course_id: {"name": "操作系统"},
+            kb=kb,
+            store=store,
+        )
+        planner = mock.Mock(return_value=AgentStep(
+            action="final",
+            answer="",
+            reason="简单问候直接进入最终回答器",
+            llm_status="used",
+        ))
+        flow = ChatFlow(
+            context=context,
+            data_dir=Path("/tmp"),
+            emit=lambda _event: None,
+            index_uploads=lambda _course_id, _uploads: ("", []),
+            retrieve_web=lambda *args, **kwargs: web_calls.append((args, kwargs)) or ([], "used"),
+            plan_step=planner,
+            synthesize=lambda question, _result, image_paths=None, ai_config=None, mode="answer", previous_messages=None: (
+                synthesize_calls.append(question) or "LLM 生成的问候回答",
+                "used",
+            ),
+        )
+
+        payload = flow.run("course-1", {"question": "你好", "mode": "answer"}, [])
+
+        self.assertEqual(kb.calls, [])
+        self.assertEqual(web_calls, [])
+        planner.assert_called_once()
+        self.assertEqual(synthesize_calls, ["你好"])
+        self.assertEqual(payload["retrieval_trace"]["decision"], "react_pending")
+        self.assertEqual(payload["web_search_status"], "skipped")
+        self.assertEqual("LLM 生成的问候回答", payload["answer"])
+        retrieval_step = next(step for step in store.messages[-1]["trace"] if step["label"] == "检索")
+        self.assertEqual(retrieval_step["status"], "skip")
+
+    def test_light_chat_with_configured_ai_uses_stream_responder(self):
+        store = FakeStore()
+        events = []
+        context = SimpleNamespace(
+            config={"ai": {"base_url": "http://llm", "api_key": "key", "model": "model"}, "web_search": {}},
+            find_course=lambda _course_id: {"name": "操作系统"},
+            kb=FakeKnowledgeBase(),
+            store=store,
+        )
+        planner = mock.Mock(return_value=AgentStep(
+            action="final",
+            reason="用户问候属于闲聊，直接回答无需工具",
+            llm_status="used",
+        ))
+        flow = ChatFlow(
+            context=context,
+            data_dir=Path("/tmp"),
+            emit=events.append,
+            stream_format="sse",
+            index_uploads=lambda _course_id, _uploads: ("", []),
+            retrieve_web=lambda *args, **kwargs: ([], "skipped"),
+            plan_step=planner,
+            synthesize_stream=mock.Mock(return_value=("LLM 流式问候回答", "used")),
+        )
+
+        payload = flow.run("course-1", {"question": "你好", "mode": "answer"}, [])
+
+        self.assertEqual(payload["answer"], "LLM 流式问候回答")
+        planner.assert_called_once()
+        flow.answer_generator.synthesize_stream.assert_called_once()
+
+    def test_identity_question_uses_llm_responder_instead_of_fixed_fallback(self):
+        store = FakeStore()
+        synthesize_calls = []
+        events = []
+        context = SimpleNamespace(
+            config={"ai": {"base_url": "http://llm", "api_key": "key", "model": "model"}, "web_search": {}},
+            find_course=lambda _course_id: {"name": "操作系统"},
+            kb=FakeKnowledgeBase(),
+            store=store,
+        )
+        planner = mock.Mock(return_value=AgentStep(
+            action="final",
+            reason="身份问题无需检索，但需要模型生成最终回答",
+            llm_status="used",
+        ))
+        flow = ChatFlow(
+            context=context,
+            data_dir=Path("/tmp"),
+            emit=events.append,
+            index_uploads=lambda _course_id, _uploads: ("", []),
+            retrieve_web=lambda *args, **kwargs: ([], "skipped"),
+            plan_step=planner,
+            synthesize=lambda question, _result, image_paths=None, ai_config=None, mode="answer", previous_messages=None: (
+                synthesize_calls.append(question) or "我是由 LLM 生成的课程学习助手回答。",
+                "used",
+            ),
+        )
+
+        payload = flow.run("course-1", {"question": "你是谁", "mode": "answer"}, [])
+
+        self.assertEqual(synthesize_calls, ["你是谁"])
+        planner.assert_called_once()
+        self.assertEqual(payload["answer"], "我是由 LLM 生成的课程学习助手回答。")
+        self.assertIn(
+            {"type": "status", "stage": "responder", "detail": "正在调用最终模型生成回答…"},
+            events,
+        )
+
+    def test_course_search_with_evidence_skips_second_planner_call(self):
+        store = FakeStore()
+        kb = FakeKnowledgeBase()
+        planner = mock.Mock(return_value=AgentStep(
+            action="course_search",
+            query="解释 TLB",
+            reason="需要课程资料",
+            llm_status="used",
+        ))
+        context = SimpleNamespace(
+            config={"ai": {"base_url": "http://llm", "api_key": "key", "model": "model"}, "web_search": {}},
             find_course=lambda _course_id: {"name": "操作系统"},
             kb=kb,
             store=store,
@@ -168,24 +286,82 @@ class ChatFlowTelemetryTest(unittest.TestCase):
             data_dir=Path("/tmp"),
             emit=lambda _event: None,
             index_uploads=lambda _course_id, _uploads: ("", []),
-            retrieve_web=lambda *args, **kwargs: web_calls.append((args, kwargs)) or ([], "used"),
-            plan_step=lambda *args, **kwargs: AgentStep(
-                action="final",
-                answer="我在。",
-                reason="test",
-                llm_status="disabled",
+            retrieve_web=lambda *args, **kwargs: ([], "skipped"),
+            plan_step=planner,
+            synthesize=lambda question, _result, image_paths=None, ai_config=None, mode="answer", previous_messages=None: (
+                f"LLM 基于资料回答：{question}",
+                "used",
             ),
         )
 
-        payload = flow.run("course-1", {"question": "你好", "mode": "answer"}, [])
+        payload = flow.run("course-1", {"question": "解释 TLB", "mode": "answer"}, [])
 
-        self.assertEqual(kb.calls, [])
-        self.assertEqual(web_calls, [])
-        self.assertEqual(payload["retrieval_trace"]["decision"], "react_pending")
-        self.assertEqual(payload["web_search_status"], "skipped")
-        self.assertEqual("我在。", payload["answer"])
-        retrieval_step = next(step for step in store.messages[-1]["trace"] if step["label"] == "检索")
-        self.assertEqual(retrieval_step["status"], "skip")
+        self.assertEqual(planner.call_count, 1)
+        self.assertEqual(kb.calls, [("course-1", "解释 TLB")])
+        self.assertEqual(payload["answer"], "LLM 基于资料回答：解释 TLB")
+
+    def test_planner_failure_does_not_treat_short_course_question_as_greeting(self):
+        class BrokenClient:
+            def enabled(self):
+                return True
+
+            def generate(self, *_args, **_kwargs):
+                raise LLMRequestError("down")
+
+        step = plan_agent_step(
+            "讲一下知识点",
+            course_name="操作系统",
+            llm_client_factory=lambda _config: BrokenClient(),
+        )
+
+        self.assertEqual(step.action, "course_search")
+        self.assertEqual(step.query, "讲一下知识点")
+
+    def test_stream_responder_failure_emits_fallback_answer_when_course_result_exists(self):
+        class BrokenClient:
+            def enabled(self):
+                return True
+
+            def stream(self, *_args, **_kwargs):
+                raise LLMRequestError("stream down")
+
+            def generate(self, *_args, **_kwargs):
+                raise LLMRequestError("generate down")
+
+        events = []
+        answer, status = synthesize_answer_stream(
+            "讲一下知识点",
+            {"answer": "课程资料里的本地回答", "citations": []},
+            events.append,
+            llm_client_factory=lambda _config: BrokenClient(),
+        )
+
+        self.assertEqual(answer, "课程资料里的本地回答")
+        self.assertEqual(status, "fallback")
+        self.assertEqual(events, ["课程资料里的本地回答"])
+
+    def test_stream_responder_failure_without_local_answer_reports_model_unavailable(self):
+        class BrokenClient:
+            def enabled(self):
+                return True
+
+            def stream(self, *_args, **_kwargs):
+                raise LLMRequestError("stream down")
+
+            def generate(self, *_args, **_kwargs):
+                raise LLMRequestError("generate down")
+
+        events = []
+        answer, status = synthesize_answer_stream(
+            "你是谁",
+            {"answer": "", "citations": []},
+            events.append,
+            llm_client_factory=lambda _config: BrokenClient(),
+        )
+
+        self.assertIn("当前大模型不可用", answer)
+        self.assertEqual(status, "fallback")
+        self.assertEqual(events, [answer])
 
     def test_run_returns_compact_telemetry_without_leaking_config_secrets(self):
         store = FakeStore()

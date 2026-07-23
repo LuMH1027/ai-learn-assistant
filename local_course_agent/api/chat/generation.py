@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+from local_course_agent.llm.client import LLMRequestError
 from local_course_agent.llm.config import create_llm_client
 from local_course_agent.llm.prompts import build_grounded_prompt
 
@@ -14,7 +15,13 @@ from .modes import get_study_mode_policy, normalize_study_mode
 
 
 CLARIFICATION_ANSWER = "你的问题信息不足，请补充完整题目、知识点名称，或说明输入的编号对应哪一道题。为避免误导，本次没有联网搜索，也没有调用模型猜测。"
-LIGHT_FALLBACK_ANSWER = "我在。"
+MODEL_UNAVAILABLE_ANSWER = "当前大模型不可用，无法生成回答。请检查模型配置、网络或稍后重试。"
+LIGHT_FALLBACK_ANSWER = MODEL_UNAVAILABLE_ANSWER
+LIGHT_CHAT_PATTERNS = (
+    r"^(你|您)?好[啊呀]?[。!！?？]*$",
+    r"^(hi|hello|hey)[。!！?？]*$",
+    r"^在吗[。!！?？]*$",
+)
 
 
 @dataclass(frozen=True)
@@ -131,7 +138,19 @@ def generate_agent_step(client, prompt: str) -> str | None:
     try:
         return client.generate(prompt, max_tokens=900, timeout=45)
     except TypeError:
-        return client.generate(prompt)
+        try:
+            return client.generate(prompt)
+        except LLMRequestError:
+            return None
+    except LLMRequestError:
+        return None
+
+
+def light_chat_answer(question: str) -> str:
+    normalized = question.strip().lower()
+    if any(re.fullmatch(pattern, normalized) for pattern in LIGHT_CHAT_PATTERNS):
+        return LIGHT_FALLBACK_ANSWER
+    return ""
 
 
 def parse_agent_step(text: str) -> dict | None:
@@ -192,11 +211,11 @@ def fallback_agent_step(
             reason="模型不可用，追问场景本地降级为课程检索。",
             llm_status="fallback" if llm_enabled else "disabled",
         )
-    if not has_attachments and len(normalized) <= 8:
+    if not has_attachments and light_chat_answer(normalized):
         return AgentStep(
             action="final",
-            answer=LIGHT_FALLBACK_ANSWER,
-            reason="模型不可用，本地降级为短答。",
+            answer="",
+            reason="模型不可用，问候类问题仍交给最终回答器。",
             llm_status="fallback" if llm_enabled else "disabled",
         )
     return AgentStep(
@@ -231,8 +250,14 @@ class ChatAnswerGenerator:
         image_paths: list[Path],
         ai_config: dict,
         previous_messages: Sequence[Mapping] | None = None,
+        direct_answer: str = "",
     ) -> tuple[str, str]:
         mode = normalize_study_mode(mode)
+        if direct_answer.strip():
+            answer = direct_answer.strip()
+            self._emit_delta(answer)
+            return answer, "skipped"
+
         if needs_clarification:
             answer = combined_result.get("answer") or CLARIFICATION_ANSWER
             self._emit_delta(answer)
@@ -300,7 +325,10 @@ def synthesize_answer(
     llm_configured = client.enabled()
     if image_paths:
         image_prompt = image_grounded_prompt(question, result, mode=mode, previous_messages=previous_messages or [])
-        generated = client.generate_with_images(image_prompt, image_paths)
+        try:
+            generated = client.generate_with_images(image_prompt, image_paths)
+        except LLMRequestError:
+            generated = None
         if generated:
             return generated, "used"
         fallback = mode_fallback_answer(mode, result, question, previous_messages or [])
@@ -310,7 +338,10 @@ def synthesize_answer(
             "请确认 `data/config.json` 中配置的是支持视觉输入的模型，或把截图中的文字复制到聊天框。"
         ), "fallback" if llm_configured else "disabled"
     prompt = build_responder_prompt(question, result, mode=mode, previous_messages=previous_messages or [])
-    generated = client.generate(prompt)
+    try:
+        generated = client.generate(prompt)
+    except LLMRequestError:
+        generated = None
     if generated:
         return generated, "used"
     return mode_fallback_answer(mode, result, question, previous_messages or []), "fallback" if llm_configured else "disabled"
@@ -331,22 +362,39 @@ def synthesize_answer_stream(
     client = llm_client_factory(ai_config or {})
     llm_configured = client.enabled()
     prompt = build_responder_prompt(question, result, mode=mode, previous_messages=previous_messages)
+    stream_error = False
     if image_paths:
         image_prompt = image_grounded_prompt(question, result, mode=mode, previous_messages=previous_messages)
-        chunks = client.stream_with_images(image_prompt, image_paths)
+        try:
+            chunks = client.stream_with_images(image_prompt, image_paths)
+        except LLMRequestError:
+            chunks = []
+            stream_error = True
         fallback_generate = lambda: client.generate_with_images(image_prompt, image_paths)
     else:
-        chunks = client.stream(prompt)
+        try:
+            chunks = client.stream(prompt)
+        except LLMRequestError:
+            chunks = []
+            stream_error = True
         fallback_generate = lambda: client.generate(prompt)
 
     generated_parts = []
-    for chunk in chunks or []:
-        generated_parts.append(chunk)
-        emit_delta(chunk)
+    try:
+        for chunk in chunks or []:
+            generated_parts.append(chunk)
+            emit_delta(chunk)
+    except LLMRequestError:
+        stream_error = True
+        if generated_parts:
+            return "".join(generated_parts), "used"
     if generated_parts:
         return "".join(generated_parts), "used"
 
-    generated = fallback_generate()
+    try:
+        generated = None if stream_error else fallback_generate()
+    except LLMRequestError:
+        generated = None
     if generated:
         emit_delta(generated)
         return generated, "used"
@@ -452,7 +500,7 @@ def mode_fallback_answer(
             "下一步\n"
             "用 3 分钟写出一版概念图，再对照资料补缺。"
         )
-    return base or LIGHT_FALLBACK_ANSWER
+    return base or MODEL_UNAVAILABLE_ANSWER
 
 
 def guide_disclosure_allowed(question: str, previous_messages: Sequence[Mapping]) -> bool:

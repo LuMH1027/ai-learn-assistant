@@ -39,6 +39,26 @@ class LlmPromptTest(unittest.TestCase):
         self.assertEqual(chunks, ["你", "好"])
         self.assertTrue(payload["stream"])
 
+    def test_openai_compatible_client_ignores_empty_stream_choices(self):
+        client = OpenAICompatibleClient(
+            base_url="https://api.siliconflow.cn/v1",
+            api_key="test-key",
+            model="test-model",
+        )
+        fake_response = mock.MagicMock()
+        fake_response.__enter__.return_value = fake_response
+        fake_response.__iter__.return_value = iter([
+            b'data: {"choices":[]}\n',
+            'data: {"choices":[{"delta":{"content":"好"}}]}\n'.encode("utf-8"),
+            b'data: [DONE]\n',
+        ])
+
+        with mock.patch("local_course_agent.llm.client.urllib.request.urlopen", return_value=fake_response) as urlopen:
+            chunks = list(client.stream("hello"))
+
+        self.assertEqual(chunks, ["好"])
+        self.assertEqual(urlopen.call_count, 1)
+
     def test_grounded_prompt_prioritizes_course_material_and_labels_supplements(self):
         prompt = build_grounded_prompt(
             question="页表有什么作用？",
