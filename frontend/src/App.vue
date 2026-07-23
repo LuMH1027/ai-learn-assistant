@@ -39,6 +39,15 @@ function toggleSidebar() {
   }
 }
 
+async function loadChatContext() {
+  try {
+    await chat.loadConversations()
+  } catch {
+    await chat.loadMessages()
+    chat.error = null
+  }
+}
+
 watch(
   () => [course.activeCourseId, course.contextVersion] as const,
   ([id, version]) => {
@@ -46,7 +55,7 @@ watch(
     preview.beginCourse(id, version)
     notesOpen.value = false
     if (id !== null) {
-      void Promise.allSettled([chat.loadMessages(), chat.loadNotes()]).then((results) => {
+      void Promise.allSettled([loadChatContext(), chat.loadNotes()]).then((results) => {
         const rejected = results.find((result) => result.status === 'rejected')
         if (rejected?.status === 'rejected') showError(rejected.reason)
       })
@@ -92,7 +101,10 @@ onBeforeUnmount(() => {
       />
     </template>
     <template #preview>
-      <FilePreview />
+      <FilePreview
+        :aria-hidden="layout.previewOpen ? undefined : true"
+        :inert="!layout.previewOpen ? true : undefined"
+      />
     </template>
   </ResizableWorkspace>
   <NotesDrawer :open="notesOpen" @close="notesOpen = false" />

@@ -392,68 +392,28 @@ describe('course workspace components', () => {
     expect(fileInputs.every((input) => input.attributes('hidden') !== undefined)).toBe(true)
   })
 
-  it('renders the compact course dashboard in the sidebar', async () => {
+  it('keeps the sidebar focused on courses, conversations, files and settings', async () => {
     const { wrapper } = await mountWorkspace()
     await flushPromises()
 
-    const dashboard = wrapper.get('section[aria-labelledby="course-dashboard-title"]')
-    expect(dashboard.text()).toContain('课程概览')
-    expect(dashboard.text()).toContain('2/3')
-    expect(dashboard.text()).toContain('12')
-    expect(dashboard.text()).toContain('掌握度')
-    expect(dashboard.text()).toContain('1 待复习 · 1 未订正')
-    expect(dashboard.text()).toContain('薄弱点：页表地址转换 35')
-    expect(dashboard.text()).toContain('解释页表地址转换。')
-    expect(dashboard.text()).toContain('答案：页号查页表得到页框号，再拼接偏移。')
-    expect(dashboard.text()).toContain('最近：笔记 · TLB 易错点')
+    expect(wrapper.find('section[aria-labelledby="course-dashboard-title"]').exists()).toBe(false)
+    expect(wrapper.find('form[aria-label="新增知识点"]').exists()).toBe(false)
+    expect(wrapper.get('section[aria-labelledby="course-list-title"]').text()).toContain('操作系统')
+    expect(wrapper.get('section[aria-labelledby="conversation-list-title"]').text()).toContain('对话')
+    expect(wrapper.get('section[aria-labelledby="file-tree-title"]').text()).toContain('lesson.pdf')
+    expect(wrapper.get('details.settings-menu').text()).toContain('资料根目录')
   })
 
-  it('records a mastery answer from the sidebar and refreshes the dashboard', async () => {
+  it('uses a hamburger settings trigger and closes it on outside click', async () => {
     const { wrapper } = await mountWorkspace()
     await flushPromises()
 
-    await wrapper.get('button[aria-label="记录页表地址转换回答正确"]').trigger('click')
-    await flushPromises()
+    const menu = wrapper.get('details.settings-menu').element as HTMLDetailsElement
+    expect(wrapper.get('details.settings-menu > summary').text()).toBe('☰')
 
-    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/mastery', {
-      answer_result: {
-        point_id: 'kp-page-table',
-        correct: true,
-      },
-    })
-    const dashboardLoads = api.getJson.mock.calls
-      .filter(([path]) => String(path).endsWith('/dashboard'))
-    expect(dashboardLoads.length).toBeGreaterThanOrEqual(2)
-  })
-
-  it('adds a mastery point from the sidebar form', async () => {
-    const { wrapper } = await mountWorkspace()
-    await flushPromises()
-
-    await wrapper.get('input[aria-label="知识点名称"]').setValue('TLB 命中率')
-    await wrapper.get('input[aria-label="知识点别名"]').setValue('快表, 地址转换缓存')
-    await wrapper.get('form[aria-label="新增知识点"]').trigger('submit')
-    await flushPromises()
-
-    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/mastery', {
-      knowledge_point: {
-        title: 'TLB 命中率',
-        aliases: ['快表', '地址转换缓存'],
-      },
-    })
-  })
-
-  it('resolves an open mastery mistake from the sidebar', async () => {
-    const { wrapper } = await mountWorkspace()
-    await flushPromises()
-
-    await wrapper.get('button[aria-label="标记解释页表地址转换。已订正"]').trigger('click')
-    await flushPromises()
-
-    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/mastery/mistakes/mistake-1/resolve')
-    const dashboardLoads = api.getJson.mock.calls
-      .filter(([path]) => String(path).endsWith('/dashboard'))
-    expect(dashboardLoads.length).toBeGreaterThanOrEqual(2)
+    menu.open = true
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+    expect(menu.open).toBe(false)
   })
 
   it('renders config health status in the sidebar', async () => {
@@ -461,12 +421,24 @@ describe('course workspace components', () => {
     await flushPromises()
 
     const health = wrapper.get('[aria-label="配置健康状态"]')
-    expect(health.text()).toContain('配置健康：需关注')
-    expect(health.text()).toContain('AI 生成：正常')
-    expect(health.text()).toContain('RAG 索引：需配置')
-    expect(health.text()).toContain('向量检索：正常')
-    expect(health.text()).toContain('遥测诊断：正常')
-    expect(health.text()).toContain('备份恢复：正常')
+    expect(health.text()).toContain('配置：缺 RAG 索引')
+    expect(health.text()).not.toContain('AI 生成')
+    expect(health.text()).not.toContain('向量检索')
+  })
+
+  it('highlights the course drop zone while files are dragged over it', async () => {
+    const { wrapper } = await mountWorkspace()
+    await flushPromises()
+
+    const dropZone = wrapper.get('.course-drop-zone')
+    await dropZone.trigger('dragenter')
+    expect(dropZone.attributes('data-dragging')).toBe('true')
+    await dropZone.trigger('drop', {
+      dataTransfer: {
+        files: [new File(['x'], 'lesson.txt', { type: 'text/plain' })],
+      },
+    })
+    expect(dropZone.attributes('data-dragging')).toBe('false')
   })
 
   it('does not render or auto-load the removed study plan feature', async () => {
@@ -753,7 +725,7 @@ describe('course workspace components', () => {
     expect(wrapper.get('section[aria-label="已保存笔记"]').text()).not.toContain('更新重点')
   })
 
-  it('clears course messages and memory from the toolbar with a busy state', async () => {
+  it('clears current conversation messages and memory from the toolbar with a busy state', async () => {
     const clearMemory = deferred<{ ok: boolean; messages: Message[]; memory: string }>()
     api.postJson.mockImplementation((path: string) => {
       if (path.endsWith('/memory/clear')) return clearMemory.promise
@@ -773,13 +745,13 @@ describe('course workspace components', () => {
     const { wrapper } = await mountWorkspace()
     await flushPromises()
 
-    await wrapper.get('button[aria-label="清空课程会话和记忆"]').trigger('click')
+    await wrapper.get('button[aria-label="清空当前对话和记忆"]').trigger('click')
     await wrapper.vm.$nextTick()
 
-    const clearButton = wrapper.get('button[aria-label="清空课程会话和记忆"]')
+    const clearButton = wrapper.get('button[aria-label="清空当前对话和记忆"]')
     expect(clearButton.text()).toBe('清空中…')
     expect(clearButton.attributes('disabled')).toBeDefined()
-    expect(window.confirm).toHaveBeenCalledWith('清空 操作系统 的会话和记忆？此操作不会删除课程笔记。')
+    expect(window.confirm).toHaveBeenCalledWith('清空「历史对话」的消息和记忆？课程资料和课程笔记不会删除。')
 
     clearMemory.resolve({ ok: true, messages: [], memory: '' })
     await flushPromises()

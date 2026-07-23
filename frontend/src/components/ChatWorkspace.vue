@@ -60,8 +60,8 @@ function generate(kind: 'summary' | 'quiz') {
 }
 
 function clearMemory() {
-  const activeCourseName = course.activeCourse?.name ?? '当前课程'
-  if (!window.confirm(`清空 ${activeCourseName} 的会话和记忆？此操作不会删除课程笔记。`)) return
+  const activeConversationName = chat.activeConversation?.title ?? '当前对话'
+  if (!window.confirm(`清空「${activeConversationName}」的消息和记忆？课程资料和课程笔记不会删除。`)) return
   void chat.clearCourseMemory()?.catch(() => undefined)
 }
 
@@ -111,7 +111,7 @@ function assistantMarkdown(content: string) {
       </button>
       <div>
         <h1>{{ course.activeCourse?.name ?? '课程 Agent' }}</h1>
-        <p>{{ course.activeCourse ? `${course.activeCourse.file_count} 个文件 · 独立会话与记忆` : '选择一门课程开始学习' }}</p>
+        <p>{{ course.activeCourse ? `${chat.activeConversation?.title ?? '未选择对话'} · ${course.activeCourse.file_count} 个课程文件` : '选择一门课程开始学习' }}</p>
       </div>
       <span role="status">{{ busy || course.indexing ? 'Running' : 'Idle' }}</span>
       <button
@@ -130,7 +130,7 @@ function assistantMarkdown(content: string) {
       <button type="button" aria-label="生成练习题" :disabled="!course.activeCourse || busy" @click="generate('quiz')">生成练习</button>
       <button
         type="button"
-        aria-label="清空课程会话和记忆"
+        aria-label="清空当前对话和记忆"
         :disabled="!course.activeCourse || busy"
         @click="clearMemory"
       >
@@ -208,7 +208,7 @@ function assistantMarkdown(content: string) {
       >
         ■
       </button>
-      <button v-else type="button" aria-label="发送问题" :disabled="!course.activeCourse || busy" @click="send">发送</button>
+      <button v-else type="button" class="send-button" aria-label="发送问题" :disabled="!course.activeCourse || busy" @click="send">↑</button>
       <p v-if="chat.pendingFiles.length">已附加 {{ chat.pendingFiles.length }} 个文件</p>
     </div>
   </main>
@@ -227,8 +227,8 @@ button, select { min-height: 44px; }
 .message-markdown :deep(h2),
 .message-markdown :deep(h3),
 .message-markdown :deep(h4) {
-  margin: 1.1em 0 0.45em;
-  line-height: 1.3;
+  margin: 0.85em 0 0.35em;
+  line-height: 1.25;
 }
 .message-markdown :deep(h1:first-child),
 .message-markdown :deep(h2:first-child),
@@ -248,14 +248,14 @@ button, select { min-height: 44px; }
 .message-markdown :deep(blockquote),
 .message-markdown :deep(pre),
 .message-markdown :deep(table) {
-  margin: 0 0 0.8em;
+  margin: 0 0 0.58em;
 }
 .message-markdown :deep(ul),
 .message-markdown :deep(ol) {
-  padding-left: 1.45em;
+  padding-left: 1.28em;
 }
 .message-markdown :deep(li + li) {
-  margin-top: 0.2em;
+  margin-top: 0.12em;
 }
 .message-markdown :deep(code) {
   border-radius: 4px;
@@ -269,7 +269,7 @@ button, select { min-height: 44px; }
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface-subtle);
-  padding: 0.8em 0.9em;
+  padding: 0.58em 0.68em;
   white-space: pre;
 }
 .message-markdown :deep(pre code) {
@@ -279,7 +279,7 @@ button, select { min-height: 44px; }
 .message-markdown :deep(blockquote) {
   border-left: 3px solid var(--accent);
   background: var(--surface-subtle);
-  padding: 0.5em 0.8em;
+  padding: 0.38em 0.62em;
   color: var(--muted);
 }
 .message-markdown :deep(table) {
@@ -289,7 +289,7 @@ button, select { min-height: 44px; }
 .message-markdown :deep(th),
 .message-markdown :deep(td) {
   border: 1px solid var(--line);
-  padding: 0.4em 0.55em;
+  padding: 0.3em 0.42em;
   text-align: left;
 }
 .message-markdown :deep(a) {
@@ -299,9 +299,9 @@ button, select { min-height: 44px; }
   margin-bottom: 0;
 }
 .thinking-panel {
-  margin: 0.35rem 0 0.5rem;
+  margin: 0.25rem 0 0.38rem;
   border-left: 2px solid var(--accent);
-  padding-left: 0.65rem;
+  padding-left: 0.5rem;
   color: var(--muted);
   font-size: 0.78rem;
 }
@@ -311,7 +311,7 @@ button, select { min-height: 44px; }
   font-weight: 650;
 }
 .thinking-panel p {
-  margin: 0.25rem 0 0;
+  margin: 0.16rem 0 0;
 }
 .stop-button { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); color: var(--danger); }
 @keyframes pulse { 50% { opacity: .25; } }

@@ -10,10 +10,13 @@ const stylesheet = existsSync(stylesheetPath)
 
 describe('workspace visual contract', () => {
   it('declares the approved percentage layout and viewport sizing', () => {
-    expect(stylesheet).toContain('--sidebar-share: 22%')
-    expect(stylesheet).toContain('--preview-share: 31%')
+    expect(stylesheet).toContain('--sidebar-share: 20%')
+    expect(stylesheet).toContain('--preview-share: 33%')
     expect(stylesheet).toContain('height: 100dvh')
     expect(stylesheet).toContain('grid-template-columns')
+    expect(stylesheet).toContain('--preview-transition')
+    expect(stylesheet).toContain('grid-template-columns var(--preview-transition)')
+    expect(stylesheet).toContain('0% 0%')
   })
 
   it('supports compact, mobile, focus and reduced-motion states', () => {
@@ -25,7 +28,8 @@ describe('workspace visual contract', () => {
   })
 
   it('uses the approved quiet palette without gradients', () => {
-    expect(stylesheet.toLowerCase()).toContain('#e8ecef')
+    expect(stylesheet.toLowerCase()).toContain('#fbfbfb')
+    expect(stylesheet.toLowerCase()).toContain('#f8f8f8')
     expect(stylesheet).not.toMatch(/gradient\s*\(/i)
   })
 })

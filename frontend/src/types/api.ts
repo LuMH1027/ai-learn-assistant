@@ -56,6 +56,16 @@ export interface Message {
   stream_thoughts?: string[]
 }
 
+export interface Conversation {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+  last_read_at: string
+  message_count: number
+  unread_count: number
+}
+
 export interface Note {
   id: number
   title: string
@@ -280,6 +290,16 @@ export interface CoursesResponse {
 
 export interface MessagesResponse {
   messages: Message[]
+}
+
+export interface ConversationsResponse {
+  conversations: Conversation[]
+}
+
+export interface SaveConversationResponse {
+  ok: boolean
+  conversation?: Conversation
+  conversations: Conversation[]
 }
 
 export interface NotesResponse {

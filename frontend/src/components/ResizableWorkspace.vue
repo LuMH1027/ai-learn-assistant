@@ -106,7 +106,6 @@ function onKeydown(side: 'left' | 'right', event: KeyboardEvent) {
     />
     <slot name="main" />
     <div
-      v-if="layout.previewOpen"
       class="column-resizer right-resizer"
       role="separator"
       aria-label="调整对话栏和预览栏宽度"
@@ -114,7 +113,8 @@ function onKeydown(side: 'left' | 'right', event: KeyboardEvent) {
       aria-valuemin="20"
       aria-valuemax="44"
       :aria-valuenow="Math.round(layout.previewShare)"
-      tabindex="0"
+      :aria-hidden="layout.previewOpen ? undefined : true"
+      :tabindex="layout.previewOpen ? 0 : -1"
       @pointerdown="onPointerDown('right', $event)"
       @pointermove="onPointerMove('right', $event)"
       @pointerup="finishPointer"
@@ -127,8 +127,15 @@ function onKeydown(side: 'left' | 'right', event: KeyboardEvent) {
 </template>
 
 <style scoped>
-.workspace-shell { display: grid; grid-template-columns: var(--sidebar-share) 0.6% var(--center-share) 0.6% var(--preview-share); min-height: 100dvh; }
-.workspace-shell:not(.preview-open) { grid-template-columns: var(--sidebar-share) 0.6% var(--center-share); }
+.workspace-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-share) 0.6% minmax(0, var(--center-share)) 0.6% var(--preview-share);
+  min-height: 100dvh;
+  transition: grid-template-columns var(--preview-transition);
+}
+.workspace-shell:not(.preview-open) {
+  grid-template-columns: var(--sidebar-share) 0.6% minmax(0, var(--center-share)) 0% 0%;
+}
 .column-resizer { cursor: col-resize; min-width: 6px; touch-action: none; }
 .is-mobile { display: block; }
 </style>

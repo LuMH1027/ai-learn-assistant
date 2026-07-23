@@ -1,17 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import { useChatStore } from '../stores/chat'
 import { useCourseStore } from '../stores/course'
 import { usePreviewStore } from '../stores/preview'
-import type {
-  ConfigCapabilityStatus,
-  FileLeafNode,
-  MasteryDashboardItem,
-  MasteryKnowledgePointInput,
-  MistakeRecord,
-} from '../types/api'
+import type { ConfigCapabilityStatus, FileLeafNode } from '../types/api'
 import FileTree from './FileTree.vue'
-import MasteryPanel from './MasteryPanel.vue'
 
 defineProps<{ sidebarOpen: boolean }>()
 
@@ -20,13 +14,14 @@ const emit = defineEmits<{
 }>()
 
 const course = useCourseStore()
+const chat = useChatStore()
 const preview = usePreviewStore()
 const rootFolder = ref('')
 const coursePicker = ref<HTMLInputElement | null>(null)
+const settingsMenu = ref<HTMLDetailsElement | null>(null)
 const error = ref<string | null>(null)
-const masteryActionId = ref<string | null>(null)
+const dropActive = ref(false)
 
-const latestDashboardActivity = computed(() => course.dashboard?.recent_activity[0] ?? null)
 const healthItems = computed(() => {
   const preferred = ['ai', 'rag_index', 'vector', 'material_root', 'data_dir', 'telemetry', 'backup']
   const items = course.configStatus?.capabilities ?? []
@@ -34,16 +29,32 @@ const healthItems = computed(() => {
     .map((key) => items.find((item) => item.key === key))
     .filter((item): item is ConfigCapabilityStatus => item !== undefined)
 })
-const setupSteps = computed(() => course.configStatus?.setup_steps ?? [])
-const degradationNotices = computed(() => course.configStatus?.degradation_notices ?? [])
+const healthSummary = computed(() => {
+  if (course.configStatusLoading) return '检查中'
+  const missing = healthItems.value.filter((item) => item.status === 'warning' || item.status === 'error')
+  if ((course.configStatus?.overall ?? 'warning') === 'ok' && missing.length === 0) return '正常'
+  if (missing.length === 0) return '需关注'
+  return `缺 ${missing.map((item) => item.label).join('、')}`
+})
 
 watch(() => course.config?.root_folder, (value) => {
   rootFolder.value = value ?? ''
 }, { immediate: true })
 
-watch(() => [course.activeCourseId, course.contextVersion] as const, ([id]) => {
-  if (id !== null) void run(() => Promise.all([course.loadDashboard(), course.loadMastery()]))
-}, { immediate: true })
+function closeSettingsOnOutsideClick(event: PointerEvent) {
+  const menu = settingsMenu.value
+  if (!menu?.open) return
+  if (event.target instanceof Node && menu.contains(event.target)) return
+  menu.open = false
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', closeSettingsOnOutsideClick)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', closeSettingsOnOutsideClick)
+})
 
 async function run(action: () => unknown | Promise<unknown>) {
   error.value = null
@@ -67,73 +78,30 @@ function upload(files: File[]) {
   if (files.length > 0) void run(() => course.uploadCourseFiles(files))
 }
 
-function activityLabel(type: string) {
-  if (type.startsWith('message:')) return '对话'
-  if (type === 'note') return '笔记'
-  if (type === 'generated_artifact') return '生成'
-  return '活动'
+function createConversation() {
+  void run(() => chat.createConversation())
 }
 
-function healthStatusLabel(status: ConfigCapabilityStatus['status']) {
-  if (status === 'ok') return '正常'
-  if (status === 'warning') return '需配置'
-  if (status === 'error') return '异常'
-  return '未启用'
+function renameConversation(conversationId: string, currentTitle: string) {
+  const next = window.prompt('对话名称', currentTitle)
+  if (next === null || next.trim() === currentTitle.trim()) return
+  void run(() => chat.renameConversation(conversationId, next))
 }
 
-function overallHealthLabel(status: 'ok' | 'warning' | 'error' | undefined) {
-  if (status === 'ok') return '正常'
-  if (status === 'error') return '异常'
-  return '需关注'
-}
-
-function setupStepStatusLabel(status: 'done' | 'todo' | 'optional') {
-  if (status === 'done') return '完成'
-  if (status === 'optional') return '可选'
-  return '待处理'
-}
-
-function recordMasteryAnswer(item: MasteryDashboardItem, correct: boolean) {
-  if (masteryActionId.value !== null) return
-  masteryActionId.value = item.id
-  void run(async () => {
-    await course.updateMastery({
-      answer_result: {
-        point_id: item.id,
-        correct,
-      },
-    })
-    await course.loadDashboard()
-  }).finally(() => {
-    masteryActionId.value = null
-  })
-}
-
-function addMasteryPoint(point: MasteryKnowledgePointInput) {
-  if (masteryActionId.value !== null) return
-  masteryActionId.value = 'add-point'
-  void run(async () => {
-    await course.updateMastery({ knowledge_point: point })
-    await course.loadDashboard()
-  }).finally(() => {
-    masteryActionId.value = null
-  })
-}
-
-function resolveMasteryMistake(mistake: MistakeRecord) {
-  if (masteryActionId.value !== null) return
-  masteryActionId.value = mistake.id
-  void run(async () => {
-    await course.resolveMasteryMistake(mistake.id)
-    await course.loadDashboard()
-  }).finally(() => {
-    masteryActionId.value = null
-  })
+function deleteConversation(conversationId: string, title: string) {
+  if (!window.confirm(`删除对话「${title}」？课程资料不会删除。`)) return
+  void run(() => chat.deleteConversation(conversationId))
 }
 
 function onDrop(event: DragEvent) {
   event.preventDefault()
+  dropActive.value = false
   upload([...(event.dataTransfer?.files ?? [])])
+}
+
+function onDropLeave(event: DragEvent) {
+  if (event.currentTarget !== event.target) return
+  dropActive.value = false
 }
 </script>
 
@@ -142,6 +110,23 @@ function onDrop(event: DragEvent) {
     <header class="brand-block">
       <span class="brand-mark" aria-hidden="true">LC</span>
       <div><strong>Local Course</strong><span>课程学习助手</span></div>
+      <details ref="settingsMenu" class="settings-menu">
+        <summary aria-label="打开设置" title="设置">☰</summary>
+        <div class="settings-panel">
+          <label for="root-folder">资料根目录</label>
+          <input id="root-folder" v-model="rootFolder" />
+          <button type="button" :disabled="course.savingRoot" @click="run(() => course.saveRoot(rootFolder))">设置根目录</button>
+          <button type="button" :disabled="!course.activeCourse || course.indexing" @click="run(course.indexActiveCourse)">{{ course.indexStatus ?? '构建知识库' }}</button>
+          <input
+            ref="coursePicker"
+            type="file"
+            multiple
+            hidden
+            @change="upload(filesFrom($event.target))"
+          />
+          <button type="button" :disabled="!course.activeCourse" @click="coursePicker?.click()">添加课程资料</button>
+        </div>
+      </details>
       <button type="button" aria-label="关闭课程栏" @click="emit('close')">×</button>
     </header>
 
@@ -165,38 +150,43 @@ function onDrop(event: DragEvent) {
       </button>
     </section>
 
-    <section class="sidebar-section dashboard-section" aria-labelledby="course-dashboard-title">
+    <section class="sidebar-section conversation-section" aria-labelledby="conversation-list-title">
       <div class="section-heading">
-        <h2 id="course-dashboard-title">课程概览</h2>
-        <button class="icon-button" type="button" aria-label="刷新课程概览" title="刷新课程概览" :disabled="!course.activeCourse || course.dashboardLoading" @click="run(course.loadDashboard)">↻</button>
+        <h2 id="conversation-list-title">对话</h2>
+        <button class="icon-button" type="button" aria-label="新建对话" title="新建对话" :disabled="!course.activeCourse" @click="createConversation">+</button>
       </div>
-      <div v-if="course.activeCourse && course.dashboard" class="dashboard-panel">
-        <div class="dashboard-metrics" aria-label="课程概览指标">
-          <span><strong>{{ course.dashboard.materials.indexed_files }}/{{ course.dashboard.materials.file_count }}</strong>资料</span>
-          <span><strong>{{ course.dashboard.materials.indexed_chunks }}</strong>片段</span>
-          <span><strong>{{ course.dashboard.mastery?.average_score ?? 0 }}</strong>掌握</span>
-        </div>
-        <p v-if="latestDashboardActivity" class="dashboard-line">
-          最近：{{ activityLabel(latestDashboardActivity.type) }} · {{ latestDashboardActivity.title }}
-        </p>
-        <details v-if="course.dashboard.mastery" class="mastery-details">
-          <summary>
-            <span>掌握度</span>
-            <strong>{{ course.dashboard.mastery.average_score }}</strong>
-            <small>{{ course.dashboard.mastery.due_review_count }} 待复习 · {{ course.dashboard.mastery.open_mistake_count }} 未订正</small>
-          </summary>
-          <MasteryPanel
-            :mastery="course.dashboard.mastery"
-            :state="course.mastery"
-            :busy="masteryActionId !== null"
-            @add-point="addMasteryPoint"
-            @record="recordMasteryAnswer"
-            @resolve-mistake="resolveMasteryMistake"
-          />
-        </details>
+      <p v-if="!course.activeCourse">选择课程后显示对话</p>
+      <div
+        v-for="item in chat.conversations"
+        v-else
+        :key="item.id"
+        class="conversation-button"
+      >
+        <button
+          type="button"
+          class="conversation-select"
+          :aria-pressed="item.id === chat.activeConversationId"
+          :title="`${item.title}，${item.message_count} 条消息`"
+          @click="chat.selectConversation(item.id)"
+          @dblclick="renameConversation(item.id, item.title)"
+        >
+          <span class="conversation-title">
+            <span v-if="item.unread_count > 0" class="unread-dot" aria-label="有未读消息"></span>
+            <span>{{ item.title }}</span>
+          </span>
+          <span class="conversation-meta">{{ item.message_count }}</span>
+        </button>
+        <button
+          type="button"
+          class="conversation-delete"
+          aria-label="删除对话"
+          title="删除对话"
+          :disabled="chat.conversations.length <= 1"
+          @click.stop="deleteConversation(item.id, item.title)"
+        >
+          ×
+        </button>
       </div>
-      <p v-else-if="course.activeCourse">正在准备课程概览</p>
-      <p v-else>选择课程后显示概览</p>
     </section>
 
     <section class="sidebar-section file-section" aria-labelledby="file-tree-title">
@@ -213,57 +203,21 @@ function onDrop(event: DragEvent) {
     <footer class="sidebar-footer">
       <div class="service-status" aria-label="配置健康状态">
         <div class="status-heading">
-          <span>配置健康：{{ overallHealthLabel(course.configStatus?.overall) }}</span>
+          <span>配置：{{ healthSummary }}</span>
           <button class="icon-button" type="button" aria-label="刷新配置健康状态" title="刷新配置健康状态" :disabled="course.configStatusLoading" @click="run(course.loadConfigStatus)">↻</button>
         </div>
-        <div v-if="healthItems.length > 0" class="health-grid">
-          <span
-            v-for="item in healthItems"
-            :key="item.key"
-            class="health-chip"
-            :data-status="item.status"
-            :title="item.detail"
-          >
-            <span aria-hidden="true"></span>{{ item.label }}：{{ healthStatusLabel(item.status) }}
-          </span>
-        </div>
-        <span v-else>{{ course.configStatusLoading ? '正在检查配置…' : '尚未检查配置' }}</span>
-        <div v-if="course.configStatus?.setup_required && setupSteps.length > 0" class="setup-guide" aria-label="首次启动清单">
-          <strong>首次启动清单</strong>
-          <span
-            v-for="step in setupSteps"
-            :key="step.key"
-            class="setup-step"
-            :data-status="step.status"
-            :title="step.detail"
-          >
-            {{ setupStepStatusLabel(step.status) }} · {{ step.label }}
-          </span>
-        </div>
-        <div v-if="degradationNotices.length > 0" class="degradation-list" aria-label="降级提示">
-          <strong>降级提示</strong>
-          <span
-            v-for="notice in degradationNotices"
-            :key="notice.key"
-            :title="notice.detail"
-          >
-            {{ notice.label }}
-          </span>
-        </div>
       </div>
-      <label for="root-folder">资料根目录</label>
-      <input id="root-folder" v-model="rootFolder" />
-      <button type="button" :disabled="course.savingRoot" @click="run(() => course.saveRoot(rootFolder))">设置</button>
-      <button type="button" :disabled="!course.activeCourse || course.indexing" @click="run(course.indexActiveCourse)">{{ course.indexStatus ?? '构建知识库' }}</button>
-      <input
-        ref="coursePicker"
-        type="file"
-        multiple
-        hidden
-        @change="upload(filesFrom($event.target))"
-      />
-      <button type="button" :disabled="!course.activeCourse" @click="coursePicker?.click()">添加课程资料</button>
-      <div class="course-drop-zone" tabindex="0" @dragover.prevent @drop="onDrop">拖入文件，加入当前课程</div>
+      <div
+        class="course-drop-zone"
+        tabindex="0"
+        :data-dragging="dropActive"
+        @dragenter.prevent="dropActive = true"
+        @dragover.prevent="dropActive = true"
+        @dragleave="onDropLeave"
+        @drop="onDrop"
+      >
+        拖入文件，加入当前课程
+      </div>
       <p v-if="error" role="alert">{{ error }}</p>
     </footer>
   </aside>
@@ -272,129 +226,58 @@ function onDrop(event: DragEvent) {
 <style scoped>
 .course-sidebar { min-width: 0; }
 .brand-block span { display: block; }
-button { min-height: 44px; }
-.dashboard-section {
-  flex: 0 0 auto;
-  border-bottom: 1px solid rgba(185, 191, 188, 0.68);
+button { min-height: 32px; }
+.conversation-section {
+  flex: 1 1 30%;
+  overflow: auto;
+  border-bottom: 1px solid var(--line);
 }
-.dashboard-panel {
+.settings-menu {
+  position: relative;
+  margin-left: auto;
+}
+.settings-menu > summary {
   display: grid;
-  gap: 0.45rem;
-  min-width: 0;
-}
-.dashboard-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.35rem;
-}
-.dashboard-metrics span {
-  min-width: 0;
-  border: 1px solid rgba(185, 191, 188, 0.55);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.55);
-  padding: 0.4rem 0.45rem;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
   color: var(--muted);
-  font-size: 0.68rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dashboard-metrics strong {
-  display: block;
-  color: var(--text);
-  font-size: 0.9rem;
-  line-height: 1.1;
-}
-.dashboard-line {
-  margin: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.74rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mastery-details {
-  min-width: 0;
-  border: 1px solid rgba(185, 191, 188, 0.65);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.5);
-}
-.mastery-details > summary {
-  display: grid;
-  min-height: 34px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0 0.45rem;
-  padding: 0.35rem 0.5rem;
-  color: var(--text);
   cursor: pointer;
   list-style: none;
 }
-.mastery-details > summary::-webkit-details-marker {
+.settings-menu > summary::-webkit-details-marker {
   display: none;
 }
-.mastery-details > summary::after {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  color: var(--faint);
-  content: "展开";
-  font-size: 0.7rem;
-  font-weight: 650;
-}
-.mastery-details[open] > summary::after {
-  content: "收起";
-}
-.mastery-details > summary span,
-.mastery-details > summary small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mastery-details > summary strong {
-  grid-column: 1;
-  grid-row: 1;
-  margin-left: 3.2rem;
-  justify-self: start;
-  color: var(--accent);
-  font-size: 0.82rem;
-}
-.mastery-details > summary small {
-  grid-column: 1;
-  grid-row: 2;
-  color: var(--muted);
-  font-size: 0.68rem;
-}
-.mastery-details :deep(.mastery-panel) {
-  margin: 0 0.5rem 0.55rem;
-}
-.setup-guide,
-.degradation-list {
+.settings-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 15;
   display: grid;
-  gap: 4px;
-  min-width: 0;
-  border-top: 1px solid rgba(185, 191, 188, 0.55);
-  padding-top: 5px;
+  width: min(17rem, 78vw);
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 9px;
+  box-shadow: var(--shadow);
 }
-.setup-guide strong,
-.degradation-list strong {
-  color: var(--text);
-  font-size: 10px;
-}
-.setup-step,
-.degradation-list span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.setup-step[data-status="done"] {
-  color: var(--accent);
-}
-.setup-step[data-status="todo"] {
-  color: var(--danger);
-}
-.setup-step[data-status="optional"] {
+.settings-panel label {
   color: var(--muted);
+  font-size: 11px;
+}
+.settings-panel input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 5px 7px;
+}
+.settings-panel button {
+  width: 100%;
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text);
 }
 </style>
