@@ -5,12 +5,13 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+from local_course_agent.llm import LLMRequestError as PublicLLMRequestError
 from local_course_agent.llm import OpenAICompatibleClient as PublicOpenAICompatibleClient
 from local_course_agent.llm import build_course_summary_prompt as public_build_course_summary_prompt
 from local_course_agent.llm import build_grounded_prompt as public_build_grounded_prompt
 from local_course_agent.llm import create_llm_client as public_create_llm_client
 from local_course_agent.llm import image_to_data_url as public_image_to_data_url
-from local_course_agent.llm.client import OpenAICompatibleClient
+from local_course_agent.llm.client import LLMRequestError, OpenAICompatibleClient
 from local_course_agent.llm.config import create_llm_client
 from local_course_agent.llm.images import image_to_data_url
 from local_course_agent.llm.prompts import build_course_summary_prompt, build_grounded_prompt
@@ -143,6 +144,41 @@ class LlmPromptTest(unittest.TestCase):
         self.assertEqual(payload["max_tokens"], 64)
         self.assertEqual(urlopen.call_args.kwargs["timeout"], 5)
 
+    def test_openai_compatible_client_retries_before_success(self):
+        client = OpenAICompatibleClient(
+            base_url="https://api.siliconflow.cn/v1",
+            api_key="test-key",
+            model="Qwen/Qwen3.5-35B-A3B",
+        )
+        fake_response = mock.Mock()
+        fake_response.__enter__ = mock.Mock(return_value=fake_response)
+        fake_response.__exit__ = mock.Mock(return_value=None)
+        fake_response.read.return_value = b'{"choices":[{"message":{"content":"answer"}}]}'
+
+        with mock.patch(
+            "local_course_agent.llm.client.urllib.request.urlopen",
+            side_effect=[OSError("temporary")] * 4 + [fake_response],
+        ) as urlopen:
+            result = client.generate("hello")
+
+        self.assertEqual(result, "answer")
+        self.assertEqual(urlopen.call_count, 5)
+
+    def test_openai_compatible_client_raises_after_five_failures(self):
+        client = OpenAICompatibleClient(
+            base_url="https://api.siliconflow.cn/v1",
+            api_key="test-key",
+            model="Qwen/Qwen3.5-35B-A3B",
+        )
+
+        with (
+            mock.patch("local_course_agent.llm.client.urllib.request.urlopen", side_effect=OSError("down")) as urlopen,
+            self.assertRaisesRegex(LLMRequestError, "已重试 5 次.*down"),
+        ):
+            client.generate("hello")
+
+        self.assertEqual(urlopen.call_count, 5)
+
     def test_create_llm_client_requires_configured_endpoint_and_model(self):
         with mock.patch.dict(os.environ, {"SILICONFLOW_API_KEY": "env-secret"}):
             client = create_llm_client({})
@@ -177,6 +213,7 @@ class LlmPromptTest(unittest.TestCase):
 
     def test_public_llm_entry_reexports_core_api(self):
         self.assertIs(PublicOpenAICompatibleClient, OpenAICompatibleClient)
+        self.assertIs(PublicLLMRequestError, LLMRequestError)
         self.assertIs(public_build_grounded_prompt, build_grounded_prompt)
         self.assertIs(public_build_course_summary_prompt, build_course_summary_prompt)
         self.assertIs(public_create_llm_client, create_llm_client)

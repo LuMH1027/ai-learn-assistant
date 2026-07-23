@@ -11,6 +11,7 @@ from local_course_agent.api.chat import (
     synthesize_answer_stream as run_synthesize_answer_stream,
 )
 from local_course_agent.api.http import ClientDisconnected
+from local_course_agent.llm.client import LLMRequestError
 
 
 class ChatHttpMixin:
@@ -54,7 +55,7 @@ class ChatHttpMixin:
                 synthesize=self.synthesize_answer,
                 synthesize_stream=self.synthesize_answer_stream,
             ).run(course_id, body, uploads)
-        except ChatFlowError as exc:
+        except (ChatFlowError, LLMRequestError) as exc:
             if stream:
                 emit({"type": "error", "error": str(exc)})
                 self.end_stream()

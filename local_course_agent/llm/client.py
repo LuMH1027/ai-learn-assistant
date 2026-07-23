@@ -9,7 +9,13 @@ from typing import Dict, List, Optional
 from local_course_agent.llm.images import image_to_data_url
 
 
+class LLMRequestError(RuntimeError):
+    """Raised when a configured LLM request fails after retries."""
+
+
 class OpenAICompatibleClient:
+    max_retries = 5
+
     def __init__(self, base_url: str, api_key: str, model: str, timeout: int = 60):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key
@@ -84,11 +90,7 @@ class OpenAICompatibleClient:
             },
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=timeout or self.timeout) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except (OSError, urllib.error.URLError, json.JSONDecodeError, KeyError, IndexError):
-            return None
+        data = self._open_json_with_retries(request, timeout or self.timeout)
         return (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip() or None
 
     def _stream_chat_completion(self, messages: List[Dict]):
@@ -104,18 +106,40 @@ class OpenAICompatibleClient:
             },
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                for raw_line in response:
-                    line = raw_line.decode("utf-8").strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data_text = line[5:].strip()
-                    if data_text == "[DONE]":
-                        break
-                    data = json.loads(data_text)
-                    content = data.get("choices", [{}])[0].get("delta", {}).get("content")
-                    if content:
-                        yield content
-        except (OSError, urllib.error.URLError, json.JSONDecodeError, KeyError, IndexError):
-            return
+        last_error: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            emitted = False
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    for raw_line in response:
+                        line = raw_line.decode("utf-8").strip()
+                        if not line.startswith("data:"):
+                            continue
+                        data_text = line[5:].strip()
+                        if data_text == "[DONE]":
+                            return
+                        data = json.loads(data_text)
+                        content = data.get("choices", [{}])[0].get("delta", {}).get("content")
+                        if content:
+                            emitted = True
+                            yield content
+                return
+            except (OSError, urllib.error.URLError, json.JSONDecodeError, KeyError, IndexError) as exc:
+                last_error = exc
+                if emitted:
+                    break
+                if attempt >= self.max_retries:
+                    break
+        raise LLMRequestError(f"LLM 流式调用失败，已重试 {self.max_retries} 次：{last_error}")
+
+    def _open_json_with_retries(self, request: urllib.request.Request, timeout: int) -> Dict:
+        last_error: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except (OSError, urllib.error.URLError, json.JSONDecodeError, KeyError, IndexError) as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    break
+        raise LLMRequestError(f"LLM 调用失败，已重试 {self.max_retries} 次：{last_error}")
