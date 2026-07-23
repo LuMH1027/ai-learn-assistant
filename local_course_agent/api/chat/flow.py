@@ -54,6 +54,7 @@ class ChatFlow:
     def run(self, course_id: str, body: dict, uploads: list) -> dict:
         telemetry = TelemetryRecorder()
         question = str(body.get("question", "")).strip()
+        conversation_id = str(body.get("conversation_id", "") or "").strip() or None
         mode = body.get("mode", "answer")
         if not question and not uploads:
             raise ChatFlowError("问题不能为空")
@@ -76,10 +77,10 @@ class ChatFlow:
             )
         question = attachment.question
 
-        previous_messages = self.context.store.list_messages(course_id)
+        previous_messages = self._list_messages(course_id, conversation_id)
         retrieval = chat_steps.build_retrieval_context(question, previous_messages, attachment)
 
-        self.context.store.add_message(course_id, "user", question)
+        self._add_message(course_id, "user", question, conversation_id=conversation_id)
         config = self.context.config
         ai_config = self._ai_config_with_retry_status(config.get("ai", {}))
         result = {
@@ -170,9 +171,9 @@ class ChatFlow:
         llm_status = final_status
         record_chat_llm_result(telemetry, llm_status=llm_status, fallback_reason="clarification" if needs_clarification else None)
         memory = (
-            self.context.store.get_memory(course_id)
+            self._get_memory(course_id, conversation_id)
             if needs_clarification
-            else self.context.store.update_memory_from_question(course_id, question)
+            else self._update_memory_from_question(course_id, question, conversation_id)
         )
 
         with telemetry.span(
@@ -196,7 +197,7 @@ class ChatFlow:
         )
         trace.insert(2, chat_steps.contextual_query_step(retrieval.contextual_query))
         trace.insert(3, {"label": "ReAct", "status": "ok", "detail": final_reason or "模型完成 ReAct 推理"})
-        self.context.store.add_message(course_id, "assistant", answer, sources.citations, trace=trace)
+        self._add_message(course_id, "assistant", answer, sources.citations, trace=trace, conversation_id=conversation_id)
         return {
             "answer": answer,
             "citations": sources.citations,
@@ -220,6 +221,26 @@ class ChatFlow:
             })
 
         return {**(ai_config or {}), "__retry_callback__": retry_status}
+
+    def _list_messages(self, course_id: str, conversation_id: str | None):
+        if conversation_id is None:
+            return self.context.store.list_messages(course_id)
+        return self.context.store.list_messages(course_id, conversation_id)
+
+    def _add_message(self, course_id: str, role: str, content: str, citations=None, trace=None, conversation_id: str | None = None):
+        if conversation_id is None:
+            return self.context.store.add_message(course_id, role, content, citations, trace)
+        return self.context.store.add_message(course_id, role, content, citations, trace, conversation_id=conversation_id)
+
+    def _get_memory(self, course_id: str, conversation_id: str | None):
+        if conversation_id is None:
+            return self.context.store.get_memory(course_id)
+        return self.context.store.get_memory(course_id, conversation_id)
+
+    def _update_memory_from_question(self, course_id: str, question: str, conversation_id: str | None):
+        if conversation_id is None:
+            return self.context.store.update_memory_from_question(course_id, question)
+        return self.context.store.update_memory_from_question(course_id, question, conversation_id)
 
 
 def summarize_course_observation(result: dict) -> str:

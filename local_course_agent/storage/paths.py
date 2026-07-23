@@ -25,6 +25,25 @@ class CourseStorePaths:
     def memory_path(self, course_id: str) -> Path:
         return self.course_dir(course_id) / "memory.md"
 
+    def conversations_path(self, course_id: str) -> Path:
+        return self.course_dir(course_id) / "conversations.json"
+
+    def conversations_dir(self, course_id: str) -> Path:
+        path = self.course_dir(course_id) / "conversations"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def conversation_dir(self, course_id: str, conversation_id: str) -> Path:
+        path = self.conversations_dir(course_id) / safe_course_id(conversation_id)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def conversation_messages_path(self, course_id: str, conversation_id: str) -> Path:
+        return self.conversation_dir(course_id, conversation_id) / "messages.json"
+
+    def conversation_memory_path(self, course_id: str, conversation_id: str) -> Path:
+        return self.conversation_dir(course_id, conversation_id) / "memory.md"
+
     def notes_path(self, course_id: str) -> Path:
         return self.course_dir(course_id) / "notes.json"
 

@@ -32,6 +32,8 @@ class ChatHttpMixin:
             body, uploads = self.read_maybe_multipart()
         except ValueError as exc:
             return self.send_error_json(str(exc), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        if getattr(self, "conversation_id", None):
+            body = {**body, "conversation_id": self.conversation_id}
         if not str(body.get("question", "")).strip() and not uploads:
             return self.send_error_json("问题不能为空")
         emit = (lambda event: self.send_stream_event(event, stream)) if stream else (lambda _event: None)

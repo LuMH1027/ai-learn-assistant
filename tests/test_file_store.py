@@ -175,6 +175,23 @@ class FileStoreTest(unittest.TestCase):
             self.assertEqual(store.list_messages("course-1"), [])
             self.assertEqual(store.get_memory("course-1"), "")
 
+    def test_course_conversations_isolate_messages_and_memory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+            first = store.create_conversation("course-1", "第一轮")
+            second = store.create_conversation("course-1", "第二轮")
+
+            store.add_message("course-1", "user", "解释页表", conversation_id=first["id"])
+            store.update_memory_from_question("course-1", "解释页表", first["id"])
+            store.add_message("course-1", "user", "解释调度", conversation_id=second["id"])
+            store.update_memory_from_question("course-1", "解释调度", second["id"])
+
+            self.assertEqual(store.list_messages("course-1", first["id"])[0]["content"], "解释页表")
+            self.assertEqual(store.list_messages("course-1", second["id"])[0]["content"], "解释调度")
+            self.assertIn("页表", store.get_memory("course-1", first["id"]))
+            self.assertNotIn("调度", store.get_memory("course-1", first["id"]))
+            self.assertIn("调度", store.get_memory("course-1", second["id"]))
+
     def test_state_writes_replace_files_atomically(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state.json"

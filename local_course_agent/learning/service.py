@@ -54,6 +54,7 @@ def create_study_artifact(
     course: dict,
     course_id: str,
     artifact_type: str,
+    conversation_id: str | None = None,
     invalidate=None,
     ai_config=None,
 ) -> dict:
@@ -64,6 +65,7 @@ def create_study_artifact(
         course,
         course_id,
         artifact_type,
+        conversation_id=conversation_id,
         invalidate=invalidate,
         ai_config=ai_config,
         summary_builder=generate_course_summary,

@@ -7,7 +7,7 @@ from local_course_agent.learning.service import (
 )
 
 
-def create_study_artifact(context, course_id: str, artifact_type: str) -> dict:
+def create_study_artifact(context, course_id: str, artifact_type: str, conversation_id: str | None = None) -> dict:
     course = course_or_error(context, course_id)
     return create_study_artifact_payload(
         context.kb,
@@ -16,6 +16,7 @@ def create_study_artifact(context, course_id: str, artifact_type: str) -> dict:
         course,
         course_id,
         artifact_type,
+        conversation_id=conversation_id,
         invalidate=context.invalidate_courses,
         ai_config=context.config.get("ai", {}),
     )

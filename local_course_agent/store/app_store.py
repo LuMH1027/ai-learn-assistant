@@ -8,6 +8,7 @@ from local_course_agent.storage.codecs import read_json, write_json, write_text
 from local_course_agent.storage.migration import migrate_legacy_sqlite
 from local_course_agent.storage.paths import CourseStorePaths
 
+from .conversations import ConversationsStoreMixin
 from .locks import CourseLocksMixin
 from .mastery import MasteryStoreMixin
 from .memory import MemoryStoreMixin
@@ -18,6 +19,7 @@ from .study_plan import StudyPlanStoreMixin
 
 class AppStore(
     CourseLocksMixin,
+    ConversationsStoreMixin,
     MessagesStoreMixin,
     MemoryStoreMixin,
     NotesStoreMixin,

@@ -134,6 +134,37 @@ class ApiRouterTest(unittest.TestCase):
             self.assertEqual(clear["payload"], {"ok": True, "messages": [], "memory": ""})
             self.assertEqual(missing["status"], HTTPStatus.NOT_FOUND)
 
+    def test_conversation_handlers_scope_messages_and_memory(self):
+        class Target(ServerRoutesMixin):
+            def __init__(self, store, body=None):
+                self.ctx = SimpleNamespace(store=store)
+                self.body = body or {}
+
+            def read_body(self):
+                return self.body
+
+            def send_json(self, payload, status=HTTPStatus.OK):
+                return {"status": status, "payload": payload}
+
+            def send_error_json(self, message, status=HTTPStatus.BAD_REQUEST):
+                return {"status": status, "payload": {"ok": False, "error": message}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AppStore(Path(tmp))
+            first = store.create_conversation("course-1", "第一轮")
+            second = store.create_conversation("course-1", "第二轮")
+            store.add_message("course-1", "user", "解释页表", conversation_id=first["id"])
+            store.update_memory_from_question("course-1", "解释页表", first["id"])
+            store.add_message("course-1", "user", "解释调度", conversation_id=second["id"])
+            store.update_memory_from_question("course-1", "解释调度", second["id"])
+
+            clear = Target(store).clear_course_memory("course-1", conversation_id=first["id"])
+            second_messages = Target(store).get_conversation_messages("course-1", second["id"])
+
+            self.assertEqual(clear["payload"]["messages"], [])
+            self.assertEqual(store.get_memory("course-1", first["id"]), "")
+            self.assertEqual(second_messages["payload"]["messages"][0]["content"], "解释调度")
+
     def test_mastery_mistake_handler_marks_mistake_resolved(self):
         class Target(ServerRoutesMixin):
             def __init__(self, store):

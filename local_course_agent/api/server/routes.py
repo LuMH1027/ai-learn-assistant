@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+import re
 from urllib.parse import parse_qs, urlparse
 
 from local_course_agent.api.course import (
@@ -68,6 +69,16 @@ class ServerRoutesMixin:
             if not job:
                 return self.send_error_json("索引任务不存在", HTTPStatus.NOT_FOUND)
             return self.send_json(job)
+        conversation_match = match_conversation_route(parsed.path)
+        if conversation_match:
+            course_id, conversation_id, action = conversation_match
+            if conversation_id is None and action == "":
+                return self.list_course_conversations(course_id)
+            if conversation_id is not None and action == "messages":
+                return self.get_conversation_messages(course_id, conversation_id)
+            if conversation_id is not None and action == "memory":
+                return self.get_conversation_memory(course_id, conversation_id)
+            return self.send_error_json("未知对话接口", HTTPStatus.NOT_FOUND)
         course_match = match_get_course_action(self.path)
         if course_match:
             return dispatch_course_action(self, course_match, self.GET_COURSE_HANDLERS)
@@ -98,6 +109,24 @@ class ServerRoutesMixin:
             self.ctx.invalidate_courses()
             return self.send_json(payload)
         course_match = match_post_course_action(self.path)
+        conversation_match = match_conversation_route(parsed.path)
+        if conversation_match:
+            course_id, conversation_id, action = conversation_match
+            if conversation_id is None and action == "":
+                return self.create_course_conversation(course_id)
+            if conversation_id is not None and action == "":
+                return self.update_course_conversation(course_id, conversation_id)
+            if conversation_id is not None and action == "delete":
+                return self.delete_course_conversation(course_id, conversation_id)
+            if conversation_id is not None and action == "read":
+                return self.mark_conversation_read(course_id, conversation_id)
+            if conversation_id is not None and action == "chat":
+                return self.post_conversation_chat(course_id, conversation_id)
+            if conversation_id is not None and action in {"summary", "quiz"}:
+                return self.create_study_artifact(course_id, action, conversation_id=conversation_id)
+            if conversation_id is not None and action == "memory/clear":
+                return self.clear_course_memory(course_id, conversation_id=conversation_id)
+            return self.send_error_json("未知对话接口", HTTPStatus.NOT_FOUND)
         if course_match:
             return dispatch_course_action(self, course_match, self.POST_COURSE_HANDLERS)
         return self.send_error_json("未知接口", HTTPStatus.NOT_FOUND)
@@ -107,6 +136,58 @@ class ServerRoutesMixin:
 
     def get_course_memory(self, course_id: str):
         return self.send_json({"memory": self.ctx.store.get_memory(course_id)})
+
+    def list_course_conversations(self, course_id: str):
+        return self.send_json({"conversations": self.ctx.store.list_conversations(course_id)})
+
+    def create_course_conversation(self, course_id: str):
+        body = self.read_body()
+        conversation = self.ctx.store.create_conversation(course_id, body.get("title"))
+        return self.send_json({"ok": True, "conversation": conversation, "conversations": self.ctx.store.list_conversations(course_id)})
+
+    def update_course_conversation(self, course_id: str, conversation_id: str):
+        body = self.read_body()
+        try:
+            conversation = self.ctx.store.update_conversation(course_id, conversation_id, body)
+        except KeyError:
+            return self.send_error_json("对话不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json({"ok": True, "conversation": conversation, "conversations": self.ctx.store.list_conversations(course_id)})
+
+    def delete_course_conversation(self, course_id: str, conversation_id: str):
+        try:
+            conversations = self.ctx.store.delete_conversation(course_id, conversation_id)
+        except KeyError:
+            return self.send_error_json("对话不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json({"ok": True, "conversations": conversations})
+
+    def mark_conversation_read(self, course_id: str, conversation_id: str):
+        try:
+            conversation = self.ctx.store.mark_conversation_read(course_id, conversation_id)
+        except KeyError:
+            return self.send_error_json("对话不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json({"ok": True, "conversation": conversation, "conversations": self.ctx.store.list_conversations(course_id)})
+
+    def get_conversation_messages(self, course_id: str, conversation_id: str):
+        try:
+            messages = self.ctx.store.list_messages(course_id, conversation_id)
+            self.ctx.store.mark_conversation_read(course_id, conversation_id)
+        except KeyError:
+            return self.send_error_json("对话不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json({"messages": messages})
+
+    def get_conversation_memory(self, course_id: str, conversation_id: str):
+        try:
+            memory = self.ctx.store.get_memory(course_id, conversation_id)
+        except KeyError:
+            return self.send_error_json("对话不存在", HTTPStatus.NOT_FOUND)
+        return self.send_json({"memory": memory})
+
+    def post_conversation_chat(self, course_id: str, conversation_id: str):
+        self.conversation_id = conversation_id
+        try:
+            return self.post_course_chat(course_id)
+        finally:
+            self.conversation_id = None
 
     def get_course_quiz(self, course_id: str):
         return self.send_json(self.ctx.kb.generate_quiz(course_id))
@@ -137,9 +218,9 @@ class ServerRoutesMixin:
             return self.send_error_json("笔记不存在", HTTPStatus.NOT_FOUND)
         return self.send_json({"ok": True, "notes": self.ctx.store.list_notes(course_id)})
 
-    def clear_course_memory(self, course_id: str):
-        messages = self.ctx.store.clear_messages(course_id)
-        memory = self.ctx.store.clear_memory(course_id)
+    def clear_course_memory(self, course_id: str, conversation_id: str | None = None):
+        messages = self.ctx.store.clear_messages(course_id, conversation_id)
+        memory = self.ctx.store.clear_memory(course_id, conversation_id)
         return self.send_json({"ok": True, "messages": messages, "memory": memory})
 
     def index_course(self, course_id: str):
@@ -148,8 +229,8 @@ class ServerRoutesMixin:
     def start_index_job(self, course_id: str):
         return self.send_service_json(lambda: run_start_index_job(self.ctx, course_id), HTTPStatus.ACCEPTED)
 
-    def create_study_artifact(self, course_id: str, artifact_type: str):
-        return self.send_service_json(lambda: run_create_study_artifact(self.ctx, course_id, artifact_type))
+    def create_study_artifact(self, course_id: str, artifact_type: str, conversation_id: str | None = None):
+        return self.send_service_json(lambda: run_create_study_artifact(self.ctx, course_id, artifact_type, conversation_id=conversation_id))
 
     def get_course_summary(self, course_id: str):
         return self.send_service_json(lambda: run_get_course_summary(self.ctx, course_id))
@@ -176,3 +257,15 @@ class ServerRoutesMixin:
 
     def send_preview(self, file_id: str):
         return send_file_preview(self, self.ctx, file_id)
+
+
+def match_conversation_route(path: str) -> tuple[str, str | None, str] | None:
+    base = re.fullmatch(r"/api/courses/([^/]+)/conversations/?", path)
+    if base:
+        from urllib.parse import unquote
+        return unquote(base.group(1)), None, ""
+    match = re.fullmatch(r"/api/courses/([^/]+)/conversations/([^/]+)(?:/(.*))?", path)
+    if not match:
+        return None
+    from urllib.parse import unquote
+    return unquote(match.group(1)), unquote(match.group(2)), match.group(3) or ""

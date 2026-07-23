@@ -16,6 +16,7 @@ def create_study_artifact(
     course: dict,
     course_id: str,
     artifact_type: str,
+    conversation_id: str | None = None,
     invalidate=None,
     ai_config=None,
     summary_builder=None,
@@ -30,7 +31,7 @@ def create_study_artifact(
     course_path = Path(course["path"])
     artifact_path = save_study_artifact(course_path, label, result["content"], result.get("citations", []))
     message = f"{label}已生成并保存到课程资料：{artifact_path.relative_to(course_path)}\n\n{result['content']}"
-    store.add_message(course_id, "assistant", message, result.get("citations", []))
+    store.add_message(course_id, "assistant", message, result.get("citations", []), conversation_id=conversation_id)
     if invalidate:
         invalidate()
     return {
