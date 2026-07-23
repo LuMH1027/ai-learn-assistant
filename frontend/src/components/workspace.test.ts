@@ -392,6 +392,14 @@ describe('course workspace components', () => {
     expect(fileInputs.every((input) => input.attributes('hidden') !== undefined)).toBe(true)
   })
 
+  it('offers exactly three study modes', async () => {
+    const { wrapper } = await mountWorkspace()
+    const options = wrapper.findAll('#chat-mode option')
+
+    expect(options.map((option) => option.attributes('value'))).toEqual(['answer', 'guide', 'review'])
+    expect(options.map((option) => option.text())).toEqual(['答疑', '启发提示', '复习'])
+  })
+
   it('keeps the sidebar focused on courses, conversations, files and settings', async () => {
     const { wrapper } = await mountWorkspace()
     await flushPromises()

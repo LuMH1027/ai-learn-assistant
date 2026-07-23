@@ -56,6 +56,8 @@ export interface Message {
   stream_thoughts?: string[]
 }
 
+export type StudyMode = 'answer' | 'guide' | 'review'
+
 export interface Conversation {
   id: string
   title: string
@@ -398,7 +400,7 @@ export interface ChatResult {
   answer: string
   citations: Citation[]
   memory: string
-  mode: string
+  mode: StudyMode
   trace: TraceStep[]
   retrieval_trace?: {
     selected: Array<{

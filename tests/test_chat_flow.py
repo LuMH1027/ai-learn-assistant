@@ -16,13 +16,14 @@ class FakeStore:
     def __init__(self):
         self.messages = []
 
-    def list_messages(self, course_id):
+    def list_messages(self, course_id, conversation_id=None):
         return []
 
-    def add_message(self, course_id, role, content, citations=None, trace=None):
+    def add_message(self, course_id, role, content, citations=None, trace=None, conversation_id=None):
         self.messages.append(
             {
                 "course_id": course_id,
+                "conversation_id": conversation_id,
                 "role": role,
                 "content": content,
                 "citations": citations or [],
@@ -30,10 +31,10 @@ class FakeStore:
             }
         )
 
-    def update_memory_from_question(self, course_id, question):
+    def update_memory_from_question(self, course_id, question, conversation_id=None):
         return "- 关注 1 次：TLB"
 
-    def get_memory(self, course_id):
+    def get_memory(self, course_id, conversation_id=None):
         return ""
 
 
@@ -86,8 +87,7 @@ class ChatFlowTelemetryTest(unittest.TestCase):
         )
 
         self.assertEqual(status, "skipped")
-        self.assertTrue(answer.startswith("作业提示模式"))
-        self.assertIn("你的问题信息不足", answer)
+        self.assertEqual(answer, "本地回答")
         self.assertEqual(events, [{"type": "delta", "delta": answer}])
         self.assertEqual(synthesis_calls, [])
 
@@ -139,7 +139,7 @@ class ChatFlowTelemetryTest(unittest.TestCase):
             plan_step=lambda *args, **kwargs: AgentStep(action="course_search", query="TLB 附件内容", reason="test", llm_status="used")
             if not kwargs.get("observations")
             else AgentStep(action="final", answer="已总结：请阅读并总结我拖入的文件。 [L1]", reason="done", llm_status="used"),
-            synthesize=lambda question, _result, image_paths=None, ai_config=None: (
+            synthesize=lambda question, _result, image_paths=None, ai_config=None, mode="answer", previous_messages=None: (
                 f"已总结：{question.splitlines()[0]} [L1]",
                 "used",
             ),
@@ -227,7 +227,7 @@ class ChatFlowTelemetryTest(unittest.TestCase):
                 reason="done",
                 llm_status="used",
             ),
-            synthesize=lambda _question, _result, image_paths=None, ai_config=None: (
+            synthesize=lambda _question, _result, image_paths=None, ai_config=None, mode="answer", previous_messages=None: (
                 "TLB 能缓存页表项，减少访存次数。[L1]",
                 "used",
             ),
@@ -278,6 +278,33 @@ class ChatFlowTelemetryTest(unittest.TestCase):
         self.assertNotIn("secret-token", encoded)
         self.assertNotIn("web-secret-token", encoded)
         self.assertNotIn("api_key", encoded)
+
+    def test_legacy_modes_return_normalized_guide_and_use_responder(self):
+        store = FakeStore()
+        context = SimpleNamespace(
+            config={"ai": {}, "web_search": {}},
+            find_course=lambda _course_id: {"name": "操作系统"},
+            kb=FakeKnowledgeBase(),
+            store=store,
+        )
+        seen = {}
+        flow = ChatFlow(
+            context=context,
+            data_dir=Path("/tmp"),
+            emit=lambda _event: None,
+            index_uploads=lambda _course_id, _uploads: ("", []),
+            retrieve_web=lambda *args, **kwargs: ([], "skipped"),
+            plan_step=lambda *args, **kwargs: AgentStep(action="final", reason="done", llm_status="used"),
+            synthesize=lambda _question, _result, image_paths=None, ai_config=None, mode="answer", previous_messages=None: (
+                seen.setdefault("mode", mode) or "提示回答",
+                "used",
+            ),
+        )
+
+        payload = flow.run("course-1", {"question": "提示一下", "mode": "homework"}, [])
+
+        self.assertEqual(payload["mode"], "guide")
+        self.assertEqual(seen["mode"], "guide")
 
 
 if __name__ == "__main__":

@@ -175,6 +175,11 @@ describe('chat store', () => {
     expect(store.messages[1]?.streaming).toBe(false)
     expect(store.busy.chat).toBe(false)
     expect(api.postJsonStream).toHaveBeenCalledOnce()
+    expect(api.postJsonStream.mock.calls[0]?.[1]).toMatchObject({
+      question: 'question',
+      mode: 'answer',
+      conversation_id: 'default',
+    })
   })
 
   it('reveals a batched model delta as separate display tokens', async () => {
@@ -238,6 +243,7 @@ describe('chat store', () => {
     })
     const store = useChatStore()
     store.beginCourse('a', 1)
+    store.mode = 'guide'
     store.pendingFiles = [new File(['image'], 'screen.png', { type: 'image/png' })]
 
     await store.send('inspect')
@@ -245,6 +251,7 @@ describe('chat store', () => {
     expect(store.pendingFiles).toEqual([])
     const form = api.postFilesStream.mock.calls[0]?.[1] as FormData
     expect(form.get('question')).toBe('inspect')
+    expect(form.get('mode')).toBe('guide')
     expect((form.get('files') as File).name).toBe('screen.png')
     expect(store.messages[1]?.content).toBe('attachment answer')
   })

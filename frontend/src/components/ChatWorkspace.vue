@@ -140,8 +140,7 @@ function assistantMarkdown(content: string) {
       <label for="chat-mode">模式</label>
       <select id="chat-mode" v-model="chat.mode" aria-label="问答模式">
         <option value="answer">答疑</option>
-        <option value="socratic">启发</option>
-        <option value="homework">作业提示</option>
+        <option value="guide">启发提示</option>
         <option value="review">复习</option>
       </select>
     </nav>

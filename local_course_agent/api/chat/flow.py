@@ -15,8 +15,9 @@ from local_course_agent.api.telemetry import (
 
 from . import steps as chat_steps
 from .errors import ChatFlowError
-from .generation import ChatAnswerGenerator, adapt_answer_by_mode, plan_agent_step
+from .generation import ChatAnswerGenerator, plan_agent_step
 from .llm_adapter import synthesize_answer, synthesize_answer_stream
+from .modes import normalize_study_mode
 from .uploads import index_chat_uploads
 from .web import retrieve_web_sources
 
@@ -55,7 +56,7 @@ class ChatFlow:
         telemetry = TelemetryRecorder()
         question = str(body.get("question", "")).strip()
         conversation_id = str(body.get("conversation_id", "") or "").strip() or None
-        mode = body.get("mode", "answer")
+        mode = normalize_study_mode(body.get("mode", "answer"))
         if not question and not uploads:
             raise ChatFlowError("问题不能为空")
 
@@ -91,18 +92,20 @@ class ChatFlow:
         }
         web_sources, web_status = [], "skipped"
         observations = []
-        final_answer = ""
         final_status = "disabled"
         final_reason = ""
         needs_clarification = False
+        clarification_answer = ""
+        planner_fallback_answer = ""
         course_searched = False
         web_searched = False
 
         for turn in range(3):
             self.emit({"type": "status", "stage": "thinking", "detail": "正在思考下一步…"})
             with telemetry.span("react-step", stage="llm", attributes={"course_id": course_id, "turn": turn + 1}):
-                step = self.plan_step(
+                step = self._plan_step(
                     question,
+                    mode=mode,
                     course_name=course.get("name", ""),
                     previous_messages=previous_messages,
                     has_attachments=bool(uploads),
@@ -119,10 +122,10 @@ class ChatFlow:
             })
 
             if step.action == "final":
-                final_answer = step.answer
+                planner_fallback_answer = step.answer
                 break
             if step.action == "clarify":
-                final_answer = step.answer
+                clarification_answer = step.answer
                 needs_clarification = True
                 final_status = "skipped"
                 web_status = "clarification"
@@ -130,6 +133,7 @@ class ChatFlow:
 
             wants_course = step.action in {"course_search", "course_and_web_search"}
             wants_web = step.action in {"web_search", "course_and_web_search"}
+            did_tool_work = False
             if wants_course and not course_searched:
                 self.emit({"type": "status", "stage": "retrieval", "detail": "正在检索课程资料…"})
                 course_query = (
@@ -145,6 +149,7 @@ class ChatFlow:
                     result = self.context.kb.answer(course_id, course_query)
                 record_chat_retrieval_result(telemetry, result)
                 course_searched = True
+                did_tool_work = True
                 observations.append({"action": "course_search", "summary": summarize_course_observation(result)})
             if wants_web and not web_searched:
                 self.emit({"type": "status", "stage": "web", "detail": "正在联网补充资料…"})
@@ -157,18 +162,30 @@ class ChatFlow:
                         force_search=True,
                     )
                 web_searched = True
+                did_tool_work = True
                 observations.append({"action": "web_search", "summary": summarize_web_observation(web_sources, web_status)})
-            if (wants_course and course_searched) or (wants_web and web_searched):
+            if did_tool_work:
                 continue
-            final_answer = "我没有拿到新的可用工具结果，请换一种问法或稍后重试。"
+            final_reason = final_reason or "已有 observation 足够，停止重复工具调用。"
             break
         record_web_result(telemetry, web_status, web_sources, allow_web=not uploads)
 
         sources = chat_steps.build_source_context(result, web_sources, needs_clarification)
+        if needs_clarification:
+            sources.combined_result["answer"] = clarification_answer
+        elif planner_fallback_answer and not str(sources.combined_result.get("answer") or "").strip():
+            sources.combined_result["answer"] = planner_fallback_answer
 
-        answer = adapt_answer_by_mode(mode, final_answer or sources.combined_result.get("answer", ""))
-        self.answer_generator._emit_delta(answer)
-        llm_status = final_status
+        answer, responder_status = self.answer_generator.generate(
+            mode=mode,
+            needs_clarification=needs_clarification,
+            search_question=question,
+            combined_result=sources.combined_result,
+            image_paths=image_paths,
+            ai_config=ai_config,
+            previous_messages=previous_messages,
+        )
+        llm_status = responder_status if not needs_clarification else final_status
         record_chat_llm_result(telemetry, llm_status=llm_status, fallback_reason="clarification" if needs_clarification else None)
         memory = (
             self._get_memory(course_id, conversation_id)
@@ -221,6 +238,17 @@ class ChatFlow:
             })
 
         return {**(ai_config or {}), "__retry_callback__": retry_status}
+
+    def _plan_step(self, question: str, **kwargs):
+        try:
+            return self.plan_step(question, **kwargs)
+        except TypeError:
+            legacy_kwargs = {
+                key: value
+                for key, value in kwargs.items()
+                if key in {"course_name", "previous_messages", "has_attachments", "observations", "ai_config"}
+            }
+            return self.plan_step(question, **legacy_kwargs)
 
     def _list_messages(self, course_id: str, conversation_id: str | None):
         if conversation_id is None:

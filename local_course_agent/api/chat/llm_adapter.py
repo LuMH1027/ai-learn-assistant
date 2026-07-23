@@ -13,6 +13,8 @@ def synthesize_answer(
     result: dict,
     image_paths=None,
     ai_config=None,
+    mode: str = "answer",
+    previous_messages=None,
     llm_client_factory=create_llm_client,
 ):
     return _synthesize_answer(
@@ -20,6 +22,8 @@ def synthesize_answer(
         result,
         image_paths=image_paths,
         ai_config=ai_config,
+        mode=mode,
+        previous_messages=previous_messages,
         llm_client_factory=llm_client_factory,
     )
 
@@ -30,6 +34,8 @@ def synthesize_answer_stream(
     emit_delta,
     image_paths=None,
     ai_config=None,
+    mode: str = "answer",
+    previous_messages=None,
     llm_client_factory=create_llm_client,
 ):
     return _synthesize_answer_stream(
@@ -38,5 +44,7 @@ def synthesize_answer_stream(
         emit_delta=emit_delta,
         image_paths=image_paths,
         ai_config=ai_config,
+        mode=mode,
+        previous_messages=previous_messages,
         llm_client_factory=llm_client_factory,
     )

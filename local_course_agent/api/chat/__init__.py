@@ -12,6 +12,7 @@ from .generation import (
     emit_stream_text,
     image_grounded_prompt,
 )
+from .modes import StudyModePolicy, get_study_mode_policy, normalize_study_mode
 from .uploads import index_chat_uploads
 
 
@@ -25,5 +26,8 @@ __all__ = [
     "emit_stream_text",
     "image_grounded_prompt",
     "index_chat_uploads",
+    "StudyModePolicy",
+    "get_study_mode_policy",
+    "normalize_study_mode",
     *_compat_all,
 ]

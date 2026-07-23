@@ -3,7 +3,15 @@ from __future__ import annotations
 from typing import Dict, List
 
 
-def build_grounded_prompt(question: str, evidence: List[Dict], memory: str = "") -> str:
+def build_grounded_prompt(
+    question: str,
+    evidence: List[Dict],
+    memory: str = "",
+    *,
+    mode_label: str = "",
+    response_policy: str = "",
+    conversation_history: str = "",
+) -> str:
     local_evidence = [item for item in evidence if item.get("source_type", "local") != "web"]
     web_evidence = [item for item in evidence if item.get("source_type") == "web"]
     evidence_blocks = []
@@ -38,6 +46,13 @@ def build_grounded_prompt(question: str, evidence: List[Dict], memory: str = "")
             "未检索到相关课程资料。你可以使用你的通用知识回答，但开头必须明确说明"
             "“本回答未找到课程资料依据，以下为通用知识补充”。不得伪造课程引用。"
         )
+    mode_text = (
+        f"当前学习模式：{mode_label}\n"
+        f"模式作答规则：\n{response_policy}\n\n"
+    ) if mode_label or response_policy else ""
+    history_text = (
+        f"最近学习对话：\n{conversation_history.strip() or '无'}\n\n"
+    ) if conversation_history else ""
     return (
         "你是一个本地课程学习 Agent。系统可能给了课程资料、网页资料，或者没有给资料；"
         "这些是可用能力的结果，不代表必须全部使用。\n"
@@ -50,6 +65,8 @@ def build_grounded_prompt(question: str, evidence: List[Dict], memory: str = "")
         "回答要适合学生复习：先给结论，再解释关键点；有课程依据时标注 [L1]、[L2]，使用网页结论时标注 [W1]。\n"
         "控制长度：简单问题 1-3 句话；普通问题 3-6 条要点；课程内容讲解再展开脉络、定义、例子和易错点。\n"
         f"{evidence_policy}\n\n"
+        f"{mode_text}"
+        f"{history_text}"
         f"课程记忆：\n{memory_text}\n\n"
         f"学生问题：\n{question}\n\n"
         f"资料片段：\n{evidence_text}\n"

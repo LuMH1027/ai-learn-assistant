@@ -48,12 +48,14 @@ def retrieve_web_sources(question: str, result: dict, web_config=None, allow_web
     )
 
 
-def synthesize_answer(question: str, result: dict, image_paths=None, ai_config=None):
+def synthesize_answer(question: str, result: dict, image_paths=None, ai_config=None, mode: str = "answer", previous_messages=None):
     return _synthesize_answer(
         question,
         result,
         image_paths=image_paths,
         ai_config=ai_config,
+        mode=mode,
+        previous_messages=previous_messages,
         llm_client_factory=_public_attr("create_llm_client"),
     )
 
@@ -64,6 +66,8 @@ def synthesize_answer_stream(
     emit_delta,
     image_paths=None,
     ai_config=None,
+    mode: str = "answer",
+    previous_messages=None,
 ):
     return _synthesize_answer_stream(
         question,
@@ -71,6 +75,8 @@ def synthesize_answer_stream(
         emit_delta=emit_delta,
         image_paths=image_paths,
         ai_config=ai_config,
+        mode=mode,
+        previous_messages=previous_messages,
         llm_client_factory=_public_attr("create_llm_client"),
     )
 

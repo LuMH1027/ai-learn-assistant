@@ -15,6 +15,7 @@ import type {
   NotesResponse,
   SaveConversationResponse,
   SaveNotesResponse,
+  StudyMode,
 } from '../types/api'
 import { useCourseStore } from './course'
 
@@ -43,7 +44,7 @@ export const useChatStore = defineStore('chat', () => {
   const activeConversationId = ref<string | null>(null)
   const messages = ref<Message[]>([])
   const notes = ref<Note[]>([])
-  const mode = ref('answer')
+  const mode = ref<StudyMode>('answer')
   const pendingFiles = ref<File[]>([])
   const busy = reactive({ chat: false, summary: false, quiz: false, note: false, memory: false })
   const error = ref<string | null>(null)

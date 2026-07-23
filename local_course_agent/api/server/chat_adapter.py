@@ -75,12 +75,22 @@ class ChatHttpMixin:
     def index_chat_uploads(self, course_id: str, uploads: list):
         return run_index_chat_uploads(self.ctx, self.data_dir, course_id, uploads)
 
-    def synthesize_answer(self, question: str, result: dict, image_paths=None, ai_config=None):
+    def synthesize_answer(
+        self,
+        question: str,
+        result: dict,
+        image_paths=None,
+        ai_config=None,
+        mode: str = "answer",
+        previous_messages=None,
+    ):
         return run_synthesize_answer(
             question,
             result,
             image_paths=image_paths,
             ai_config=ai_config if ai_config is not None else self.ctx.config.get("ai", {}),
+            mode=mode,
+            previous_messages=previous_messages,
         )
 
     def synthesize_answer_stream(
@@ -90,6 +100,8 @@ class ChatHttpMixin:
         emit_delta,
         image_paths=None,
         ai_config=None,
+        mode: str = "answer",
+        previous_messages=None,
     ):
         return run_synthesize_answer_stream(
             question,
@@ -97,4 +109,6 @@ class ChatHttpMixin:
             emit_delta=emit_delta,
             image_paths=image_paths,
             ai_config=ai_config if ai_config is not None else self.ctx.config.get("ai", {}),
+            mode=mode,
+            previous_messages=previous_messages,
         )
