@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from local_course_agent.api.chat import ChatFlow
-from local_course_agent.api.chat.generation import ChatAnswerGenerator
+from local_course_agent.api.chat.generation import ChatAnswerGenerator, ToolDecision
 from local_course_agent.api.chat.steps import (
     build_attachment_context,
     build_retrieval_context,
@@ -38,7 +38,11 @@ class FakeStore:
 
 
 class FakeKnowledgeBase:
+    def __init__(self):
+        self.calls = []
+
     def answer(self, course_id, query):
+        self.calls.append((course_id, query))
         return {
             "answer": "基于当前课程资料，可以这样理解：TLB 能缓存页表项。",
             "citations": [
@@ -132,6 +136,11 @@ class ChatFlowTelemetryTest(unittest.TestCase):
             emit=lambda _event: None,
             index_uploads=lambda _course_id, _uploads: ("TLB 附件内容", []),
             retrieve_web=lambda _question, _result, _config, allow_web=True: ([], "skipped"),
+            decide_tools=lambda *args, **kwargs: ToolDecision(
+                use_course_materials=True,
+                reason="test",
+                llm_status="used",
+            ),
             synthesize=lambda question, _result, image_paths=None, ai_config=None: (
                 f"已总结：{question.splitlines()[0]} [L1]",
                 "used",
@@ -145,6 +154,39 @@ class ChatFlowTelemetryTest(unittest.TestCase):
         self.assertEqual(payload["web_search_status"], "skipped")
         self.assertIn("telemetry", payload)
         self.assertEqual(payload["citations"][0]["reference_label"], "L1")
+
+    def test_light_chat_uses_direct_model_without_retrieval_or_web(self):
+        store = FakeStore()
+        kb = FakeKnowledgeBase()
+        web_calls = []
+        context = SimpleNamespace(
+            config={"ai": {}, "web_search": {}},
+            find_course=lambda _course_id: {"name": "操作系统"},
+            kb=kb,
+            store=store,
+        )
+        flow = ChatFlow(
+            context=context,
+            data_dir=Path("/tmp"),
+            emit=lambda _event: None,
+            index_uploads=lambda _course_id, _uploads: ("", []),
+            retrieve_web=lambda *args, **kwargs: web_calls.append((args, kwargs)) or ([], "used"),
+            decide_tools=lambda *args, **kwargs: ToolDecision(
+                direct_answer="我在。",
+                reason="test",
+                llm_status="disabled",
+            ),
+        )
+
+        payload = flow.run("course-1", {"question": "你好", "mode": "answer"}, [])
+
+        self.assertEqual(kb.calls, [])
+        self.assertEqual(web_calls, [])
+        self.assertEqual(payload["retrieval_trace"], {"skipped": True, "decision": "direct_answer"})
+        self.assertEqual(payload["web_search_status"], "skipped")
+        self.assertEqual("我在。", payload["answer"])
+        retrieval_step = next(step for step in store.messages[-1]["trace"] if step["label"] == "检索")
+        self.assertEqual(retrieval_step["status"], "skip")
 
     def test_run_returns_compact_telemetry_without_leaking_config_secrets(self):
         store = FakeStore()
@@ -162,7 +204,7 @@ class ChatFlowTelemetryTest(unittest.TestCase):
             data_dir=Path("/tmp"),
             emit=lambda _event: None,
             index_uploads=lambda _course_id, _uploads: ("", []),
-            retrieve_web=lambda _question, _result, _config, allow_web=True: (
+            retrieve_web=lambda _question, _result, _config, allow_web=True, force_search=False: (
                 [
                     {
                         "source_type": "web",
@@ -172,6 +214,12 @@ class ChatFlowTelemetryTest(unittest.TestCase):
                     }
                 ],
                 "used",
+            ),
+            decide_tools=lambda *args, **kwargs: ToolDecision(
+                use_course_materials=True,
+                use_web_search=True,
+                reason="test",
+                llm_status="used",
             ),
             synthesize=lambda _question, _result, image_paths=None, ai_config=None: (
                 "TLB 能缓存页表项，减少访存次数。[L1]",

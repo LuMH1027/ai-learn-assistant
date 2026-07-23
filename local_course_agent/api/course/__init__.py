@@ -6,11 +6,6 @@ from local_course_agent.api.course.errors import ApiError
 from local_course_agent.api.course.indexing import index_course, start_index_job
 from local_course_agent.api.course.mastery import get_mastery, update_mastery
 from local_course_agent.api.course.stats import course_index_stats
-from local_course_agent.api.course.study_plan import (
-    add_study_plan_item,
-    get_study_plan,
-    update_study_plan_item,
-)
 from local_course_agent.api.course.uploads import upload_course_files
 
 __all__ = [
@@ -20,11 +15,8 @@ __all__ = [
     "create_study_artifact",
     "get_course_summary",
     "upload_course_files",
-    "get_study_plan",
     "get_course_dashboard",
     "get_mastery",
     "update_mastery",
-    "add_study_plan_item",
-    "update_study_plan_item",
     "course_index_stats",
 ]

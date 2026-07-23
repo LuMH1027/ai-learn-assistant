@@ -12,7 +12,7 @@ def get_course_dashboard(context, course_id: str) -> dict:
             course=course,
             messages=context.store.list_messages(course_id),
             notes=context.store.list_notes(course_id),
-            study_plan=context.store.list_study_plan(course_id),
+            study_plan=[],
             mastery_state=context.store.get_mastery_state(course_id),
             index_stats=course_index_stats(context.kb, course_id),
         )

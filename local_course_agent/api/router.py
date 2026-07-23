@@ -44,7 +44,6 @@ GET_COURSE_ACTIONS = (
     CourseActionRoute("summary", "summary"),
     CourseActionRoute("quiz", "quiz"),
     CourseActionRoute("notes", "notes"),
-    CourseActionRoute("plan", "plan"),
     CourseActionRoute("dashboard", "dashboard"),
     CourseActionRoute("mastery", "mastery"),
 )
@@ -60,9 +59,6 @@ POST_COURSE_ACTIONS = (
     CourseActionRoute("notes", "delete_note", "note_id", suffix="delete"),
     CourseActionRoute("notes", "note", "note_id"),
     CourseActionRoute("memory/clear", "clear_memory"),
-    CourseActionRoute("plan", "plan"),
-    CourseActionRoute("plan", "delete_plan_item", "item_id", suffix="delete"),
-    CourseActionRoute("plan", "plan_item", "item_id"),
     CourseActionRoute("mastery/mistakes", "resolve_mastery_mistake", "mistake_id", suffix="resolve"),
     CourseActionRoute("mastery", "mastery"),
 )

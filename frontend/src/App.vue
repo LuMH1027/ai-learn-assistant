@@ -46,7 +46,7 @@ watch(
     preview.beginCourse(id, version)
     notesOpen.value = false
     if (id !== null) {
-      void Promise.allSettled([chat.loadMessages(), chat.loadNotes(), course.loadStudyPlan()]).then((results) => {
+      void Promise.allSettled([chat.loadMessages(), chat.loadNotes()]).then((results) => {
         const rejected = results.find((result) => result.status === 'rejected')
         if (rejected?.status === 'rejected') showError(rejected.reason)
       })

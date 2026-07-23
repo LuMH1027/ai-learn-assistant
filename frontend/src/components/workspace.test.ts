@@ -6,7 +6,7 @@ import App from '../App.vue'
 import { useChatStore } from '../stores/chat'
 import { useCourseStore } from '../stores/course'
 import { useLayoutStore } from '../stores/layout'
-import type { ChatStreamEvent, Citation, Course, FileLeafNode, Message, StudyPlanItem } from '../types/api'
+import type { ChatStreamEvent, Citation, Course, FileLeafNode, Message } from '../types/api'
 
 const jsdom = (globalThis as typeof globalThis & {
   jsdom: { window: Window }
@@ -82,39 +82,6 @@ function deferred<T>() {
     reject = rejectPromise
   })
   return { promise, reject, resolve }
-}
-
-function planItem(id: number, title: string, status: StudyPlanItem['status'] = 'todo'): StudyPlanItem {
-  return {
-    id,
-    title,
-    kind: id % 3 === 0 ? 'practice' : id % 2 === 0 ? 'review' : 'read',
-    status,
-    estimated_minutes: 20 + id * 5,
-    source_file_id: `f${id}`,
-    source_file_name: `第 ${id} 讲.md`,
-    created_at: '2026-07-21 10:00:00',
-    updated_at: '2026-07-21 10:00:00',
-    completed_at: status === 'done' ? '2026-07-21 10:30:00' : '',
-  }
-}
-
-function planPayload(items = [1, 2, 3, 4, 5, 6].map((id) => planItem(id, `学习项 ${id}`))) {
-  const completed = items.filter((item) => item.status === 'done').length
-  const doing = items.filter((item) => item.status === 'doing').length
-  return {
-    items,
-    stats: {
-      total: items.length,
-      completed,
-      doing,
-      remaining_minutes: items
-        .filter((item) => item.status !== 'done')
-        .reduce((total, item) => total + item.estimated_minutes, 0),
-      progress_percent: items.length === 0 ? 0 : Math.round((completed / items.length) * 100),
-      next_item_id: items.find((item) => item.status !== 'done')?.id ?? null,
-    },
-  }
 }
 
 function masteryPayload(status: 'open' | 'resolved' = 'open') {
@@ -195,31 +162,6 @@ function mockApi() {
       return Promise.resolve({
         ok: true,
         mastery: masteryPayload(),
-      })
-    }
-    if (path.endsWith('/plan/1')) {
-      return Promise.resolve({
-        ok: true,
-        plan: planPayload([
-          { ...planItem(1, '更新后的学习项', 'todo'), kind: 'practice', estimated_minutes: 45 },
-          ...[2, 3, 4, 5, 6].map((id) => planItem(id, `学习项 ${id}`)),
-        ]),
-      })
-    }
-    if (path.endsWith('/plan/2')) {
-      return Promise.resolve({
-        ok: true,
-        plan: planPayload([
-          planItem(1, '学习项 1'),
-          planItem(2, '学习项 2', 'done'),
-          ...[3, 4, 5, 6].map((id) => planItem(id, `学习项 ${id}`)),
-        ]),
-      })
-    }
-    if (path.endsWith('/plan/3/delete')) {
-      return Promise.resolve({
-        ok: true,
-        plan: planPayload([1, 2, 4, 5, 6].map((id) => planItem(id, `学习项 ${id}`))),
       })
     }
     throw new Error(`Unexpected POST ${path}`)
@@ -401,11 +343,6 @@ function mockApi() {
         mastery: masteryPayload(),
       })
     }
-    if (path.endsWith('/plan')) {
-      return Promise.resolve({
-        plan: planPayload(),
-      })
-    }
     throw new Error(`Unexpected GET ${path}`)
   })
 }
@@ -461,12 +398,10 @@ describe('course workspace components', () => {
 
     const dashboard = wrapper.get('section[aria-labelledby="course-dashboard-title"]')
     expect(dashboard.text()).toContain('课程概览')
-    expect(dashboard.text()).toContain('33%')
     expect(dashboard.text()).toContain('2/3')
     expect(dashboard.text()).toContain('12')
     expect(dashboard.text()).toContain('掌握度')
     expect(dashboard.text()).toContain('1 待复习 · 1 未订正')
-    expect(dashboard.text()).toContain('下一步：订正页表练习')
     expect(dashboard.text()).toContain('薄弱点：页表地址转换 35')
     expect(dashboard.text()).toContain('解释页表地址转换。')
     expect(dashboard.text()).toContain('答案：页号查页表得到页框号，再拼接偏移。')
@@ -534,38 +469,12 @@ describe('course workspace components', () => {
     expect(health.text()).toContain('备份恢复：正常')
   })
 
-  it('shows the full study plan and manages item edit, status and delete', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it('does not render or auto-load the removed study plan feature', async () => {
     const { wrapper } = await mountWorkspace()
     await flushPromises()
 
-    const plan = wrapper.get('section[aria-labelledby="study-plan-title"]')
-    expect(plan.text()).toContain('学习项 1')
-    expect(plan.text()).toContain('学习项 6')
-
-    await wrapper.get('button[aria-label="编辑学习项：学习项 1"]').trigger('click')
-    await wrapper.get('input[aria-label="编辑学习项标题：学习项 1"]').setValue('更新后的学习项')
-    await wrapper.get('select[aria-label="编辑学习项类型：学习项 1"]').setValue('practice')
-    await wrapper.get('input[aria-label="编辑预计分钟：学习项 1"]').setValue('45')
-    await wrapper.findAll('button').find((button) => button.text() === '保存')!.trigger('click')
-    await flushPromises()
-
-    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/plan/1', {
-      title: '更新后的学习项',
-      kind: 'practice',
-      estimated_minutes: 45,
-    })
-    expect(plan.text()).toContain('更新后的学习项')
-
-    await wrapper.get('button[aria-label="切换学习项状态：学习项 2"]').trigger('click')
-    await flushPromises()
-    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/plan/2', { status: 'doing' })
-
-    await wrapper.get('button[aria-label="删除学习项：学习项 3"]').trigger('click')
-    await flushPromises()
-    expect(window.confirm).toHaveBeenCalledWith('删除学习项「学习项 3」？')
-    expect(api.postJson).toHaveBeenCalledWith('/api/courses/os/plan/3/delete')
-    expect(plan.text()).not.toContain('学习项 3')
+    expect(wrapper.find('section[aria-labelledby="study-plan-title"]').exists()).toBe(false)
+    expect(api.getJson.mock.calls.some(([path]) => String(path).endsWith('/plan'))).toBe(false)
   })
 
   it('changes and resets a divider with keyboard and double click', async () => {

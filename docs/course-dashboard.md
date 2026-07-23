@@ -8,16 +8,14 @@ The HTTP server exposes this aggregation through:
 GET /api/courses/:id/dashboard
 ```
 
-The route is read-only. It loads the course tree from `CTX.find_course`, messages/notes/study plan from `CTX.store`, estimates index stats from `data/indexes/:course_id.json`, and returns:
+The route is read-only. It loads the course tree from `CTX.find_course`, messages/notes from `CTX.store`, estimates index stats from `data/indexes/:course_id.json`, and returns:
 
 ```json
 {
   "dashboard": {
     "course": {},
-    "learning_progress": {},
     "recent_activity": [],
     "materials": {},
-    "review_queue": [],
     "mastery": {},
     "generated_artifacts": {}
   }
@@ -33,7 +31,6 @@ payload = build_course_dashboard(
     course=course,
     messages=messages,
     notes=notes,
-    study_plan=study_plan,
     mastery_state=mastery_state,
     index_stats=index_stats,
 )
@@ -44,7 +41,6 @@ Inputs are plain dictionaries/lists already used by the scanner, store, and inde
 - `course`: scanned course tree with `children`.
 - `messages`: chat messages with `role`, `content`, and `created_at`.
 - `notes`: note records with `title`, `content`, and `created_at`.
-- `study_plan`: plan items with `kind`, `status`, `estimated_minutes`, and timestamps.
 - `mastery_state`: optional course mastery state from `AppStore.get_mastery_state`.
 - `index_stats`: optional index metadata such as `indexed_files`, `total_chunks`, `schema_version`, and `tokenizer_version`.
 
@@ -52,10 +48,10 @@ Inputs are plain dictionaries/lists already used by the scanner, store, and inde
 
 The returned dashboard has five product-facing sections:
 
-- `learning_progress`: total/done/doing/todo counts, percent complete, completed and remaining minutes, and the next active item.
-- `recent_activity`: recent messages, notes, plan updates, and generated artifacts sorted by timestamp.
+- `learning_progress`: retained as a zero-value compatibility field; the learning plan feature is no longer exposed.
+- `recent_activity`: recent messages, notes, and generated artifacts sorted by timestamp.
 - `materials`: source material file count, byte size, extension distribution, generated file count, and index stats.
-- `review_queue`: the current review-oriented queue, prioritizing `doing` and `review` items.
+- `review_queue`: retained as an empty compatibility field; mastery due reviews are shown from `mastery`.
 - `mastery`: average score, tracked point count, level counts, due review count, open mistake count, weakest points, and due reviews.
 - `generated_artifacts`: total generated files plus summary/quiz/other counts and the latest generated artifact.
 
@@ -67,7 +63,6 @@ Generated artifacts are detected from files under the `AI生成` folder. They ar
 
 - course tree from the scanner/cache
 - messages and notes from `AppStore`
-- study plan from `AppStore.list_study_plan`
 - mastery state from `AppStore.get_mastery_state`
 - index stats from the knowledge base index file
 
@@ -82,16 +77,13 @@ The store calls:
 GET /api/courses/:id/dashboard
 ```
 
-and applies the response only when the selected course and root version still match the original request. Switching courses or changing the root clears the dashboard state, matching the existing study-plan request behavior.
+and applies the response only when the selected course and root version still match the original request. Switching courses or changing the root clears the dashboard state.
 
-`CourseSidebar.vue` renders a compact "课程概览" section near the learning plan. It shows:
+`CourseSidebar.vue` renders a compact "课程概览" section in the sidebar. It shows:
 
-- learning progress percent
 - indexed/source material count
 - indexed chunk count
 - average mastery score
-- next learning item
-- top review items
 - a compact mastery block with due review count, open mistake count, weakest mastery points, and per-point correct/wrong actions
 - latest activity
 

@@ -17,11 +17,11 @@
 
 - `api/chat/`：聊天编排、阶段上下文、附件 adapter、联网 adapter 和 LLM 答案生成；`api.chat` 只做兼容导出。
 - `api/server/`：HTTP handler、routes 和 chat streaming adapter。
-- `api/course/`：课程 API 索引、产物、上传、dashboard、mastery 和学习计划适配，入口为 `api.course`。
+- `api/course/`：课程 API 索引、产物、上传、dashboard 和 mastery 适配，入口为 `api.course`。
 
 `llm`：
 
-- `llm/`：OpenAI-compatible chat client、SiliconFlow 默认配置、图片 data URL 和课程 prompt 构造，入口为 `llm`。
+- `llm/`：OpenAI-compatible chat client、JSON 配置解析、图片 data URL 和课程 prompt 构造，入口为 `llm`。
 
 `parser`：
 
@@ -60,7 +60,7 @@
 
 `store`：
 
-- `store/`：文件型状态存储，按 messages、memory、notes、study_plan、mastery、locks 拆分，入口为 `store`。
+- `store/`：文件型状态存储，按 messages、memory、notes、mastery、locks 拆分，入口为 `store`。
 
 ## 禁止回流
 

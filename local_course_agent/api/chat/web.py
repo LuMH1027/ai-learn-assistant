@@ -12,9 +12,10 @@ def retrieve_web_sources(
     result: dict,
     web_config=None,
     allow_web=True,
+    force_search=False,
     client_factory=create_web_search_client,
 ):
-    if not allow_web or not should_search_web(question, result):
+    if not allow_web or (not force_search and not should_search_web(question, result)):
         return [], "skipped"
     client = client_factory(web_config or {})
     if not client.enabled():

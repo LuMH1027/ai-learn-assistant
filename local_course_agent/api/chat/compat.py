@@ -37,12 +37,13 @@ def append_web_fallback(answer: str, web_sources: list) -> str:
     return chat_steps.append_web_fallback(answer, web_sources)
 
 
-def retrieve_web_sources(question: str, result: dict, web_config=None, allow_web=True):
+def retrieve_web_sources(question: str, result: dict, web_config=None, allow_web=True, force_search=False):
     return _retrieve_web_sources(
         question,
         result,
         web_config=web_config,
         allow_web=allow_web,
+        force_search=force_search,
         client_factory=_public_attr("create_web_search_client"),
     )
 

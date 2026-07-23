@@ -123,14 +123,34 @@ class LlmPromptTest(unittest.TestCase):
         self.assertEqual(request.full_url, "https://api.siliconflow.cn/v1/chat/completions")
         self.assertEqual(request.headers["Authorization"], "Bearer test-key")
 
-    def test_create_llm_client_uses_siliconflow_defaults_with_env_key(self):
+    def test_openai_compatible_client_accepts_per_call_limits(self):
+        client = OpenAICompatibleClient(
+            base_url="https://api.siliconflow.cn/v1",
+            api_key="test-key",
+            model="Qwen/Qwen3.5-35B-A3B",
+            timeout=60,
+        )
+        fake_response = mock.Mock()
+        fake_response.__enter__ = mock.Mock(return_value=fake_response)
+        fake_response.__exit__ = mock.Mock(return_value=None)
+        fake_response.read.return_value = b'{"choices":[{"message":{"content":"answer"}}]}'
+
+        with mock.patch("local_course_agent.llm.client.urllib.request.urlopen", return_value=fake_response) as urlopen:
+            result = client.generate("hello", max_tokens=64, timeout=5)
+
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(result, "answer")
+        self.assertEqual(payload["max_tokens"], 64)
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 5)
+
+    def test_create_llm_client_requires_configured_endpoint_and_model(self):
         with mock.patch.dict(os.environ, {"SILICONFLOW_API_KEY": "env-secret"}):
             client = create_llm_client({})
 
-        self.assertTrue(client.enabled())
-        self.assertEqual(client.base_url, "https://api.siliconflow.cn/v1")
+        self.assertFalse(client.enabled())
+        self.assertEqual(client.base_url, "")
         self.assertEqual(client.api_key, "env-secret")
-        self.assertEqual(client.model, "Qwen/Qwen3.5-35B-A3B")
+        self.assertEqual(client.model, "")
 
     def test_openai_compatible_client_sends_images_as_content_parts(self):
         client = OpenAICompatibleClient(

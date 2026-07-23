@@ -39,7 +39,7 @@ const pointsById = computed(() => {
   return points
 })
 const openMistakes = computed(() =>
-  (props.state?.mistakes ?? []).filter((mistake) => mistake.status === 'open').slice(0, 4),
+  (props.state?.mistakes ?? []).filter((mistake) => mistake.status === 'open').slice(0, 2),
 )
 
 function masteryLevelLabel(level: string) {
@@ -74,11 +74,14 @@ function submitPoint() {
       <span>{{ mastery.due_review_count }} 待复习 · {{ mastery.open_mistake_count }} 未订正</span>
     </div>
 
-    <form class="mastery-form" aria-label="新增知识点" @submit.prevent="submitPoint">
-      <input v-model="title" aria-label="知识点名称" placeholder="新增知识点" :disabled="busy" />
-      <input v-model="aliases" aria-label="知识点别名" placeholder="别名，可选" :disabled="busy" />
-      <button type="submit" aria-label="添加知识点" :disabled="busy || !title.trim()">＋</button>
-    </form>
+    <details class="mastery-add">
+      <summary>新增知识点</summary>
+      <form class="mastery-form" aria-label="新增知识点" @submit.prevent="submitPoint">
+        <input v-model="title" aria-label="知识点名称" placeholder="知识点名称" :disabled="busy" />
+        <input v-model="aliases" aria-label="知识点别名" placeholder="别名，可选" :disabled="busy" />
+        <button type="submit" aria-label="添加知识点" :disabled="busy || !title.trim()">＋</button>
+      </form>
+    </details>
 
     <p v-if="weakItems.length > 0" class="mastery-line">
       薄弱点：{{ weakItems.map((item) => `${item.title} ${item.score}`).join('、') }}
@@ -173,6 +176,28 @@ function submitPoint() {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 2rem;
   gap: 0.25rem;
+}
+.mastery-add {
+  min-width: 0;
+}
+.mastery-add > summary {
+  width: fit-content;
+  min-height: 1.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.28rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 650;
+  list-style: none;
+}
+.mastery-add > summary::-webkit-details-marker {
+  display: none;
+}
+.mastery-add[open] > summary {
+  margin-bottom: 0.3rem;
 }
 .mastery-form input {
   min-width: 0;

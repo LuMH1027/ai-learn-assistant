@@ -19,10 +19,10 @@ class OpenAICompatibleClient:
     def enabled(self) -> bool:
         return bool(self.base_url and self.api_key and self.model)
 
-    def generate(self, prompt: str) -> Optional[str]:
+    def generate(self, prompt: str, max_tokens: Optional[int] = None, timeout: Optional[int] = None) -> Optional[str]:
         if not self.enabled():
             return None
-        return self._chat_completion(self._text_messages(prompt))
+        return self._chat_completion(self._text_messages(prompt), max_tokens=max_tokens, timeout=timeout)
 
     def stream(self, prompt: str):
         if not self.enabled():
@@ -65,8 +65,16 @@ class OpenAICompatibleClient:
             {"role": "user", "content": content},
         ]
 
-    def _chat_completion(self, messages: List[Dict]) -> Optional[str]:
-        payload = json.dumps({"model": self.model, "messages": messages, "temperature": 0.2}).encode("utf-8")
+    def _chat_completion(
+        self,
+        messages: List[Dict],
+        max_tokens: Optional[int] = None,
+        timeout: Optional[int] = None,
+    ) -> Optional[str]:
+        request_payload = {"model": self.model, "messages": messages, "temperature": 0.2}
+        if max_tokens is not None:
+            request_payload["max_tokens"] = max_tokens
+        payload = json.dumps(request_payload).encode("utf-8")
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=payload,
@@ -77,7 +85,7 @@ class OpenAICompatibleClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with urllib.request.urlopen(request, timeout=timeout or self.timeout) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except (OSError, urllib.error.URLError, json.JSONDecodeError, KeyError, IndexError):
             return None

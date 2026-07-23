@@ -17,11 +17,6 @@ import type {
   ResolveMasteryMistakeResponse,
   SaveConfigResponse,
   SaveMasteryResponse,
-  SaveStudyPlanResponse,
-  StudyPlan,
-  StudyPlanItemChanges,
-  StudyPlanItem,
-  StudyPlanResponse,
   UploadResult,
 } from '../types/api'
 
@@ -52,9 +47,6 @@ export const useCourseStore = defineStore('course', () => {
   const indexJobId = ref<string | null>(null)
   const indexRequestId = ref(0)
   const savingRoot = ref(false)
-  const studyPlan = ref<StudyPlan | null>(null)
-  const planLoading = ref(false)
-  const planRequestId = ref(0)
   const dashboard = ref<CourseDashboard | null>(null)
   const dashboardLoading = ref(false)
   const dashboardRequestId = ref(0)
@@ -76,7 +68,6 @@ export const useCourseStore = defineStore('course', () => {
     ) {
       activeCourseId.value = null
       contextVersion.value += 1
-      resetStudyPlan()
       resetDashboard()
       resetMastery()
     }
@@ -153,7 +144,6 @@ export const useCourseStore = defineStore('course', () => {
     if (nextId === activeCourseId.value) return
 
     resetIndexState()
-    resetStudyPlan()
     resetDashboard()
     resetMastery()
     activeCourseId.value = nextId
@@ -172,7 +162,6 @@ export const useCourseStore = defineStore('course', () => {
         rootVersion.value += 1
         configEpoch.value += 1
         resetIndexState()
-        resetStudyPlan()
         resetDashboard()
         resetMastery()
         resetConfigStatus()
@@ -254,12 +243,6 @@ export const useCourseStore = defineStore('course', () => {
     indexJobId.value = null
   }
 
-  function resetStudyPlan() {
-    planRequestId.value += 1
-    studyPlan.value = null
-    planLoading.value = false
-  }
-
   function resetDashboard() {
     dashboardRequestId.value += 1
     dashboard.value = null
@@ -317,32 +300,6 @@ export const useCourseStore = defineStore('course', () => {
     return '正在构建知识库…'
   }
 
-  function loadStudyPlan() {
-    const courseId = activeCourseId.value
-    if (courseId === null) {
-      resetStudyPlan()
-      return
-    }
-    const requestId = ++planRequestId.value
-    const requestedRootVersion = rootVersion.value
-    planLoading.value = true
-    return trackRequest(async () => {
-      try {
-        const result = await getJson<StudyPlanResponse>(
-          `/api/courses/${encodeURIComponent(courseId)}/plan`,
-        )
-        if (isCurrentPlanRequest(courseId, requestedRootVersion, requestId)) {
-          studyPlan.value = result.plan
-        }
-        return result.plan
-      } finally {
-        if (isCurrentPlanRequest(courseId, requestedRootVersion, requestId)) {
-          planLoading.value = false
-        }
-      }
-    })
-  }
-
   function loadDashboard() {
     const courseId = activeCourseId.value
     if (courseId === null) {
@@ -395,65 +352,6 @@ export const useCourseStore = defineStore('course', () => {
     })
   }
 
-  function addStudyPlanItem(title: string, kind: StudyPlanItem['kind'] = 'read') {
-    const courseId = activeCourseId.value
-    if (courseId === null || !title.trim()) return
-    const requestedRootVersion = rootVersion.value
-    return trackRequest(async () => {
-      const result = await postJson<SaveStudyPlanResponse>(
-        `/api/courses/${encodeURIComponent(courseId)}/plan`,
-        { title: title.trim(), kind },
-      )
-      if (activeCourseId.value === courseId && rootVersion.value === requestedRootVersion) {
-        studyPlan.value = result.plan
-      }
-      return result.plan
-    })
-  }
-
-  function updateStudyPlanItem(
-    item: StudyPlanItem,
-    changes: StudyPlanItemChanges,
-  ) {
-    const courseId = activeCourseId.value
-    if (courseId === null) return
-    const requestedRootVersion = rootVersion.value
-    return trackRequest(async () => {
-      const result = await postJson<SaveStudyPlanResponse>(
-        `/api/courses/${encodeURIComponent(courseId)}/plan/${encodeURIComponent(String(item.id))}`,
-        changes,
-      )
-      if (activeCourseId.value === courseId && rootVersion.value === requestedRootVersion) {
-        studyPlan.value = result.plan
-      }
-      return result.plan
-    })
-  }
-
-  function cycleStudyPlanItem(item: StudyPlanItem) {
-    const nextStatus: StudyPlanItem['status'] = item.status === 'todo'
-      ? 'doing'
-      : item.status === 'doing'
-        ? 'done'
-        : 'todo'
-    return updateStudyPlanItem(item, { status: nextStatus })
-  }
-
-  function deleteStudyPlanItem(item: StudyPlanItem) {
-    const courseId = activeCourseId.value
-    if (courseId === null) return
-    const requestedRootVersion = rootVersion.value
-    return trackRequest(async () => {
-      const result = await postJson<SaveStudyPlanResponse>(
-        `/api/courses/${encodeURIComponent(courseId)}/plan/${encodeURIComponent(String(item.id))}/delete`,
-      )
-      if (activeCourseId.value === courseId && rootVersion.value === requestedRootVersion) {
-        studyPlan.value = result.plan
-      }
-      return result.plan
-    })
-  }
-
   function updateMastery(body: MasteryUpdateRequest) {
     const courseId = activeCourseId.value
     if (courseId === null) return
@@ -484,12 +382,6 @@ export const useCourseStore = defineStore('course', () => {
       }
       return result.mastery
     })
-  }
-
-  function isCurrentPlanRequest(courseId: string, requestedRootVersion: number, requestId: number) {
-    return activeCourseId.value === courseId &&
-      rootVersion.value === requestedRootVersion &&
-      requestId === planRequestId.value
   }
 
   function isCurrentDashboardRequest(courseId: string, requestedRootVersion: number, requestId: number) {
@@ -524,9 +416,6 @@ export const useCourseStore = defineStore('course', () => {
     indexJobId,
     indexRequestId,
     savingRoot,
-    studyPlan,
-    planLoading,
-    planRequestId,
     dashboard,
     dashboardLoading,
     dashboardRequestId,
@@ -542,13 +431,8 @@ export const useCourseStore = defineStore('course', () => {
     selectCourse,
     uploadCourseFiles,
     indexActiveCourse,
-    loadStudyPlan,
     loadDashboard,
     loadMastery,
-    addStudyPlanItem,
-    updateStudyPlanItem,
-    cycleStudyPlanItem,
-    deleteStudyPlanItem,
     updateMastery,
     resolveMasteryMistake,
   }

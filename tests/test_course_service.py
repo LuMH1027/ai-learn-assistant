@@ -8,9 +8,7 @@ from unittest import mock
 from local_course_agent.learning.service import (
     CourseIndexJobs,
     build_course_index,
-    build_default_study_plan,
     generate_course_summary,
-    study_plan_stats,
 )
 from local_course_agent.retrieval.rag import CourseKnowledgeBase
 
@@ -206,66 +204,6 @@ class CourseServiceTest(unittest.TestCase):
             self.assertEqual(files["scan"]["status"], "warning")
             self.assertLess(files["scan"]["score"], 1.0)
             self.assertIn("ocr_placeholder", {warning["code"] for warning in files["scan"]["warnings"]})
-
-    def test_default_study_plan_uses_real_course_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "OS"
-            source.mkdir()
-            lecture = source / "课件-进程.md"
-            exercise = source / "练习题.txt"
-            image = source / "diagram.png"
-            lecture.write_text("进程管理", encoding="utf-8")
-            exercise.write_text("调度练习", encoding="utf-8")
-            image.write_bytes(b"image")
-
-            plan = build_default_study_plan(
-                {
-                    "name": "操作系统",
-                    "path": str(source),
-                    "children": [
-                        {
-                            "id": "lecture",
-                            "name": lecture.name,
-                            "path": str(lecture),
-                            "type": "file",
-                        },
-                        {
-                            "id": "exercise",
-                            "name": exercise.name,
-                            "path": str(exercise),
-                            "type": "file",
-                        },
-                        {
-                            "id": "image",
-                            "name": image.name,
-                            "path": str(image),
-                            "type": "file",
-                        },
-                    ],
-                }
-            )
-
-            titles = [item["title"] for item in plan]
-
-            self.assertIn("阅读并提炼 课件-进程.md", titles)
-            self.assertIn("完成并订正 练习题.txt", titles)
-            self.assertFalse(any("diagram.png" in title for title in titles))
-            self.assertEqual(plan[-1]["kind"], "review")
-
-    def test_study_plan_stats_report_progress_and_remaining_minutes(self):
-        stats = study_plan_stats(
-            [
-                {"id": 1, "status": "done", "estimated_minutes": 30},
-                {"id": 2, "status": "doing", "estimated_minutes": 20},
-                {"id": 3, "status": "todo", "estimated_minutes": 10},
-            ]
-        )
-
-        self.assertEqual(stats["completed"], 1)
-        self.assertEqual(stats["doing"], 1)
-        self.assertEqual(stats["remaining_minutes"], 30)
-        self.assertEqual(stats["progress_percent"], 33)
-        self.assertEqual(stats["next_item_id"], 2)
 
     def test_course_summary_uses_configured_llm(self):
         with tempfile.TemporaryDirectory() as tmp:

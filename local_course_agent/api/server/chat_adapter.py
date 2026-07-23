@@ -66,8 +66,8 @@ class ChatHttpMixin:
             return None
         return self.send_json(payload)
 
-    def retrieve_web_sources(self, question: str, result: dict, web_config=None, allow_web=True):
-        return run_retrieve_web_sources(question, result, web_config, allow_web)
+    def retrieve_web_sources(self, question: str, result: dict, web_config=None, allow_web=True, force_search=False):
+        return run_retrieve_web_sources(question, result, web_config, allow_web, force_search)
 
     def index_chat_uploads(self, course_id: str, uploads: list):
         return run_index_chat_uploads(self.ctx, self.data_dir, course_id, uploads)

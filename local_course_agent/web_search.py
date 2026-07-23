@@ -5,11 +5,14 @@ from local_course_agent.web import (
     MCP_PROTOCOL_VERSION,
     McpWebSearchClient,
     WebSearchError,
+    classify_query_intent,
     create_web_search_client,
+    is_relevant_source,
     is_underspecified_query,
     normalize_sources,
     should_search_web,
     source_quality,
+    source_relevance,
 )
 from local_course_agent.web.normalization import (
     is_http_url as _is_http_url,
@@ -22,9 +25,12 @@ __all__ = [
     "MCP_PROTOCOL_VERSION",
     "McpWebSearchClient",
     "WebSearchError",
+    "classify_query_intent",
     "create_web_search_client",
+    "is_relevant_source",
     "is_underspecified_query",
     "normalize_sources",
     "should_search_web",
     "source_quality",
+    "source_relevance",
 ]

@@ -30,10 +30,6 @@ class ApiRouterTest(unittest.TestCase):
             parse_course_route("/api/courses/os-1/notes/7/delete"),
             ("os-1", "notes/7/delete"),
         )
-        self.assertEqual(
-            parse_course_route("/api/courses/os-1/plan/7/delete"),
-            ("os-1", "plan/7/delete"),
-        )
         self.assertIsNone(parse_course_route("/api/config"))
         self.assertIsNone(parse_course_route("/api/courses/os-1"))
 
@@ -73,16 +69,11 @@ class ApiRouterTest(unittest.TestCase):
 
     def test_unknown_deep_course_routes_do_not_match_dynamic_params(self):
         self.assertIsNone(match_post_course_action("/api/courses/os-1/plan/item-1/extra"))
+        self.assertIsNone(match_get_course_action("/api/courses/os-1/plan"))
+        self.assertIsNone(match_post_course_action("/api/courses/os-1/plan"))
+        self.assertIsNone(match_post_course_action("/api/courses/os-1/plan/item-42"))
+        self.assertIsNone(match_post_course_action("/api/courses/os-1/plan/42/delete"))
         self.assertIsNone(match_post_course_action("/api/courses/os-1/notes/7/archive"))
-
-    def test_post_plan_item_route_extracts_item_id(self):
-        match = match_post_course_action("/api/courses/os-1/plan/item-42")
-
-        self.assertIsNotNone(match)
-        self.assertEqual(match.course_id, "os-1")
-        self.assertEqual(match.action, "plan/item-42")
-        self.assertEqual(match.endpoint, "plan_item")
-        self.assertEqual(match.params, {"item_id": "item-42"})
 
     def test_post_mastery_mistake_resolve_route_extracts_mistake_id(self):
         match = match_post_course_action("/api/courses/os-1/mastery/mistakes/mistake-42/resolve")
@@ -91,15 +82,6 @@ class ApiRouterTest(unittest.TestCase):
         self.assertEqual(match.course_id, "os-1")
         self.assertEqual(match.endpoint, "resolve_mastery_mistake")
         self.assertEqual(match.params, {"mistake_id": "mistake-42"})
-
-    def test_post_plan_item_delete_route_extracts_item_id(self):
-        match = match_post_course_action("/api/courses/os-1/plan/42/delete")
-
-        self.assertIsNotNone(match)
-        self.assertEqual(match.course_id, "os-1")
-        self.assertEqual(match.action, "plan/42/delete")
-        self.assertEqual(match.endpoint, "delete_plan_item")
-        self.assertEqual(match.params, {"item_id": "42"})
 
     def test_dispatch_course_action_invokes_mapped_handler_with_params(self):
         class Target:
@@ -110,11 +92,11 @@ class ApiRouterTest(unittest.TestCase):
             Target(),
             CourseRouteMatch(
                 course_id="os-1",
-                action="plan/item-42",
-                endpoint="plan_item",
+                action="notes/item-42",
+                endpoint="note",
                 params={"item_id": "item-42"},
             ),
-            {"plan_item": "update_item"},
+            {"note": "update_item"},
         )
 
         self.assertEqual(payload, {"course_id": "os-1", "item_id": "item-42"})

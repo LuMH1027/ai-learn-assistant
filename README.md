@@ -10,14 +10,13 @@
 - 三栏工作区支持百分比拖动、紧凑侧栏和可关闭资料预览。
 - 在同一预览区阅读 PDF、图片、文本，以及经过排版渲染的 Markdown。
 - 每门课程独立构建知识库、会话、记忆和笔记。
-- 每门课程自动生成可持久化的学习计划，按真实资料文件拆分阅读、练习和复盘项。
-- 侧栏显示学习进度、剩余预计时间和下一步学习项，并支持手动新增与状态推进。
 - 支持答疑、启发、作业提示和复习模式。
 - 一键生成 LLM 课程摘要与本地练习题，并保存回课程目录；模型不可用时摘要会回退为本地抽取式摘要。
 - 回答附带来源文件、原文片段和 PDF 页码。
 - 检索采用标题感知切块、BM25、持久向量索引、多路 RRF 融合、本地 rerank、MMR 去重和相邻上下文扩展；配置 `ai.embedding_model` 后可使用 OpenAI-compatible embedding。
+- 回答前由已配置模型判断是否需要课程资料、联网搜索或直接短答；问候和普通闲聊不会触发 RAG 或搜索。
 - 回答优先使用课程资料；未检索到依据时，可由已配置模型明确标注后使用通用知识补充。
-- 本地证据不足或问题具有时效性时，可按需调用 Web Search MCP，并显示可点击网页来源。
+- 明确需要外部资料、竞品、论文、官网或时效信息时，可按需调用 Web Search MCP，并显示可点击网页来源。
 - 对话从请求接收、课程检索、联网到模型生成全程流式反馈，模型文本按 token 增量显示。
 - 支持课程资料上传和聊天临时附件。
 - 可选接入 OpenAI-compatible 模型、embedding、rerank、Web Search MCP 与 MinerU；未配置时会在配置健康区显示降级提示，并使用本地轻量能力。
@@ -176,11 +175,11 @@ copy data\config.example.json data\config.json
 
 - `root_folder`：课程资料根目录。
 - `server.host/server.port`：本地服务监听地址；默认 `127.0.0.1:8000`，也可用 `COURSE_AGENT_HOST` / `COURSE_AGENT_PORT` 临时覆盖。
-- `ai.base_url/api_key/model`：OpenAI-compatible 模型配置；默认使用 SiliconFlow `Qwen/Qwen3.5-35B-A3B`，`api_key` 可写 `$SILICONFLOW_API_KEY`。
+- `ai.base_url/api_key/model`：OpenAI-compatible 模型配置；运行时只读取 `data/config.json`，`api_key` 可写 `$SILICONFLOW_API_KEY`。
 - `ai.embedding_model/embedding_dimensions`：可选的 OpenAI-compatible embedding 配置；留空时使用本地确定性 embedding fallback。
-- `ai.embedding_base_url/embedding_api_key`：可选的 embedding 专用 endpoint 和 key；默认接 SiliconFlow `Qwen/Qwen3-VL-Embedding-8B`，key 留空时读取 `SILICONFLOW_API_KEY`。
+- `ai.embedding_base_url/embedding_api_key`：可选的 embedding 专用 endpoint 和 key；留空时复用 `ai.base_url` / `ai.api_key`。
 - `ai.embedding_batch_size/embedding_max_retries/embedding_retry_delay`：embedding 批大小、失败重试次数和重试间隔，用于提升外部 provider 的稳定性。
-- `ai.rerank_model/rerank_base_url/rerank_api_key`：可选的 SiliconFlow `/rerank` 配置；默认模型为 `Qwen/Qwen3-Reranker-8B`，无 key 时使用本地 rerank。
+- `ai.rerank_model/rerank_base_url/rerank_api_key`：可选的 `/rerank` 配置；留空时复用 `ai.base_url` / `ai.api_key`，未完整配置时使用本地 rerank。
 - `web_search`：MCP Web Search 配置；`enabled` 开启后才会向外部服务发送学生问题。
 - `mineru.token`：MinerU API token。
 
@@ -251,7 +250,7 @@ copy data\config.example.json data\config.json
 3. 构建当前课程知识库。
 4. 在中央对话区选择模式并提问。
 5. 点击回答引用，在右栏核对原文和页码。
-6. 在左栏推进学习计划，按需生成摘要、练习题或保存课程笔记。
+6. 按需生成摘要、练习题或保存课程笔记。
 
 ## 数据位置
 
@@ -261,8 +260,7 @@ data/
 ├─ course_memory/<course_id>/
 │  ├─ messages.json
 │  ├─ memory.md
-│  ├─ notes.json
-│  └─ study_plan.json
+│  └─ notes.json
 ├─ chat_uploads/
 └─ indexes/
    ├─ <course_id>.json

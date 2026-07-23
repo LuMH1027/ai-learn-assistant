@@ -4,6 +4,7 @@ from unittest import mock
 
 from local_course_agent.web_search import (
     McpWebSearchClient,
+    classify_query_intent,
     create_web_search_client,
     is_underspecified_query,
     should_search_web,
@@ -68,8 +69,11 @@ class WebSearchTest(unittest.TestCase):
         self.assertFalse(should_search_web("解释页表的作用", sufficient))
         self.assertTrue(should_search_web("请联网查一下页表的最新研究", sufficient))
         self.assertTrue(should_search_web("总结 2026 年虚拟内存研究", sufficient))
-        self.assertTrue(should_search_web("解释量子纠缠", {"retrieval_quality": "none", "citations": []}))
-        self.assertTrue(should_search_web("比较两种算法", {"retrieval_quality": "partial", "citations": [{}]}))
+        self.assertFalse(should_search_web("解释量子纠缠", {"retrieval_quality": "none", "citations": []}))
+        self.assertFalse(should_search_web("比较两种算法", {"retrieval_quality": "partial", "citations": [{}]}))
+        self.assertTrue(should_search_web("量子纠缠 贝尔不等式", {"retrieval_quality": "none", "citations": []}))
+        self.assertEqual(classify_query_intent("你好"), "light_followup")
+        self.assertEqual(classify_query_intent("讲一下树的旋转"), "course_explain")
 
     def test_streamable_http_mcp_search_runs_lifecycle_and_returns_citable_sources(self):
         responses = [
@@ -184,6 +188,31 @@ class WebSearchTest(unittest.TestCase):
         self.assertEqual(sources[0]["url"], "https://docs.python.org/3/tutorial/")
         self.assertGreater(sources[0]["source_quality"], sources[1]["source_quality"])
         self.assertGreater(source_quality("https://mit.edu/course", "Documentation", "x" * 100), 0)
+
+    def test_web_sources_can_be_filtered_by_query_relevance(self):
+        client = McpWebSearchClient({"enabled": True, "mcp_url": "https://search.example/mcp"})
+
+        sources = client.normalize_sources(
+            {
+                "structuredContent": {
+                    "results": [
+                        {
+                            "title": "Positive psychology course",
+                            "url": "https://example.edu/psych",
+                            "content": "Happiness and psychology lecture notes.",
+                        },
+                        {
+                            "title": "BST rotations",
+                            "url": "https://example.edu/bst",
+                            "content": "AVL trees use rotations to keep binary search tree height balanced.",
+                        },
+                    ]
+                }
+            },
+            query="平衡二叉树 旋转 BST",
+        )
+
+        self.assertEqual([source["url"] for source in sources], ["https://example.edu/bst"])
 
     def test_search_parses_citable_title_url_highlight_text_blocks(self):
         client = McpWebSearchClient({"enabled": True, "mcp_url": "https://search.example/mcp"})

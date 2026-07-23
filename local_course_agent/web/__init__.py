@@ -13,10 +13,11 @@ from local_course_agent.web.normalization import (
 )
 from local_course_agent.web.policy import (
     FRESHNESS_RE,
+    classify_query_intent,
     is_underspecified_query,
     should_search_web,
 )
-from local_course_agent.web.quality import source_quality
+from local_course_agent.web.quality import is_relevant_source, source_quality, source_relevance
 
 __all__ = [
     "FRESHNESS_RE",
@@ -24,10 +25,13 @@ __all__ = [
     "McpWebSearchClient",
     "WebSearchError",
     "create_web_search_client",
+    "classify_query_intent",
+    "is_relevant_source",
     "is_underspecified_query",
     "normalize_sources",
     "parse_labeled_search_text",
     "parse_sse_response",
     "should_search_web",
     "source_quality",
+    "source_relevance",
 ]

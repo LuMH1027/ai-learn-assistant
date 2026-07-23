@@ -6,10 +6,10 @@ import re
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
-from local_course_agent.web.quality import source_quality
+from local_course_agent.web.quality import is_relevant_source, source_quality
 
 
-def normalize_sources(tool_result: Dict, max_results: Optional[int] = None) -> List[Dict]:
+def normalize_sources(tool_result: Dict, max_results: Optional[int] = None, query: str = "") -> List[Dict]:
     candidates = _collect_source_candidates(tool_result)
     sources = []
     seen_urls = set()
@@ -28,6 +28,8 @@ def normalize_sources(tool_result: Dict, max_results: Optional[int] = None) -> L
             or candidate.get("text")
             or ""
         ).strip()
+        if query and not is_relevant_source(query, title, snippet):
+            continue
         sources.append(
             {
                 "source_type": "web",

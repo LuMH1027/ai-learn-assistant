@@ -286,7 +286,7 @@ class ServerLlmRoutingTest(unittest.TestCase):
         self.assertEqual((sources, status), ([], "skipped"))
         factory.assert_not_called()
 
-    def test_web_search_runs_for_missing_local_evidence(self):
+    def test_web_search_waits_for_llm_tool_decision_when_local_evidence_is_missing(self):
         source = {"source_type": "web", "url": "https://example.edu", "file_name": "Example"}
         client = FakeWebClient([source])
         handler = Handler.__new__(Handler)
@@ -296,6 +296,17 @@ class ServerLlmRoutingTest(unittest.TestCase):
                 "解释量子纠缠",
                 {"retrieval_quality": "none", "citations": []},
                 {"enabled": True},
+            )
+
+        self.assertEqual((sources, status), ([], "skipped"))
+        self.assertEqual(client.queries, [])
+
+        with mock.patch("local_course_agent.api.chat.create_web_search_client", return_value=client):
+            sources, status = handler.retrieve_web_sources(
+                "解释量子纠缠",
+                {"retrieval_quality": "none", "citations": []},
+                {"enabled": True},
+                force_search=True,
             )
 
         self.assertEqual(status, "used")
@@ -411,8 +422,8 @@ class ServerLlmRoutingTest(unittest.TestCase):
 
         dashboard = payload["dashboard"]
         self.assertEqual(dashboard["course"]["name"], "操作系统")
-        self.assertEqual(dashboard["learning_progress"]["done"], 1)
-        self.assertEqual(dashboard["learning_progress"]["doing"], 1)
+        self.assertEqual(dashboard["learning_progress"]["done"], 0)
+        self.assertEqual(dashboard["learning_progress"]["doing"], 0)
         self.assertEqual(dashboard["materials"]["indexed_files"], 2)
         self.assertEqual(dashboard["materials"]["indexed_chunks"], 3)
         self.assertEqual(dashboard["materials"]["schema_version"], 2)

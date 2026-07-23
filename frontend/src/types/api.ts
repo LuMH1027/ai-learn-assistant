@@ -62,35 +62,6 @@ export interface Note {
   created_at: string
 }
 
-export interface StudyPlanItem {
-  id: number
-  title: string
-  kind: 'read' | 'review' | 'practice'
-  status: 'todo' | 'doing' | 'done'
-  estimated_minutes: number
-  source_file_id: string
-  source_file_name: string
-  created_at: string
-  updated_at: string
-  completed_at: string
-}
-
-export interface StudyPlanStats {
-  total: number
-  completed: number
-  doing: number
-  remaining_minutes: number
-  progress_percent: number
-  next_item_id: number | null
-}
-
-export interface StudyPlan {
-  items: StudyPlanItem[]
-  stats: StudyPlanStats
-}
-
-export type StudyPlanItemChanges = Partial<Pick<StudyPlanItem, 'status' | 'title' | 'kind' | 'estimated_minutes'>>
-
 export interface KnowledgePoint {
   id: string
   title: string
@@ -213,8 +184,8 @@ export interface DashboardMaterials {
 export interface DashboardReviewItem {
   id: number
   title: string
-  kind: StudyPlanItem['kind'] | string
-  status: StudyPlanItem['status'] | string
+  kind: string
+  status: string
   estimated_minutes: number
   source_file_name: string
 }
@@ -314,10 +285,6 @@ export interface NotesResponse {
   notes: Note[]
 }
 
-export interface StudyPlanResponse {
-  plan: StudyPlan
-}
-
 export interface CourseDashboardResponse {
   dashboard: CourseDashboard
 }
@@ -332,11 +299,6 @@ export interface SaveMasteryResponse {
 }
 
 export type ResolveMasteryMistakeResponse = SaveMasteryResponse
-
-export interface SaveStudyPlanResponse {
-  ok: boolean
-  plan: StudyPlan
-}
 
 export interface MemoryResponse {
   memory: string

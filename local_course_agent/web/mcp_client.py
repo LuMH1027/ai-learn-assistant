@@ -47,10 +47,10 @@ class McpWebSearchClient:
         tool_result = response.get("result", {})
         if tool_result.get("isError"):
             raise WebSearchError("MCP 搜索工具执行失败")
-        return self.normalize_sources(tool_result)[: self.max_results]
+        return self.normalize_sources(tool_result, query=query)[: self.max_results]
 
-    def normalize_sources(self, tool_result: Dict) -> List[Dict]:
-        return normalize_sources(tool_result, max_results=self.max_results)
+    def normalize_sources(self, tool_result: Dict, query: str = "") -> List[Dict]:
+        return normalize_sources(tool_result, max_results=self.max_results, query=query)
 
     def _initialize(self) -> None:
         initialized = self._request(

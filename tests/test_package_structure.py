@@ -23,7 +23,6 @@ class PackageStructureTest(unittest.TestCase):
             "local_course_agent.api.course.indexing",
             "local_course_agent.api.course.mastery",
             "local_course_agent.api.course.stats",
-            "local_course_agent.api.course.study_plan",
             "local_course_agent.api.course.uploads",
             "local_course_agent.api.course.validators",
             "local_course_agent.api.http",

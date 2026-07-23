@@ -10,6 +10,7 @@ def build_agent_trace(
     llm_status: str = "disabled",
     web_status: str = "skipped",
     web_source_count: int = 0,
+    retrieval_skipped: bool = False,
 ):
     answer_details = {
         "used": "已调用配置的大模型，并结合可用的课程与网页证据生成回答",
@@ -38,8 +39,12 @@ def build_agent_trace(
         },
         {
             "label": "检索",
-            "status": "ok" if citation_count else "empty",
-            "detail": f"命中 {citation_count} 条课程资料片段" if citation_count else "当前资料未命中可靠依据",
+            "status": "skip" if retrieval_skipped else ("ok" if citation_count else "empty"),
+            "detail": (
+                "闲聊或确认类问题，未检索课程资料"
+                if retrieval_skipped
+                else f"命中 {citation_count} 条课程资料片段" if citation_count else "当前资料未命中可靠依据"
+            ),
         },
         {
             "label": "联网",
