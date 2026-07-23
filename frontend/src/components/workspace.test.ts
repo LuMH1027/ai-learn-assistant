@@ -634,6 +634,35 @@ describe('course workspace components', () => {
     expect(wrapper.get('.streaming-content').text()).toBe('正在形成')
   })
 
+  it('renders assistant markdown while preserving user text', async () => {
+    const { wrapper } = await mountWorkspace()
+    const chat = useChatStore()
+    chat.messages = [
+      {
+        role: 'user',
+        content: '**不要渲染我**',
+        citations: [],
+        trace: [],
+        created_at: '2026-07-16T02:00:00Z',
+      },
+      {
+        role: 'assistant',
+        content: '**重点**\n\n- 页表\n- TLB',
+        citations: [],
+        trace: [],
+        created_at: '2026-07-16T02:00:01Z',
+        streaming: true,
+        stream_status: '正在生成回答…',
+      },
+    ]
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('article.user p').text()).toBe('**不要渲染我**')
+    expect(wrapper.get('article.assistant strong').text()).toBe('重点')
+    expect(wrapper.findAll('article.assistant li')).toHaveLength(2)
+    expect(wrapper.get('article.assistant .message-markdown').classes()).toContain('streaming-content')
+  })
+
   it('repaints the actual chat component before a batched delta finishes', async () => {
     let emit!: (event: ChatStreamEvent) => Promise<void>
     let finish!: () => void

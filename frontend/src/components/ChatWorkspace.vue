@@ -5,6 +5,7 @@ import { useChatStore } from '../stores/chat'
 import { useCourseStore } from '../stores/course'
 import { useLayoutStore } from '../stores/layout'
 import { usePreviewStore } from '../stores/preview'
+import { renderMarkdown } from '../services/markdown'
 import type { FileLeafNode, FileNode } from '../types/api'
 
 defineProps<{ sidebarOpen: boolean }>()
@@ -91,6 +92,10 @@ function onDrop(event: DragEvent) {
   event.preventDefault()
   attach([...(event.dataTransfer?.files ?? [])])
 }
+
+function assistantMarkdown(content: string) {
+  return renderMarkdown(content)
+}
 </script>
 
 <template>
@@ -148,7 +153,13 @@ function onDrop(event: DragEvent) {
           <summary>当前思考</summary>
           <p v-for="(thought, thoughtIndex) in message.stream_thoughts" :key="thoughtIndex">{{ thought }}</p>
         </details>
-        <p v-if="message.content" :class="{ 'streaming-content': message.streaming }">{{ message.content }}</p>
+        <div
+          v-if="message.content && message.role === 'assistant'"
+          class="message-markdown"
+          :class="{ 'streaming-content': message.streaming }"
+          v-html="assistantMarkdown(message.content)"
+        />
+        <p v-else-if="message.content" :class="{ 'streaming-content': message.streaming }">{{ message.content }}</p>
         <details v-if="message.trace.length">
           <summary>处理过程</summary>
           <p v-for="step in message.trace" :key="step.label">{{ step.label }}：{{ step.detail }}</p>
@@ -209,6 +220,84 @@ button, select { min-height: 44px; }
 .stream-status { color: var(--muted); font-size: 12px; }
 .stream-status::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; }
 .streaming-content::after { content: '▋'; margin-left: 2px; color: var(--accent); animation: pulse .8s steps(2, end) infinite; }
+.message-markdown {
+  overflow-wrap: anywhere;
+}
+.message-markdown :deep(h1),
+.message-markdown :deep(h2),
+.message-markdown :deep(h3),
+.message-markdown :deep(h4) {
+  margin: 1.1em 0 0.45em;
+  line-height: 1.3;
+}
+.message-markdown :deep(h1:first-child),
+.message-markdown :deep(h2:first-child),
+.message-markdown :deep(h3:first-child),
+.message-markdown :deep(p:first-child),
+.message-markdown :deep(ul:first-child),
+.message-markdown :deep(ol:first-child),
+.message-markdown :deep(pre:first-child) {
+  margin-top: 0;
+}
+.message-markdown :deep(h1) { font-size: 1.35em; }
+.message-markdown :deep(h2) { font-size: 1.18em; }
+.message-markdown :deep(h3) { font-size: 1.05em; }
+.message-markdown :deep(p),
+.message-markdown :deep(ul),
+.message-markdown :deep(ol),
+.message-markdown :deep(blockquote),
+.message-markdown :deep(pre),
+.message-markdown :deep(table) {
+  margin: 0 0 0.8em;
+}
+.message-markdown :deep(ul),
+.message-markdown :deep(ol) {
+  padding-left: 1.45em;
+}
+.message-markdown :deep(li + li) {
+  margin-top: 0.2em;
+}
+.message-markdown :deep(code) {
+  border-radius: 4px;
+  background: var(--surface-subtle);
+  padding: 0.1em 0.3em;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.9em;
+}
+.message-markdown :deep(pre) {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  padding: 0.8em 0.9em;
+  white-space: pre;
+}
+.message-markdown :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+.message-markdown :deep(blockquote) {
+  border-left: 3px solid var(--accent);
+  background: var(--surface-subtle);
+  padding: 0.5em 0.8em;
+  color: var(--muted);
+}
+.message-markdown :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+}
+.message-markdown :deep(th),
+.message-markdown :deep(td) {
+  border: 1px solid var(--line);
+  padding: 0.4em 0.55em;
+  text-align: left;
+}
+.message-markdown :deep(a) {
+  color: var(--accent);
+}
+.message-markdown :deep(:last-child) {
+  margin-bottom: 0;
+}
 .thinking-panel {
   margin: 0.35rem 0 0.5rem;
   border-left: 2px solid var(--accent);
